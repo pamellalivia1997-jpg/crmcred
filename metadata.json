@@ -1,0 +1,6 @@
+{
+  "name": "Lívia Cred Saúde CRM",
+  "description": "CRM e gestão operacional de correspondente de crédito consignado: propostas, comissões de promotoras, metas, ranking e rentabilidade.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

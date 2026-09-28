@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0B2A4A"/>
+      <stop offset="60%" stop-color="#0F5C63"/>
+      <stop offset="100%" stop-color="#1B8A8F"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFD166"/>
+      <stop offset="100%" stop-color="#F5B700"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <!-- Background Base -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)"/>
+
+  <!-- Shield Shape -->
+  <g filter="url(#shadow)">
+    <path d="M 256,80 
+             C 328,104 390,116 410,132 
+             C 410,270 360,370 256,432 
+             C 152,370 102,270 102,132 
+             C 122,116 184,104 256,80 Z" 
+          fill="#ffffff" fill-opacity="0.1" stroke="url(#goldGrad)" stroke-width="12" stroke-linejoin="round"/>
+  </g>
+
+  <!-- Heart and Health Cross Emblem in Center -->
+  <g transform="translate(256, 250) scale(1.15)">
+    <!-- Heart Path -->
+    <path d="M 0,55
+             C -90, -5 -110,-95 -55,-130
+             C -25,-150 0,-115 0,-95
+             C 0,-115 25,-150 55,-130
+             C 110,-95 90, -5 0,55 Z"
+          fill="#0F5C63" stroke="#ffffff" stroke-width="8"/>
+    <!-- Gold Healthcare Plus Center -->
+    <rect x="-10" y="-80" width="20" height="60" rx="6" fill="url(#goldGrad)"/>
+    <rect x="-30" y="-60" width="60" height="20" rx="6" fill="url(#goldGrad)"/>
+  </g>
+</svg>
