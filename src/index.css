@@ -1,18 +1,6 @@
-@import "tailwindcss";
-
-@theme {
-  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
-
-  --color-brand-navy: #0B2A4A;
-  --color-brand-navy-dark: #071C33;
-  --color-brand-navy-light: #163E68;
-  --color-brand-teal: #0F5C63;
-  --color-brand-teal-light: #1B8A8F;
-  --color-brand-teal-lighter: #28B0B7;
-  --color-brand-amber: #F5B700;
-  --color-brand-amber-dark: #D49D00;
-}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 :root {
   color-scheme: light;
