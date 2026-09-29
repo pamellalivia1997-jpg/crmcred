@@ -16,7 +16,8 @@ import {
   FileCheck2,
   UploadCloud,
   Calculator,
-  X
+  X,
+  Zap
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCRM } from '../../context/CRMContext';
@@ -173,6 +174,16 @@ export const Sidebar: React.FC<Props> = ({
 
             {canManageTeam() && (
               <>
+                <button
+                  onClick={() => handleNavClick('vanguard')}
+                  className={navItemClass(currentTab === 'vanguard')}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Zap className="w-4 h-4 text-amber-500 fill-amber-500" />
+                    <span>Coban Vanguard ERP</span>
+                  </div>
+                </button>
+
                 <button
                   onClick={() => handleNavClick('adm_usuarios')}
                   className={navItemClass(currentTab === 'adm_usuarios')}

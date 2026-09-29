@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { VanguardIntegration } from '../vanguard/VanguardIntegration';
 import {
   UserCheck,
   Target,
@@ -25,7 +26,8 @@ import {
   Mail,
   Phone,
   UserCog,
-  Filter
+  Filter,
+  Zap
 } from 'lucide-react';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
@@ -33,14 +35,14 @@ import { User, MetaVendedora, Feedback, UserRole } from '../../types';
 import { formatCurrency, formatPercent, formatDate, cleanPersonName } from '../../utils/formatters';
 
 interface AdmViewProps {
-  initialSubTab?: 'usuarios' | 'metas' | 'feedbacks' | 'importador';
+  initialSubTab?: 'usuarios' | 'metas' | 'feedbacks' | 'importador' | 'vanguard';
 }
 
-export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'usuarios' }) => {
+export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'vanguard' }) => {
   const { metas, feedbacks, propostas, saveMeta, saveFeedback } = useCRM();
   const { allUsers, currentUser, saveUser, deleteUser } = useAuth();
 
-  const [activeSubTab, setActiveSubTab] = useState<'usuarios' | 'metas' | 'feedbacks' | 'importador'>(initialSubTab);
+  const [activeSubTab, setActiveSubTab] = useState<'usuarios' | 'metas' | 'feedbacks' | 'importador' | 'vanguard'>(initialSubTab);
 
   React.useEffect(() => {
     if (initialSubTab) {
@@ -283,6 +285,18 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'usuarios' }) 
         {/* Sub-tabs */}
         <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl overflow-x-auto scrollbar-none">
           <button
+            onClick={() => setActiveSubTab('vanguard')}
+            className={`px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 ${
+              activeSubTab === 'vanguard'
+                ? 'bg-indigo-600 text-white shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            <Zap className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+            <span>Coban Vanguard</span>
+          </button>
+
+          <button
             onClick={() => setActiveSubTab('usuarios')}
             className={`px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 ${
               activeSubTab === 'usuarios'
@@ -328,6 +342,9 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'usuarios' }) 
           </button>
         </div>
       </div>
+
+      {/* SUB-TAB: COBAN VANGUARD INTEGRATION */}
+      {activeSubTab === 'vanguard' && <VanguardIntegration />}
 
       {/* SUB-TAB 1: METAS */}
       {activeSubTab === 'metas' && (

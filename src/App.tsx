@@ -149,7 +149,8 @@ const MainApp: React.FC = () => {
 
           {currentTab === 'relatorios' && <RelatoriosSemanalMensal />}
 
-          {currentTab === 'adm' && <AdmView initialSubTab="usuarios" />}
+          {currentTab === 'vanguard' && <AdmView initialSubTab="vanguard" />}
+          {currentTab === 'adm' && <AdmView initialSubTab="vanguard" />}
           {currentTab === 'adm_usuarios' && <AdmView initialSubTab="usuarios" />}
 
           {(currentTab === 'financeiro' || currentTab === 'contas_pagar' || currentTab === 'fechamento_vendedoras') && (

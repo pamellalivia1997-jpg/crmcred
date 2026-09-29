@@ -172,8 +172,27 @@ export function generateSeedData() {
     const convenio = CONVENIOS[i % CONVENIOS.length];
     const vendedora = VENDEDORAS[i % VENDEDORAS.length];
     const birthYear = 1948 + (i % 38);
-    const birthMonth = ((i % 12) + 1).toString().padStart(2, '0');
-    const birthDay = ((i % 28) + 1).toString().padStart(2, '0');
+    let birthMonth = ((i % 12) + 1).toString().padStart(2, '0');
+    let birthDay = ((i % 28) + 1).toString().padStart(2, '0');
+
+    // Dedicated birthdays this week for sellers to congratulate
+    if (i === 1) {
+      birthMonth = '09';
+      birthDay = '29'; // Hoje! (29 de setembro)
+    } else if (i === 6) {
+      birthMonth = '09';
+      birthDay = '30'; // Amanhã (30 de setembro)
+    } else if (i === 11) {
+      birthMonth = '10';
+      birthDay = '02'; // Nesta semana (02 de outubro)
+    } else if (i === 2) {
+      birthMonth = '09';
+      birthDay = '29'; // Hoje!
+    } else if (i === 7) {
+      birthMonth = '09';
+      birthDay = '28'; // Ontem (28 de setembro)
+    }
+
     const telSuffix = (1000 + (i * 87) % 8999).toString();
     const tel = `(81) 98${(i % 9)}${telSuffix.substring(0, 2)}-${telSuffix.substring(2)}4`;
 

@@ -137,3 +137,109 @@ export function getMonthYearLabel(mesAno: string): string {
   const mIndex = parseInt(month, 10) - 1;
   return `${months[mIndex] || month} de ${year}`;
 }
+
+export function calculateAge(dateStr: string | undefined | null): number | null {
+  if (!dateStr) return null;
+  try {
+    const parts = dateStr.split('T')[0].split('-');
+    if (parts.length !== 3) return null;
+    const [y, m, d] = parts.map(Number);
+    if (!y || !m || !d) return null;
+
+    const today = new Date();
+    let age = today.getFullYear() - y;
+    const monthDiff = today.getMonth() + 1 - m;
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < d)) {
+      age--;
+    }
+    return age >= 0 ? age : null;
+  } catch {
+    return null;
+  }
+}
+
+export function formatBirthDateWithAge(dateStr: string | undefined | null): string {
+  if (!dateStr) return '-';
+  const formatted = formatDate(dateStr);
+  const age = calculateAge(dateStr);
+  if (age !== null) {
+    return `${formatted} (${age} anos)`;
+  }
+  return formatted;
+}
+
+export interface BirthdayInfo {
+  isThisWeek: boolean;
+  isToday: boolean;
+  isTomorrow: boolean;
+  daysDiff: number;
+  turningAge: number;
+  dayMonth: string;
+  dayOfWeekLabel: string;
+  badgeLabel: string;
+}
+
+export function getBirthdayInfo(dateStr: string | undefined | null, now = new Date()): BirthdayInfo | null {
+  if (!dateStr) return null;
+  try {
+    const parts = dateStr.split('T')[0].split('-');
+    if (parts.length !== 3) return null;
+    const [birthYear, birthMonth, birthDay] = parts.map(Number);
+    if (!birthYear || !birthMonth || !birthDay) return null;
+
+    // Use current year
+    const currentYear = now.getFullYear();
+    let bdayThisYear = new Date(currentYear, birthMonth - 1, birthDay);
+
+    // Normalize today to midnight
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    // Difference in milliseconds and days
+    const diffMs = bdayThisYear.getTime() - todayMidnight.getTime();
+    let diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+    // If already passed by more than 3 days, but end of year/beginning of next year
+    if (diffDays < -3 && now.getMonth() === 11 && birthMonth === 1) {
+      bdayThisYear = new Date(currentYear + 1, birthMonth - 1, birthDay);
+      diffDays = Math.round((bdayThisYear.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24));
+    }
+
+    const turningAge = bdayThisYear.getFullYear() - birthYear;
+    const isToday = diffDays === 0;
+    const isTomorrow = diffDays === 1;
+
+    // Aniversário esta semana: de 1 dia atrás até os próximos 6 dias (janela semanal ativa)
+    const isThisWeek = diffDays >= -1 && diffDays <= 6;
+
+    const daysOfWeek = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+    const dayOfWeek = daysOfWeek[bdayThisYear.getDay()];
+
+    let badgeLabel = '';
+    if (isToday) {
+      badgeLabel = 'Hoje! 🎉';
+    } else if (isTomorrow) {
+      badgeLabel = 'Amanhã';
+    } else if (diffDays === -1) {
+      badgeLabel = 'Ontem';
+    } else if (diffDays > 1) {
+      badgeLabel = `Em ${diffDays} dias (${dayOfWeek})`;
+    } else {
+      badgeLabel = dayOfWeek;
+    }
+
+    const dayMonth = `${birthDay.toString().padStart(2, '0')}/${birthMonth.toString().padStart(2, '0')}`;
+
+    return {
+      isThisWeek,
+      isToday,
+      isTomorrow,
+      daysDiff: diffDays,
+      turningAge,
+      dayMonth,
+      dayOfWeekLabel: dayOfWeek,
+      badgeLabel
+    };
+  } catch {
+    return null;
+  }
+}

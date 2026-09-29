@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole, Proposta } from '../types';
-import { crmStorage } from '../services/crmStorage';
+import { crmStorage, subscribeToData } from '../services/crmStorage';
 import { cleanPersonName } from '../utils/formatters';
 
 interface AuthContextType {
@@ -57,6 +57,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (saved === 'dark' || saved === 'light') return saved;
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
+
+  useEffect(() => {
+    return subscribeToData(() => {
+      const updated = crmStorage.getUsers().map(u => normalizeUser(u)!);
+      setAllUsers(prev => {
+        if (JSON.stringify(prev) !== JSON.stringify(updated)) {
+          return updated;
+        }
+        return prev;
+      });
+      const savedUserId = localStorage.getItem(CURRENT_USER_KEY);
+      if (savedUserId) {
+        const found = updated.find(u => u.id === savedUserId);
+        if (found) {
+          setCurrentUser(prev => {
+            if (!prev || prev.id !== found.id || JSON.stringify(prev) !== JSON.stringify(found)) {
+              return found;
+            }
+            return prev;
+          });
+        }
+      }
+    });
+  }, []);
 
   useEffect(() => {
     const root = document.documentElement;

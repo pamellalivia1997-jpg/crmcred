@@ -56,7 +56,11 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     return subscribeToData(() => {
-      setStoreState({ ...crmStorage.getStore() });
+      const newStore = crmStorage.getStore();
+      setStoreState(prev => {
+        if (prev === newStore) return prev;
+        return { ...newStore };
+      });
     });
   }, []);
 

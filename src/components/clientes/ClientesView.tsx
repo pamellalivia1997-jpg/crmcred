@@ -14,12 +14,25 @@ import {
   MapPin,
   Calendar,
   Shield,
-  FileText
+  FileText,
+  Edit3,
+  Cake,
+  UserPlus
 } from 'lucide-react';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
-import { Cliente, Proposta } from '../../types';
-import { formatCPF, formatPhone, formatCurrency, formatDate } from '../../utils/formatters';
+import { Cliente, Proposta, Convenio } from '../../types';
+import {
+  formatCPF,
+  formatPhone,
+  formatCurrency,
+  formatDate,
+  formatBirthDateWithAge,
+  calculateAge,
+  maskCPFInput,
+  maskPhoneInput,
+  cleanDigits
+} from '../../utils/formatters';
 
 interface Props {
   onNovaPropostaParaCliente?: (cliente: Cliente) => void;
@@ -32,6 +45,11 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
   const [filterConvenio, setFilterConvenio] = useState<string>('todos');
+
+  // Modal State for New / Edit Client
+  const [isClientModalOpen, setIsClientModalOpen] = useState(false);
+  const [editingClient, setEditingClient] = useState<Partial<Cliente> | null>(null);
+  const [modalError, setModalError] = useState('');
 
   // Digitador cannot access general client portfolio
   if (currentUser?.role === 'digitador') {
@@ -138,9 +156,32 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
             </p>
           </div>
 
-          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 w-fit">
-            {filteredClientes.length} Clientes Cadastrados
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setEditingClient({
+                  nome: '',
+                  cpf: '',
+                  dataNascimento: '1975-01-01',
+                  telefone: '',
+                  cidade: 'Igarassu',
+                  convenioPrincipal: 'INSS',
+                  vendedoraResponsavel: currentUser?.name || 'Hellen Vasconcelos',
+                  observacoes: ''
+                });
+                setModalError('');
+                setIsClientModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#0F5C63] hover:bg-[#1B8A8F] text-white font-bold text-xs shadow-xs transition-all active:scale-95"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>Novo Cliente</span>
+            </button>
+
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 w-fit">
+              {filteredClientes.length} Clientes Cadastrados
+            </span>
+          </div>
         </div>
 
         {/* Search Input */}
@@ -283,13 +324,17 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
                 <span>WhatsApp</span>
               </button>
 
-              <a
-                href={`tel:${selectedCliente.telefone.replace(/\D/g, '')}`}
+              <button
+                onClick={() => {
+                  setEditingClient(selectedCliente);
+                  setModalError('');
+                  setIsClientModalOpen(true);
+                }}
                 className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 font-bold text-xs transition-all"
               >
-                <Phone className="w-4 h-4" />
-                <span>Ligar</span>
-              </a>
+                <Edit3 className="w-4 h-4 text-teal-600" />
+                <span>Editar Dados</span>
+              </button>
 
               <button
                 onClick={() => onNovaPropostaParaCliente && onNovaPropostaParaCliente(selectedCliente)}
@@ -404,6 +449,207 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
           </div>
         )}
       </div>
+
+      {/* New / Edit Client Modal */}
+      {isClientModalOpen && editingClient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-lg rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden">
+            <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div>
+                <h2 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                  <UserPlus className="w-5 h-5 text-teal-600" />
+                  <span>{editingClient.cpf ? 'Editar Dados do Cliente' : 'Novo Cadastro de Cliente'}</span>
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Preencha data de nascimento para notificações de aniversário e acompanhamento
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setIsClientModalOpen(false);
+                  setEditingClient(null);
+                }}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                setModalError('');
+
+                const cleanCpf = cleanDigits(editingClient.cpf || '');
+                if (cleanCpf.length !== 11) {
+                  setModalError('Informe um CPF válido com 11 dígitos.');
+                  return;
+                }
+
+                if (!editingClient.nome?.trim()) {
+                  setModalError('Nome do cliente é obrigatório.');
+                  return;
+                }
+
+                const clientToSave: Cliente = {
+                  id: cleanCpf,
+                  cpf: cleanCpf,
+                  nome: editingClient.nome.trim(),
+                  dataNascimento: editingClient.dataNascimento || '1975-01-01',
+                  telefone: editingClient.telefone || '(81) 98000-0000',
+                  email: editingClient.email || `${editingClient.nome.trim().toLowerCase().split(' ')[0]}@cliente.com`,
+                  cidade: editingClient.cidade || 'Igarassu',
+                  convenioPrincipal: (editingClient.convenioPrincipal as Convenio) || 'INSS',
+                  observacoes: editingClient.observacoes || '',
+                  vendedoraResponsavel: editingClient.vendedoraResponsavel || currentUser?.name || 'Hellen Vasconcelos',
+                  dataCriacao: editingClient.dataCriacao || new Date().toISOString().split('T')[0]
+                };
+
+                saveCliente(clientToSave);
+                setSelectedCliente(clientToSave);
+                setIsClientModalOpen(false);
+                setEditingClient(null);
+              }}
+              className="p-4 sm:p-5 space-y-3.5 overflow-y-auto max-h-[80vh]"
+            >
+              {modalError && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 text-xs text-rose-700 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{modalError}</span>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  CPF do Cliente *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="000.000.000-00"
+                  value={editingClient.cpf || ''}
+                  onChange={(e) => setEditingClient({ ...editingClient, cpf: maskCPFInput(e.target.value) })}
+                  className="w-full px-3 py-2 text-xs font-mono rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Nome Completo *
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Nome do cliente"
+                  value={editingClient.nome || ''}
+                  onChange={(e) => setEditingClient({ ...editingClient, nome: e.target.value })}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
+                    <span>Data de Nascimento *</span>
+                    {editingClient.dataNascimento && calculateAge(editingClient.dataNascimento) !== null && (
+                      <span className="text-[10px] text-teal-700 dark:text-teal-400 font-bold bg-teal-50 dark:bg-teal-950/60 px-1.5 py-0.5 rounded">
+                        {calculateAge(editingClient.dataNascimento)} anos
+                      </span>
+                    )}
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={editingClient.dataNascimento || '1975-01-01'}
+                    onChange={(e) => setEditingClient({ ...editingClient, dataNascimento: e.target.value })}
+                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Telefone / WhatsApp
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="(81) 98888-7777"
+                    value={editingClient.telefone || ''}
+                    onChange={(e) => setEditingClient({ ...editingClient, telefone: maskPhoneInput(e.target.value) })}
+                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Convênio Principal
+                  </label>
+                  <select
+                    value={editingClient.convenioPrincipal || 'INSS'}
+                    onChange={(e) => setEditingClient({ ...editingClient, convenioPrincipal: e.target.value as Convenio })}
+                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none"
+                  >
+                    <option value="INSS">INSS</option>
+                    <option value="SIAPE">SIAPE</option>
+                    <option value="Prefeitura de Igarassu">Prefeitura de Igarassu</option>
+                    <option value="Prefeitura do Recife">Prefeitura do Recife</option>
+                    <option value="Governo de PE">Governo de PE</option>
+                    <option value="FGTS">FGTS</option>
+                    <option value="Forças Armadas">Forças Armadas</option>
+                    <option value="Outros">Outros</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    Cidade
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Igarassu"
+                    value={editingClient.cidade || 'Igarassu'}
+                    onChange={(e) => setEditingClient({ ...editingClient, cidade: e.target.value })}
+                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Observações de Atendimento
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Informações adicionais..."
+                  value={editingClient.observacoes || ''}
+                  onChange={(e) => setEditingClient({ ...editingClient, observacoes: e.target.value })}
+                  className="w-full p-2.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none"
+                />
+              </div>
+
+              <div className="pt-3 border-t border-slate-200 dark:border-slate-800 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsClientModalOpen(false);
+                    setEditingClient(null);
+                  }}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-xl bg-[#0F5C63] hover:bg-[#1B8A8F] text-white font-bold text-xs shadow-md transition-all active:scale-95"
+                >
+                  Salvar Cliente
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

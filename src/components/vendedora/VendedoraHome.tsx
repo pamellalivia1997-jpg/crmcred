@@ -11,12 +11,16 @@ import {
   CheckCircle2,
   DollarSign,
   ChevronRight,
-  Sparkles
+  Sparkles,
+  Cake,
+  MessageCircle,
+  PartyPopper
 } from 'lucide-react';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
-import { formatCurrency, formatPercent, formatDate } from '../../utils/formatters';
+import { formatCurrency, formatPercent, formatDate, formatPhone, getBirthdayInfo, BirthdayInfo, formatBirthDateWithAge } from '../../utils/formatters';
 import { calcularComissaoVendedoraMes } from '../../utils/commissionRules';
+import { Cliente } from '../../types';
 
 interface Props {
   onOpenNovaProposta: () => void;
@@ -31,10 +35,33 @@ export const VendedoraHome: React.FC<Props> = ({
   onNavigateToAlertas,
   onNavigateToPropostas,
 }) => {
-  const { propostas, metas, alertas } = useCRM();
+  const { propostas, metas, alertas, clientes } = useCRM();
   const { currentUser } = useAuth();
 
   const sellerName = currentUser?.name || 'Hellen Vasconcelos';
+
+  // Aniversariantes da semana na carteira da vendedora (ou da loja inteira se vazia)
+  const aniversariantesSemana = useMemo(() => {
+    const listSeller = (clientes || []).filter(c => c.vendedoraResponsavel === sellerName);
+    const pool = listSeller.length > 0 ? listSeller : (clientes || []);
+
+    return pool
+      .map(c => {
+        const bInfo = getBirthdayInfo(c.dataNascimento);
+        return { cliente: c, bInfo };
+      })
+      .filter((item): item is { cliente: Cliente; bInfo: BirthdayInfo } => Boolean(item.bInfo && item.bInfo.isThisWeek))
+      .sort((a, b) => a.bInfo.daysDiff - b.bInfo.daysDiff);
+  }, [clientes, sellerName]);
+
+  const handleMandarParabens = (cliente: Cliente, bInfo: BirthdayInfo) => {
+    const cleanPhone = cliente.telefone.replace(/\D/g, '');
+    const primeiroNome = cliente.nome.split(' ')[0];
+    const mensagem = encodeURIComponent(
+      `Olá ${primeiroNome}, parabéns! 🎉 Toda a equipe da Lívia Cred Saúde e eu (${sellerName.split(' ')[0]}) desejamos muita saúde, paz e muitas felicidades pelo seu aniversário! Que seu novo ciclo seja abençoado e repleto de realizações. Um grande abraço carinhoso!`
+    );
+    window.open(`https://wa.me/55${cleanPhone}?text=${mensagem}`, '_blank');
+  };
 
   // Seller's propostas this month
   const sellerPaidPropsThisMonth = useMemo(() => {
@@ -255,6 +282,109 @@ export const VendedoraHome: React.FC<Props> = ({
           </div>
           <ChevronRight className="w-4 h-4 text-slate-400" />
         </button>
+      </div>
+
+      {/* Card: Aniversariantes da Semana (Para a vendedora mandar parabéns e estreitar relacionamento) */}
+      <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 flex items-center justify-center shrink-0 border border-amber-300/80 dark:border-amber-800">
+              <Cake className="w-5 h-5 text-amber-600 dark:text-amber-400 animate-bounce" />
+            </div>
+            <div>
+              <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white flex items-center gap-2">
+                <span>Aniversariantes da Semana</span>
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-300">
+                  {aniversariantesSemana.length} cliente{aniversariantesSemana.length === 1 ? '' : 's'}
+                </span>
+              </h2>
+              <p className="text-xs text-slate-500">
+                Envie felicitações no WhatsApp para estreitar laços, fidelizar e abrir oportunidades de crédito!
+              </p>
+            </div>
+          </div>
+
+          {aniversariantesSemana.some(a => a.bInfo.isToday) && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 text-xs font-black shadow-xs w-fit">
+              <PartyPopper className="w-3.5 h-3.5" />
+              <span>Tem aniversário hoje! 🎉</span>
+            </span>
+          )}
+        </div>
+
+        {aniversariantesSemana.length === 0 ? (
+          <div className="p-6 text-center rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800 space-y-1">
+            <Cake className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-1.5" />
+            <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
+              Nenhum cliente fazendo aniversário nesta semana
+            </p>
+            <p className="text-[11px] text-slate-400">
+              Conforme os aniversários forem se aproximando nos próximos dias, eles aparecerão automaticamente aqui.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {aniversariantesSemana.map(({ cliente, bInfo }) => {
+              const isToday = bInfo.isToday;
+
+              return (
+                <div
+                  key={cliente.cpf}
+                  className={`p-4 rounded-2xl border transition-all flex flex-col justify-between gap-3 ${
+                    isToday
+                      ? 'bg-gradient-to-br from-amber-50/90 via-amber-50/40 to-white dark:from-amber-950/40 dark:via-slate-900 dark:to-slate-900 border-amber-300 dark:border-amber-800 shadow-xs'
+                      : 'bg-slate-50/70 dark:bg-slate-800/40 border-slate-200/80 dark:border-slate-800 hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                          isToday
+                            ? 'bg-amber-400 text-slate-950 shadow-2xs animate-pulse'
+                            : bInfo.isTomorrow
+                            ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
+                            : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                        }`}>
+                          {bInfo.badgeLabel}
+                        </span>
+                        <span className="text-xs text-slate-400 font-semibold">
+                          {bInfo.dayMonth}
+                        </span>
+                      </div>
+
+                      <h3 className="text-sm font-extrabold text-slate-900 dark:text-white truncate">
+                        {cliente.nome}
+                      </h3>
+
+                      <p className="text-xs text-slate-500">
+                        Completando <strong className="text-teal-700 dark:text-teal-400">{bInfo.turningAge} anos</strong> · {cliente.convenioPrincipal}
+                      </p>
+
+                      <p className="text-[11px] text-slate-400">
+                        {cliente.cidade} · Tel: {formatPhone(cliente.telefone)}
+                      </p>
+                    </div>
+
+                    <div className="w-9 h-9 rounded-2xl bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 flex items-center justify-center font-black text-sm shrink-0 border border-amber-300/60">
+                      🎁
+                    </div>
+                  </div>
+
+                  {/* WhatsApp Action Button */}
+                  <button
+                    type="button"
+                    onClick={() => handleMandarParabens(cliente, bInfo)}
+                    className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all active:scale-98"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    <span>Mandar Parabéns no WhatsApp</span>
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Grid: Pending Proposals + Safe Sales Ranking */}

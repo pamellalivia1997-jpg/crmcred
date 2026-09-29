@@ -118,16 +118,16 @@ export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavig
                   onClick={() => setShowUserMenu(false)}
                 />
 
-                {/* Compact Dropdown Card anchored to top-right below navbar */}
-                <div className="fixed top-14 right-2 sm:right-6 w-72 sm:w-80 max-w-[calc(100vw-16px)] rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-3 z-10 animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[75vh]">
+                {/* Compact Profile Switcher Dropdown anchored neatly to top-right */}
+                <div className="fixed top-14 right-2 sm:right-6 w-64 sm:w-72 max-w-[calc(100vw-20px)] rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-3 z-10 animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[70vh]">
                   {isManager ? (
                     <>
                       <div className="flex items-center justify-between px-1 pb-2 border-b border-slate-100 dark:border-slate-800">
                         <div>
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                          <p className="text-[9px] font-bold uppercase tracking-wider text-slate-400">
                             Acesso Gerencial
                           </p>
-                          <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                          <p className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
                             Alternar Perfil
                           </p>
                         </div>
@@ -141,7 +141,7 @@ export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavig
                         </button>
                       </div>
 
-                      <div className="space-y-1 overflow-y-auto py-1.5 max-h-56 sm:max-h-64 scrollbar-thin">
+                      <div className="space-y-1 overflow-y-auto py-1.5 max-h-48 sm:max-h-56 scrollbar-thin">
                         {allUsers.map((user) => {
                           const isSelected = user.id === currentUser?.id;
                           const displayName = cleanPersonName(user.name);
@@ -161,27 +161,27 @@ export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavig
                                   }
                                 }
                               }}
-                              className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-colors ${
+                              className={`w-full flex items-center justify-between p-1.5 sm:p-2 rounded-xl text-left transition-colors ${
                                 isSelected
                                   ? 'bg-teal-50 dark:bg-teal-950/50 border border-teal-200 dark:border-teal-800'
                                   : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'
                               }`}
                             >
                               <div className="flex items-center gap-2 min-w-0">
-                                <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center font-bold text-[10px] text-slate-700 dark:text-slate-300 shrink-0">
+                                <div className="w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center font-bold text-[9px] text-slate-700 dark:text-slate-300 shrink-0">
                                   {displayName.slice(0, 2).toUpperCase()}
                                 </div>
                                 <div className="min-w-0">
                                   <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
                                     {displayName}
                                   </p>
-                                  <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate font-mono">
+                                  <p className="text-[9px] text-slate-500 dark:text-slate-400 truncate font-mono">
                                     {user.email}
                                   </p>
                                 </div>
                               </div>
 
-                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${roleBadges[user.role]}`}>
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${roleBadges[user.role] || 'bg-slate-100 text-slate-700'}`}>
                                 {user.role === 'proprietaria' ? 'Gerencial' : user.role}
                               </span>
                             </button>
@@ -198,7 +198,7 @@ export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavig
                               setShowUserMenu(false);
                             }
                           }}
-                          className="flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400 hover:underline py-0.5 px-1"
+                          className="flex items-center gap-1 text-[10px] font-medium text-amber-600 dark:text-amber-400 hover:underline py-0.5"
                         >
                           <RotateCcw className="w-3 h-3" />
                           <span>Restaurar demo</span>
@@ -210,10 +210,10 @@ export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavig
                             setShowUserMenu(false);
                             logout();
                           }}
-                          className="flex items-center gap-1 text-[11px] font-bold text-rose-600 dark:text-rose-400 hover:underline py-0.5 px-1"
+                          className="flex items-center gap-1 text-[10px] font-bold text-rose-600 dark:text-rose-400 hover:underline py-0.5"
                         >
                           <LogOut className="w-3 h-3" />
-                          <span>Desconectar</span>
+                          <span>Sair</span>
                         </button>
                       </div>
                     </>
