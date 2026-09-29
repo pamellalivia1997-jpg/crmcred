@@ -131,7 +131,29 @@ function loadStore(): CRMDataStore {
     if (raw) {
       const parsed = JSON.parse(raw);
       const { sanitized, modified } = sanitizeStore(parsed);
-      if (modified) {
+      
+      // Ensure default digitador exists
+      let needsSave = modified;
+      if (Array.isArray(sanitized.users)) {
+        const hasDigitador = sanitized.users.some(u => u.role === 'digitador' || u.id === 'user-ana');
+        if (!hasDigitador) {
+          sanitized.users.push({
+            id: 'user-ana',
+            name: 'Ana Paula',
+            email: 'ana@liviacredsaude.com.br',
+            password: '123',
+            role: 'digitador',
+            phone: '(81) 98555-6677',
+            status: 'ativo',
+            monthlySalesGoal: 0,
+            monthlyTaxPercentGoal: 0,
+            baseSalaryCost: 2000,
+          });
+          needsSave = true;
+        }
+      }
+
+      if (needsSave) {
         saveStore(sanitized);
       }
       return sanitized;
@@ -414,6 +436,28 @@ export const crmStorage = {
     if (alerta) {
       alerta.status = status;
       saveStore(currentStore);
+    }
+  },
+
+  toggleLiberacaoLeadDigitador(alertaId: string, liberado: boolean, currentUser: { id: string; name: string }): void {
+    const alerta = currentStore.alertas.find(a => a.id === alertaId);
+    if (alerta) {
+      alerta.liberadoParaDigitador = liberado;
+      alerta.liberadoPor = liberado ? currentUser.name : undefined;
+      alerta.dataLiberacao = liberado ? new Date().toISOString().split('T')[0] : undefined;
+      saveStore(currentStore);
+
+      this.logAudit({
+        usuarioId: currentUser.id,
+        usuarioNome: currentUser.name,
+        acao: 'editou',
+        tipoRecurso: 'cliente',
+        idRecurso: alerta.id,
+        cpfCliente: alerta.clienteCpf,
+        detalhes: liberado
+          ? `Autorizou lead de portabilidade de ${alerta.clienteNome} para a digitadora.`
+          : `Revogou liberação de lead de portabilidade (${alerta.clienteNome}) para a digitadora.`
+      });
     }
   },
 

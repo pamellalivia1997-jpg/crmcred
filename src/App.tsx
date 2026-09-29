@@ -11,6 +11,7 @@ import { LoginScreen } from './components/auth/LoginScreen';
 // Screens
 import { ProprietariaDashboard } from './components/dashboard/ProprietariaDashboard';
 import { VendedoraHome } from './components/vendedora/VendedoraHome';
+import { DigitadorHome } from './components/digitador/DigitadorHome';
 import { PropostasView } from './components/propostas/PropostasView';
 import { ClientesView } from './components/clientes/ClientesView';
 import { AlertasView } from './components/alertas/AlertasView';
@@ -25,7 +26,9 @@ const MainApp: React.FC = () => {
 
   // Navigation state
   const [currentTab, setCurrentTab] = useState<string>(() => {
-    return currentUser?.role === 'vendedora' ? 'vendedora_home' : 'dashboard';
+    if (currentUser?.role === 'vendedora') return 'vendedora_home';
+    if (currentUser?.role === 'digitador') return 'digitador_home';
+    return 'dashboard';
   });
   const [isSidebarOpenMobile, setIsSidebarOpenMobile] = useState(false);
   const [isNovaPropostaOpen, setIsNovaPropostaOpen] = useState(false);
@@ -34,11 +37,16 @@ const MainApp: React.FC = () => {
   // If user changes and current tab is not accessible, adjust default
   React.useEffect(() => {
     if (currentUser?.role === 'vendedora') {
-      const forbiddenForVendedora = ['dashboard', 'financeiro', 'contas_pagar', 'adm', 'relatorios', 'fechamento_vendedoras', 'auditoria'];
+      const forbiddenForVendedora = ['dashboard', 'financeiro', 'contas_pagar', 'adm', 'adm_usuarios', 'relatorios', 'fechamento_vendedoras', 'auditoria', 'digitador_home'];
       if (forbiddenForVendedora.includes(currentTab)) {
         setCurrentTab('vendedora_home');
       }
-    } else if (currentUser && currentTab === 'vendedora_home') {
+    } else if (currentUser?.role === 'digitador') {
+      const allowedForDigitador = ['digitador_home', 'propostas', 'alertas'];
+      if (!allowedForDigitador.includes(currentTab)) {
+        setCurrentTab('digitador_home');
+      }
+    } else if (currentUser && (currentTab === 'vendedora_home' || currentTab === 'digitador_home')) {
       setCurrentTab('dashboard');
     }
   }, [currentUser, currentTab]);
@@ -114,6 +122,17 @@ const MainApp: React.FC = () => {
             />
           )}
 
+          {currentTab === 'digitador_home' && (
+            <DigitadorHome
+              onOpenNovaProposta={(cliente) => {
+                setPreselectedCliente(cliente || null);
+                setIsNovaPropostaOpen(true);
+              }}
+              onNavigateToPropostas={() => setCurrentTab('propostas')}
+              onNavigateToAlertas={() => setCurrentTab('alertas')}
+            />
+          )}
+
           {currentTab === 'propostas' && <PropostasView />}
 
           {currentTab === 'clientes' && (
@@ -130,7 +149,8 @@ const MainApp: React.FC = () => {
 
           {currentTab === 'relatorios' && <RelatoriosSemanalMensal />}
 
-          {currentTab === 'adm' && <AdmView />}
+          {currentTab === 'adm' && <AdmView initialSubTab="usuarios" />}
+          {currentTab === 'adm_usuarios' && <AdmView initialSubTab="usuarios" />}
 
           {(currentTab === 'financeiro' || currentTab === 'contas_pagar' || currentTab === 'fechamento_vendedoras') && (
             <FinanceiroView />

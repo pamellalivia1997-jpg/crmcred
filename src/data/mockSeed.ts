@@ -99,6 +99,18 @@ export const INITIAL_USERS: User[] = [
     monthlySalesGoal: 85000,
     monthlyTaxPercentGoal: 11.0,
     baseSalaryCost: 2400,
+  },
+  {
+    id: 'user-ana',
+    name: 'Ana Paula',
+    email: 'ana@liviacredsaude.com.br',
+    password: '123',
+    role: 'digitador',
+    phone: '(81) 98555-6677',
+    status: 'ativo',
+    monthlySalesGoal: 0,
+    monthlyTaxPercentGoal: 0,
+    baseSalaryCost: 2000,
   }
 ];
 
@@ -290,6 +302,11 @@ export function generateSeedData() {
         clientePagouTaxa = false;
       }
 
+      const digitador = (c % 4 === 0) 
+        ? 'Ana Paula' 
+        : (vendedora === 'Loja Igarassu (Balcão)' ? 'Taciana Silva' : vendedora);
+      const isSimulacao = (c % 3 === 0);
+
       const proposta: Proposta = {
         id: `prop-${propIdCounter}`,
         carimboDataHora: `${dataDig} 10:${(10 + (c * 2) % 49).toString().padStart(2, '0')}:00`,
@@ -307,9 +324,10 @@ export function generateSeedData() {
         taxaPaga,
         clientePagouTaxa,
         vendedora,
-        digitador: vendedora === 'Loja Igarassu (Balcão)' ? 'Taciana Silva' : vendedora,
+        digitador,
         numeroContrato: contractCounter.toString(),
         status,
+        isSimulacao,
         motivoCancelamento,
         observacoes: `Proposta gerada no sistema. Convênio ${client.convenioPrincipal}.`,
         historicoStatus: [
@@ -521,7 +539,38 @@ export function generateSeedData() {
       vendedoraResponsavel: 'Hellen Vasconcelos',
       status: 'nova',
       dataCriacao: '2026-09-27',
-      valorPotencial: 3800
+      valorPotencial: 3800,
+      liberadoParaDigitador: true,
+      liberadoPor: 'Pamella',
+      dataLiberacao: '2026-09-28'
+    },
+    {
+      id: 'alt-01-b',
+      clienteCpf: clientes[10].cpf,
+      clienteNome: clientes[10].nome,
+      clienteTelefone: clientes[10].telefone,
+      tipo: 'portabilidade',
+      motivo: 'Portabilidade pré-aprovada C6 Consig com redução de prestação de R$ 420 para R$ 340 e troco de R$ 5.200,00.',
+      vendedoraResponsavel: 'Taciana Silva',
+      status: 'nova',
+      dataCriacao: '2026-09-28',
+      valorPotencial: 5200,
+      liberadoParaDigitador: true,
+      liberadoPor: 'Pamella',
+      dataLiberacao: '2026-09-28'
+    },
+    {
+      id: 'alt-01-c',
+      clienteCpf: clientes[14].cpf,
+      clienteNome: clientes[14].nome,
+      clienteTelefone: clientes[14].telefone,
+      tipo: 'portabilidade',
+      motivo: 'Portabilidade Daycoval com saldo devedor quitando 18 parcelas. Aguardando autorização de ADM para digitação.',
+      vendedoraResponsavel: 'Lucélia Ramos',
+      status: 'nova',
+      dataCriacao: '2026-09-28',
+      valorPotencial: 4100,
+      liberadoParaDigitador: false
     },
     {
       id: 'alt-02',

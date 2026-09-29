@@ -10,10 +10,12 @@ import {
   TrendingUp,
   Receipt,
   UserCheck,
+  UserPlus,
   ShieldAlert,
   PlusCircle,
   FileCheck2,
   UploadCloud,
+  Calculator,
   X
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -38,7 +40,11 @@ export const Sidebar: React.FC<Props> = ({
   const { alertas } = useCRM();
 
   const isVendedora = currentUser?.role === 'vendedora';
+  const isDigitador = currentUser?.role === 'digitador';
   const unreadAlerts = alertas.filter(a => {
+    if (isDigitador) {
+      return a.tipo === 'portabilidade' && a.liberadoParaDigitador === true && a.status === 'nova';
+    }
     if (isVendedora) {
       return a.status === 'nova' && a.vendedoraResponsavel === currentUser?.name;
     }
@@ -69,16 +75,26 @@ export const Sidebar: React.FC<Props> = ({
           className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-bold text-xs shadow-md transition-all active:scale-[0.98]"
         >
           <PlusCircle className="w-4 h-4 text-slate-950 stroke-[2.5]" />
-          <span>Nova Proposta</span>
+          <span>{isDigitador ? 'Nova Digitação / Simulação' : 'Nova Proposta'}</span>
         </button>
 
         {/* Section: Operacional */}
         <div className="space-y-1">
           <p className="px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-            Operacional
+            {isDigitador ? 'Área da Digitadora' : 'Operacional'}
           </p>
 
-          {isVendedora ? (
+          {isDigitador ? (
+            <button
+              onClick={() => handleNavClick('digitador_home')}
+              className={navItemClass(currentTab === 'digitador_home')}
+            >
+              <div className="flex items-center gap-2.5">
+                <Calculator className="w-4 h-4" />
+                <span>Painel da Digitadora</span>
+              </div>
+            </button>
+          ) : isVendedora ? (
             <button
               onClick={() => handleNavClick('vendedora_home')}
               className={navItemClass(currentTab === 'vendedora_home')}
@@ -106,19 +122,21 @@ export const Sidebar: React.FC<Props> = ({
           >
             <div className="flex items-center gap-2.5">
               <FileSpreadsheet className="w-4 h-4" />
-              <span>Funil de Propostas</span>
+              <span>{isDigitador ? 'Minhas Propostas Digitadas' : 'Funil de Propostas'}</span>
             </div>
           </button>
 
-          <button
-            onClick={() => handleNavClick('clientes')}
-            className={navItemClass(currentTab === 'clientes')}
-          >
-            <div className="flex items-center gap-2.5">
-              <Users className="w-4 h-4" />
-              <span>Clientes & Timeline</span>
-            </div>
-          </button>
+          {!isDigitador && (
+            <button
+              onClick={() => handleNavClick('clientes')}
+              className={navItemClass(currentTab === 'clientes')}
+            >
+              <div className="flex items-center gap-2.5">
+                <Users className="w-4 h-4" />
+                <span>Clientes & Timeline</span>
+              </div>
+            </button>
+          )}
 
           <button
             onClick={() => handleNavClick('alertas')}
@@ -126,7 +144,7 @@ export const Sidebar: React.FC<Props> = ({
           >
             <div className="flex items-center gap-2.5">
               <BellRing className="w-4 h-4" />
-              <span>Oportunidades & Alertas</span>
+              <span>{isDigitador ? 'Leads Portabilidade (ADM)' : 'Oportunidades & Alertas'}</span>
             </div>
             {unreadAlerts > 0 && (
               <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-[10px] font-extrabold text-slate-950">
@@ -137,7 +155,7 @@ export const Sidebar: React.FC<Props> = ({
         </div>
 
         {/* Section: Gestão & Relatórios (Proprietária / ADM) */}
-        {!isVendedora && (
+        {!isVendedora && !isDigitador && (
           <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-slate-800">
             <p className="px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
               Gestão & Relatórios
@@ -154,15 +172,27 @@ export const Sidebar: React.FC<Props> = ({
             </button>
 
             {canManageTeam() && (
-              <button
-                onClick={() => handleNavClick('adm')}
-                className={navItemClass(currentTab === 'adm')}
-              >
-                <div className="flex items-center gap-2.5">
-                  <UserCheck className="w-4 h-4" />
-                  <span>Painel ADM & Metas</span>
-                </div>
-              </button>
+              <>
+                <button
+                  onClick={() => handleNavClick('adm_usuarios')}
+                  className={navItemClass(currentTab === 'adm_usuarios')}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <UserPlus className="w-4 h-4" />
+                    <span>Cadastro de Usuários</span>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => handleNavClick('adm')}
+                  className={navItemClass(currentTab === 'adm')}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <UserCheck className="w-4 h-4" />
+                    <span>Painel ADM & Metas</span>
+                  </div>
+                </button>
+              </>
             )}
           </div>
         )}

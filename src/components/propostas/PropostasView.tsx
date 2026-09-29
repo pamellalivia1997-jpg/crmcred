@@ -46,9 +46,19 @@ export const PropostasView: React.FC = () => {
     { status: 'Reprovada', title: 'Reprovada', color: 'border-red-400 bg-red-50/30 dark:bg-red-950/20', badgeColor: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300' },
   ];
 
+  const isDigitador = currentUser?.role === 'digitador';
+
   // Filter propostas
   const filteredPropostas = useMemo(() => {
     return propostas.filter(p => {
+      // If digitador, only show proposals typed by this user
+      if (isDigitador) {
+        const matchDigitador = p.digitador === currentUser?.name || 
+          p.digitador === 'Ana Paula' ||
+          (currentUser?.name && p.digitador && p.digitador.toLowerCase().includes(currentUser.name.toLowerCase()));
+        if (!matchDigitador) return false;
+      }
+
       const matchSearch =
         p.nomeCliente.toLowerCase().includes(searchTerm.toLowerCase()) ||
         p.cpf.includes(searchTerm.replace(/\D/g, '')) ||
@@ -61,7 +71,7 @@ export const PropostasView: React.FC = () => {
 
       return matchSearch && matchVendedora && matchOperacao && matchBanco && matchStatus;
     });
-  }, [propostas, searchTerm, filterVendedora, filterOperacao, filterBanco, filterStatus]);
+  }, [propostas, searchTerm, filterVendedora, filterOperacao, filterBanco, filterStatus, isDigitador, currentUser]);
 
   // Unique lists for filter dropdowns
   const vendedorasList = useMemo(() => Array.from(new Set(propostas.map(p => p.vendedora))), [propostas]);
@@ -78,10 +88,12 @@ export const PropostasView: React.FC = () => {
         <div>
           <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
             <FileSpreadsheet className="w-6 h-6 text-[#0F5C63]" />
-            <span>Funil de Propostas Consignadas</span>
+            <span>{isDigitador ? 'Minhas Propostas & Simulações Digitadas' : 'Funil de Propostas Consignadas'}</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Acompanhamento esteira a esteira: do pré-cadastro ao pagamento e quitação de taxas
+            {isDigitador 
+              ? 'Acompanhamento restrito às propostas e simulações cadastradas por você' 
+              : 'Acompanhamento esteira a esteira: do pré-cadastro ao pagamento e quitação de taxas'}
           </p>
         </div>
 

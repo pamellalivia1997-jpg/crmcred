@@ -18,7 +18,8 @@ import {
   Copy,
   Check,
   X,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Calculator
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -276,6 +277,40 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     setDetailModalTitle(title);
     setDetailModalContracts(list);
   };
+
+  // Estatísticas de Digitação: Quantas propostas e simulações cada um digitou
+  const digitacaoStats = useMemo(() => {
+    const counts: Record<string, { propostas: number; volume: number; simulacoes: number }> = {};
+
+    filteredPropostas.forEach(p => {
+      const dig = p.digitador || p.vendedora || 'Não informado';
+      if (!counts[dig]) {
+        counts[dig] = { propostas: 0, volume: 0, simulacoes: 0 };
+      }
+      counts[dig].propostas += 1;
+      counts[dig].volume += p.valorEmprestimo;
+      if (p.isSimulacao || dig === 'Ana Paula') {
+        counts[dig].simulacoes += 1;
+      }
+    });
+
+    const totalDigitadas = filteredPropostas.length;
+    const totalSimulacoesLoja = filteredPropostas.filter(p => p.isSimulacao || p.digitador === 'Ana Paula').length;
+
+    const list = Object.entries(counts).map(([nome, data]) => {
+      const isDigitadoraDedicada = (nome || '').toLowerCase().includes('ana') || 
+        allUsers.some(u => (u.name || '').toLowerCase() === (nome || '').toLowerCase() && u.role === 'digitador');
+      const share = totalDigitadas > 0 ? (data.propostas / totalDigitadas) * 100 : 0;
+      return {
+        nome,
+        ...data,
+        isDigitadoraDedicada,
+        share
+      };
+    }).sort((a, b) => b.propostas - a.propostas);
+
+    return { list, totalDigitadas, totalSimulacoesLoja };
+  }, [filteredPropostas, allUsers]);
 
   // Generate WhatsApp summary text
   const generateWhatsAppSummary = () => {
@@ -617,6 +652,109 @@ _Gerado automaticamente via Lívia Cred Saúde CRM_`;
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* Produtividade de Digitação de Propostas & Simulações Realizadas */}
+      <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+          <div>
+            <h2 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+              <Calculator className="w-5 h-5 text-cyan-600" />
+              <span>Produtividade de Digitação: Propostas por Colaborador</span>
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Quantas propostas e simulações cada um digitou no período selecionado.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <div className="px-3 py-1.5 rounded-xl bg-cyan-50 dark:bg-cyan-950/60 border border-cyan-200 dark:border-cyan-800 text-cyan-800 dark:text-cyan-300 text-xs font-bold flex items-center gap-1.5">
+              <span>Simulações Realizadas:</span>
+              <span className="text-sm font-black text-cyan-900 dark:text-cyan-200 tabular-nums">
+                {digitacaoStats.totalSimulacoesLoja}
+              </span>
+            </div>
+            <div className="px-3 py-1.5 rounded-xl bg-teal-50 dark:bg-teal-950/60 border border-teal-200 dark:border-teal-800 text-teal-800 dark:text-teal-300 text-xs font-bold flex items-center gap-1.5">
+              <span>Total Digitadas:</span>
+              <span className="text-sm font-black text-teal-900 dark:text-teal-200 tabular-nums">
+                {digitacaoStats.totalDigitadas}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left">
+            <thead>
+              <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase text-[10px] tracking-wider">
+                <th className="py-2.5 px-3">Colaborador / Quem Digitou</th>
+                <th className="py-2.5 px-3">Perfil</th>
+                <th className="py-2.5 px-3 text-center">Propostas Digitadas</th>
+                <th className="py-2.5 px-3 text-center">Simulações</th>
+                <th className="py-2.5 px-3 text-right">Volume Digitado (R$)</th>
+                <th className="py-2.5 px-3 text-right">Participação</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
+              {digitacaoStats.list.map((item) => (
+                <tr key={item.nome} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                  <td className="py-3 px-3">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center font-extrabold text-[10px] shrink-0 ${
+                        item.isDigitadoraDedicada
+                          ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/60 dark:text-cyan-200'
+                          : 'bg-teal-100 text-teal-800 dark:bg-teal-900/60 dark:text-teal-200'
+                      }`}>
+                        {item.nome.slice(0, 2).toUpperCase()}
+                      </div>
+                      <span className="font-bold text-slate-900 dark:text-white">
+                        {item.nome}
+                      </span>
+                    </div>
+                  </td>
+
+                  <td className="py-3 px-3">
+                    <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      item.isDigitadoraDedicada
+                        ? 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300 border border-cyan-300'
+                        : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+                    }`}>
+                      {item.isDigitadoraDedicada ? 'Digitadora Dedicada' : 'Vendedora'}
+                    </span>
+                  </td>
+
+                  <td className="py-3 px-3 text-center">
+                    <span className="inline-block px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800 font-black text-slate-900 dark:text-white text-xs tabular-nums">
+                      {item.propostas} propostas
+                    </span>
+                  </td>
+
+                  <td className="py-3 px-3 text-center tabular-nums font-bold text-cyan-700 dark:text-cyan-300">
+                    {item.simulacoes}
+                  </td>
+
+                  <td className="py-3 px-3 text-right font-extrabold text-slate-900 dark:text-white tabular-nums">
+                    {formatCurrency(item.volume)}
+                  </td>
+
+                  <td className="py-3 px-3 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <div className="w-16 bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${item.isDigitadoraDedicada ? 'bg-cyan-500' : 'bg-teal-600'}`}
+                          style={{ width: `${Math.min(100, item.share)}%` }}
+                        />
+                      </div>
+                      <span className="text-slate-500 font-bold tabular-nums w-9 text-right text-[11px]">
+                        {item.share.toFixed(0)}%
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 

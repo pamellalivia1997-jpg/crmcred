@@ -41,6 +41,7 @@ interface CRMContextType {
   saveMeta: (meta: MetaVendedora) => void;
   saveFeedback: (fb: Feedback) => void;
   updateAlertaStatus: (id: string, status: 'nova' | 'em_contato' | 'convertida' | 'descartada') => void;
+  toggleLiberacaoLeadDigitador: (alertaId: string, liberado: boolean) => void;
   resetAllData: () => void;
   logCpfAccess: (cpf: string, nomeCliente: string) => void;
 }
@@ -100,6 +101,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     crmStorage.updateAlertaStatus(id, status);
   };
 
+  const toggleLiberacaoLeadDigitador = (alertaId: string, liberado: boolean) => {
+    crmStorage.toggleLiberacaoLeadDigitador(alertaId, liberado, currentActor);
+  };
+
   const resetAllData = () => {
     crmStorage.reset();
   };
@@ -140,6 +145,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         saveMeta,
         saveFeedback,
         updateAlertaStatus,
+        toggleLiberacaoLeadDigitador,
         resetAllData,
         logCpfAccess
       }}

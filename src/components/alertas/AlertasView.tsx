@@ -27,8 +27,8 @@ interface Props {
 }
 
 export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
-  const { alertas, updateAlertaStatus } = useCRM();
-  const { currentUser } = useAuth();
+  const { alertas, updateAlertaStatus, toggleLiberacaoLeadDigitador } = useCRM();
+  const { currentUser, canManageTeam } = useAuth();
 
   const [filterTipo, setFilterTipo] = useState<string>('todos');
   const [filterStatus, setFilterStatus] = useState<string>('todos');
@@ -36,17 +36,23 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
   const [whatsappMsg, setWhatsappMsg] = useState('');
 
   const isVendedora = currentUser?.role === 'vendedora';
+  const isDigitador = currentUser?.role === 'digitador';
 
   // Filter alerts
   const filteredAlertas = useMemo(() => {
     return alertas.filter(a => {
+      // If digitador, only show authorized portabilidade leads
+      if (isDigitador) {
+        return a.tipo === 'portabilidade' && a.liberadoParaDigitador === true;
+      }
+
       // If seller, show only her alerts
       const matchSeller = isVendedora ? a.vendedoraResponsavel === currentUser?.name : true;
       const matchTipo = filterTipo === 'todos' || a.tipo === filterTipo;
       const matchStatus = filterStatus === 'todos' || a.status === filterStatus;
       return matchSeller && matchTipo && matchStatus;
     });
-  }, [alertas, isVendedora, currentUser, filterTipo, filterStatus]);
+  }, [alertas, isVendedora, isDigitador, currentUser, filterTipo, filterStatus]);
 
   // Conversion statistics
   const stats = useMemo(() => {
@@ -305,6 +311,35 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
                 <p className="text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/80 leading-relaxed">
                   {alerta.motivo}
                 </p>
+
+                {/* Portabilidade Digitador Authorization Badge & Control */}
+                {alerta.tipo === 'portabilidade' && (
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-cyan-50/60 dark:bg-cyan-950/30 border border-cyan-200/80 dark:border-cyan-800/60 text-xs">
+                    <div className="flex items-center gap-1.5">
+                      <RefreshCw className="w-3.5 h-3.5 text-cyan-600" />
+                      <span className="text-[11px] font-semibold text-cyan-900 dark:text-cyan-200">
+                        {alerta.liberadoParaDigitador ? (
+                          <>Liberação para Digitadora: <strong className="text-emerald-700 dark:text-emerald-400">Ativa (por {alerta.liberadoPor || 'ADM'})</strong></>
+                        ) : (
+                          <>Liberação para Digitadora: <strong className="text-slate-500">Pendente de Autorização</strong></>
+                        )}
+                      </span>
+                    </div>
+
+                    {canManageTeam() && (
+                      <button
+                        onClick={() => toggleLiberacaoLeadDigitador(alerta.id, !alerta.liberadoParaDigitador)}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all shadow-2xs ${
+                          alerta.liberadoParaDigitador
+                            ? 'bg-rose-100 text-rose-800 hover:bg-rose-200 dark:bg-rose-950 dark:text-rose-300'
+                            : 'bg-cyan-600 text-white hover:bg-cyan-700'
+                        }`}
+                      >
+                        {alerta.liberadoParaDigitador ? 'Revogar Liberação' : 'Autorizar Digitadora'}
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {/* Action Buttons */}
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">

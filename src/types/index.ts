@@ -1,4 +1,4 @@
-export type UserRole = 'proprietaria' | 'adm' | 'financeiro' | 'vendedora';
+export type UserRole = 'proprietaria' | 'adm' | 'financeiro' | 'vendedora' | 'digitador';
 
 export interface User {
   id: string;
@@ -113,6 +113,7 @@ export interface Proposta {
   status: StatusProposta;
   motivoCancelamento?: string;
   observacoes?: string;
+  isSimulacao?: boolean;
   anexos?: string[];
   historicoStatus: HistoricoStatus[];
 }
@@ -191,6 +192,9 @@ export interface AlertaOportunidade {
   dataCriacao: string;
   valorPotencial?: number;
   propostaOrigemId?: string;
+  liberadoParaDigitador?: boolean;
+  liberadoPor?: string;
+  dataLiberacao?: string;
 }
 
 export interface AuditLog {

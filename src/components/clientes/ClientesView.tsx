@@ -33,6 +33,25 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
   const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
   const [filterConvenio, setFilterConvenio] = useState<string>('todos');
 
+  // Digitador cannot access general client portfolio
+  if (currentUser?.role === 'digitador') {
+    return (
+      <div className="p-8 text-center bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm max-w-lg mx-auto my-8 space-y-4">
+        <div className="w-12 h-12 rounded-2xl bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto">
+          <Shield className="w-6 h-6" />
+        </div>
+        <div className="space-y-1">
+          <h2 className="text-base font-extrabold text-slate-900 dark:text-white">
+            Carteira de Clientes Restrita
+          </h2>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            O perfil de <strong>Digitador(a)</strong> não possui acesso à carteira geral de clientes da empresa. Você pode cadastrar novas simulações rápidas e acompanhar as propostas que digitou no seu painel.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   // Filter clients
   const filteredClientes = useMemo(() => {
     const term = searchTerm.toLowerCase().replace(/\D/g, '');

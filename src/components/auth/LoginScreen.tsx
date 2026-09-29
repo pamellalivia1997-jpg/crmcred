@@ -23,11 +23,7 @@ export const LoginScreen: React.FC<Props> = ({ onLoginSuccess }) => {
     if (success) {
       if (onLoginSuccess) onLoginSuccess();
     } else {
-      if (username.trim() === '' && password.trim() !== '123') {
-        setError('Para acesso Gerencial com login em branco, digite a senha 123.');
-      } else {
-        setError('Usuário/e-mail ou senha incorretos. Verifique suas credenciais ou use o acesso gerencial.');
-      }
+      setError('Usuário/e-mail ou senha incorretos. Verifique suas credenciais de acesso.');
     }
   };
 
@@ -72,6 +68,14 @@ export const LoginScreen: React.FC<Props> = ({ onLoginSuccess }) => {
       badgeColor: 'bg-teal-100 text-teal-900 border-teal-300 dark:bg-teal-950 dark:text-teal-300',
       btnColor: 'from-[#0F5C63] to-[#1B8A8F] text-white hover:opacity-95',
     },
+    {
+      role: 'digitador' as UserRole,
+      title: 'Digitadora',
+      name: 'Ana Paula',
+      desc: 'Área de digitação rápida e simulações (sem metas ou carteira geral)',
+      badgeColor: 'bg-cyan-100 text-cyan-900 border-cyan-300 dark:bg-cyan-950 dark:text-cyan-300',
+      btnColor: 'from-cyan-700 to-teal-800 text-white hover:opacity-95',
+    },
   ];
 
   return (
@@ -100,19 +104,6 @@ export const LoginScreen: React.FC<Props> = ({ onLoginSuccess }) => {
             </p>
           </div>
 
-          {/* Gerencial Quick Login Hint Box */}
-          <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2.5">
-            <KeyRound className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <span className="font-extrabold block text-amber-800 dark:text-amber-300">
-                Acesso Gerencial (Lívia / ADM / Financeiro):
-              </span>
-              <p className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-300/90">
-                Deixe o campo <strong>Login em branco</strong> e digite a senha <strong>123</strong> para entrar com visão gerencial completa.
-              </p>
-            </div>
-          </div>
-
           {/* Error notice */}
           {error && (
             <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 font-semibold animate-in fade-in">
@@ -124,16 +115,16 @@ export const LoginScreen: React.FC<Props> = ({ onLoginSuccess }) => {
           <form onSubmit={handleManualLogin} className="space-y-4 text-xs">
             <div>
               <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-                Login / E-mail da Vendedora
+                Login ou E-mail
               </label>
               <div className="relative">
                 <UserIcon className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="(Em branco para Gerencial)"
+                  placeholder="Digite seu usuário ou e-mail"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  className="w-full pl-10 pr-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 placeholder:italic focus:outline-none focus:ring-2 focus:ring-teal-500 font-medium"
+                  className="w-full pl-10 pr-3 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 font-medium"
                 />
               </div>
             </div>
@@ -208,8 +199,8 @@ export const LoginScreen: React.FC<Props> = ({ onLoginSuccess }) => {
             )}
           </div>
 
-          <p className="text-[11px] text-slate-600 dark:text-slate-400 text-center pt-1">
-            Os logins das vendedoras são criados, cadastrados e alterados pelo Gerencial.
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 text-center pt-1">
+            Gestão de acessos e usuários administrada pelo painel de administração da equipe.
           </p>
         </div>
 

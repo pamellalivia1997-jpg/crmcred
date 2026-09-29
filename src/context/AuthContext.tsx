@@ -16,6 +16,7 @@ interface AuthContextType {
   canManageTeam: () => boolean;
   canEditProposal: (proposta: Proposta) => boolean;
   isManager: boolean;
+  isDigitador: boolean;
   acceptedLGPD: boolean;
   acceptLGPD: () => void;
   theme: 'light' | 'dark';
@@ -74,6 +75,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isManager = Boolean(
     currentUser && (currentUser.role === 'proprietaria' || currentUser.role === 'adm' || currentUser.role === 'financeiro')
   );
+
+  const isDigitador = Boolean(currentUser && currentUser.role === 'digitador');
 
   const login = (loginInput: string, passwordInput: string = ''): boolean => {
     const users = crmStorage.getUsers();
@@ -215,6 +218,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         canManageTeam,
         canEditProposal,
         isManager,
+        isDigitador,
         acceptedLGPD: true,
         acceptLGPD,
         theme,

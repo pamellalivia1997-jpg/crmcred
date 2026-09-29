@@ -6,7 +6,8 @@ import {
   BellRing,
   MoreHorizontal,
   Target,
-  DollarSign
+  DollarSign,
+  Calculator
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCRM } from '../../context/CRMContext';
@@ -22,49 +23,77 @@ export const BottomNav: React.FC<Props> = ({ currentTab, onSelectTab, onOpenMore
   const { alertas } = useCRM();
 
   const isVendedora = currentUser?.role === 'vendedora';
-  const isFinanceiro = currentUser?.role === 'financeiro';
+  const isDigitador = currentUser?.role === 'digitador';
   
   // Unread alerts count
   const unreadAlerts = alertas.filter(a => {
+    if (isDigitador) {
+      return a.tipo === 'portabilidade' && a.liberadoParaDigitador === true && a.status === 'nova';
+    }
     if (isVendedora) {
       return a.status === 'nova' && a.vendedoraResponsavel === currentUser?.name;
     }
     return a.status === 'nova';
   }).length;
 
-  const tabs = [
-    {
-      id: isVendedora ? 'vendedora_home' : 'dashboard',
-      label: isVendedora ? 'Minha Meta' : 'Painel',
-      icon: isVendedora ? Target : LayoutDashboard,
-    },
-    {
-      id: 'propostas',
-      label: 'Propostas',
-      icon: FileSpreadsheet,
-    },
-    {
-      id: 'clientes',
-      label: 'Clientes',
-      icon: Users,
-    },
-    {
-      id: 'alertas',
-      label: 'Alertas',
-      icon: BellRing,
-      badge: unreadAlerts > 0 ? unreadAlerts : undefined,
-    },
-    {
-      id: 'mais',
-      label: 'Mais',
-      icon: MoreHorizontal,
-      isAction: true,
-    },
-  ];
+  const tabs = isDigitador
+    ? [
+        {
+          id: 'digitador_home',
+          label: 'Digitação',
+          icon: Calculator,
+        },
+        {
+          id: 'propostas',
+          label: 'Propostas',
+          icon: FileSpreadsheet,
+        },
+        {
+          id: 'alertas',
+          label: 'Portabilidade',
+          icon: BellRing,
+          badge: unreadAlerts > 0 ? unreadAlerts : undefined,
+        },
+        {
+          id: 'mais',
+          label: 'Menu',
+          icon: MoreHorizontal,
+          isAction: true,
+        },
+      ]
+    : [
+        {
+          id: isVendedora ? 'vendedora_home' : 'dashboard',
+          label: isVendedora ? 'Minha Meta' : 'Painel',
+          icon: isVendedora ? Target : LayoutDashboard,
+        },
+        {
+          id: 'propostas',
+          label: 'Propostas',
+          icon: FileSpreadsheet,
+        },
+        {
+          id: 'clientes',
+          label: 'Clientes',
+          icon: Users,
+        },
+        {
+          id: 'alertas',
+          label: 'Alertas',
+          icon: BellRing,
+          badge: unreadAlerts > 0 ? unreadAlerts : undefined,
+        },
+        {
+          id: 'mais',
+          label: 'Mais',
+          icon: MoreHorizontal,
+          isAction: true,
+        },
+      ];
 
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-800 pb-safe shadow-lg">
-      <div className="grid grid-cols-5 h-15">
+      <div className={`grid ${tabs.length === 4 ? 'grid-cols-4' : 'grid-cols-5'} h-15`}>
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = currentTab === tab.id;

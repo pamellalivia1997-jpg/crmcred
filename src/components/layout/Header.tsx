@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Bell,
   Sun,
@@ -9,7 +10,8 @@ import {
   ShieldCheck,
   Menu,
   Sparkles,
-  LogOut
+  LogOut,
+  X
 } from 'lucide-react';
 import { BrandLogo } from '../common/BrandLogo';
 import { PWAInstallButton } from '../common/PWAInstallButton';
@@ -30,24 +32,29 @@ export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavig
 
   // Active unread alerts count
   const unreadAlertsCount = alertas.filter(a => {
+    if (currentUser?.role === 'digitador') {
+      return a.status === 'nova' && a.tipo === 'portabilidade' && a.liberadoParaDigitador;
+    }
     if (currentUser?.role === 'vendedora') {
       return a.status === 'nova' && a.vendedoraResponsavel === currentUser.name;
     }
     return a.status === 'nova';
   }).length;
 
-  const roleLabels = {
+  const roleLabels: Record<string, string> = {
     proprietaria: 'Gerencial',
     adm: 'ADM',
     financeiro: 'Financeiro',
-    vendedora: 'Vendedora'
+    vendedora: 'Vendedora',
+    digitador: 'Digitador(a)'
   };
 
-  const roleBadges = {
+  const roleBadges: Record<string, string> = {
     proprietaria: 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border-amber-300',
     adm: 'bg-purple-100 text-purple-800 dark:bg-purple-950/60 dark:text-purple-300 border-purple-300',
     financeiro: 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300 border-blue-300',
     vendedora: 'bg-teal-100 text-teal-800 dark:bg-teal-950/60 dark:text-teal-300 border-teal-300',
+    digitador: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950/60 dark:text-cyan-300 border-cyan-300'
   };
 
   return (
@@ -102,26 +109,39 @@ export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavig
               <ChevronDown className="w-3.5 h-3.5 text-slate-600 dark:text-slate-400 ml-0.5" />
             </button>
 
-            {/* Profile Switcher Dropdown */}
-            {showUserMenu && (
-              <>
+            {/* Profile Switcher Dropdown (Compact, contained within mobile and desktop viewport) */}
+            {showUserMenu && typeof document !== 'undefined' && createPortal(
+              <div className="fixed inset-0 z-50 pointer-events-auto">
+                {/* Click-outside backdrop */}
                 <div
-                  className="fixed inset-0 z-40"
+                  className="fixed inset-0 bg-black/25 dark:bg-black/45 backdrop-blur-2xs transition-opacity animate-in fade-in duration-150"
                   onClick={() => setShowUserMenu(false)}
                 />
-                <div className="absolute right-0 mt-2 w-72 sm:w-80 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl p-2 z-50 animate-in fade-in zoom-in-95 duration-150">
+
+                {/* Compact Dropdown Card anchored to top-right below navbar */}
+                <div className="fixed top-14 right-2 sm:right-6 w-72 sm:w-80 max-w-[calc(100vw-16px)] rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-3 z-10 animate-in fade-in zoom-in-95 duration-150 flex flex-col max-h-[75vh]">
                   {isManager ? (
                     <>
-                      <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800 mb-1">
-                        <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-                          Acesso Gerencial • Trocar Perfil
-                        </p>
-                        <p className="text-xs text-slate-600 dark:text-slate-300">
-                          Alterne a visão de demonstração:
-                        </p>
+                      <div className="flex items-center justify-between px-1 pb-2 border-b border-slate-100 dark:border-slate-800">
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                            Acesso Gerencial
+                          </p>
+                          <p className="text-xs font-bold text-slate-800 dark:text-slate-100">
+                            Alternar Perfil
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowUserMenu(false)}
+                          className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                          aria-label="Fechar"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
 
-                      <div className="space-y-1 max-h-64 overflow-y-auto py-1">
+                      <div className="space-y-1 overflow-y-auto py-1.5 max-h-56 sm:max-h-64 scrollbar-thin">
                         {allUsers.map((user) => {
                           const isSelected = user.id === currentUser?.id;
                           const displayName = cleanPersonName(user.name);
@@ -132,7 +152,13 @@ export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavig
                                 switchUser(user.id);
                                 setShowUserMenu(false);
                                 if (onNavigate) {
-                                  onNavigate(user.role === 'vendedora' ? 'vendedora_home' : 'dashboard');
+                                  if (user.role === 'vendedora') {
+                                    onNavigate('vendedora_home');
+                                  } else if (user.role === 'digitador') {
+                                    onNavigate('digitador_home');
+                                  } else {
+                                    onNavigate('dashboard');
+                                  }
                                 }
                               }}
                               className={`w-full flex items-center justify-between p-2 rounded-xl text-left transition-colors ${
@@ -141,21 +167,21 @@ export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavig
                                   : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'
                               }`}
                             >
-                              <div className="flex items-center gap-2.5 min-w-0">
-                                <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center font-bold text-xs text-slate-700 dark:text-slate-300 shrink-0">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center font-bold text-[10px] text-slate-700 dark:text-slate-300 shrink-0">
                                   {displayName.slice(0, 2).toUpperCase()}
                                 </div>
                                 <div className="min-w-0">
                                   <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
                                     {displayName}
                                   </p>
-                                  <p className="text-[11px] text-slate-600 dark:text-slate-400 truncate">
-                                    {roleLabels[user.role]}
+                                  <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate font-mono">
+                                    {user.email}
                                   </p>
                                 </div>
                               </div>
 
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${roleBadges[user.role]}`}>
+                              <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border shrink-0 ${roleBadges[user.role]}`}>
                                 {user.role === 'proprietaria' ? 'Gerencial' : user.role}
                               </span>
                             </button>
@@ -163,56 +189,74 @@ export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavig
                         })}
                       </div>
 
-                      <div className="mt-2 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between px-2">
+                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between px-1">
                         <button
+                          type="button"
                           onClick={() => {
                             if (confirm('Deseja restaurar todos os dados fictícios originais de apresentação?')) {
                               resetAllData();
                               setShowUserMenu(false);
                             }
                           }}
-                          className="flex items-center gap-1.5 text-[11px] font-medium text-amber-600 dark:text-amber-400 hover:underline"
+                          className="flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400 hover:underline py-0.5 px-1"
                         >
-                          <RotateCcw className="w-3.5 h-3.5" />
+                          <RotateCcw className="w-3 h-3" />
                           <span>Restaurar demo</span>
                         </button>
 
                         <button
+                          type="button"
                           onClick={() => {
                             setShowUserMenu(false);
                             logout();
                           }}
-                          className="flex items-center gap-1.5 text-[11px] font-bold text-rose-600 dark:text-rose-400 hover:underline"
+                          className="flex items-center gap-1 text-[11px] font-bold text-rose-600 dark:text-rose-400 hover:underline py-0.5 px-1"
                         >
-                          <LogOut className="w-3.5 h-3.5" />
+                          <LogOut className="w-3 h-3" />
                           <span>Desconectar</span>
                         </button>
                       </div>
                     </>
                   ) : (
-                    <div className="p-3 space-y-3">
-                      <div>
-                        <span className="text-[10px] font-bold uppercase text-teal-600 dark:text-teal-400">
-                          Sessão da Vendedora
-                        </span>
-                        <p className="font-extrabold text-sm text-slate-900 dark:text-white">
-                          {cleanPersonName(currentUser?.name)}
-                        </p>
-                        <p className="text-xs text-slate-500 font-mono">
-                          {currentUser?.email}
-                        </p>
+                    <div className="p-1 space-y-2.5">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <span className={`text-[9px] font-bold uppercase ${
+                            currentUser?.role === 'digitador'
+                              ? 'text-cyan-600 dark:text-cyan-400'
+                              : 'text-teal-600 dark:text-teal-400'
+                          }`}>
+                            {currentUser?.role === 'digitador' ? 'Sessão da Digitadora' : 'Sessão da Vendedora'}
+                          </span>
+                          <p className="font-extrabold text-xs text-slate-900 dark:text-white mt-0.5">
+                            {cleanPersonName(currentUser?.name)}
+                          </p>
+                          <p className="text-[10px] text-slate-500 font-mono">
+                            {currentUser?.email}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowUserMenu(false)}
+                          className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
                       </div>
 
-                      <p className="text-[11px] text-slate-500 border-t border-slate-100 dark:border-slate-800 pt-2">
-                        Área operacional restrita. Informações gerenciais são visíveis exclusivamente para Lívia, ADM e Financeiro.
+                      <p className="text-[10px] text-slate-500 border-t border-slate-100 dark:border-slate-800 pt-1.5 leading-snug">
+                        {currentUser?.role === 'digitador'
+                          ? 'Perfil de digitação rápida e simulações. Propostas próprias e leads autorizados por ADM.'
+                          : 'Área operacional restrita de vendas.'}
                       </p>
 
                       <button
+                        type="button"
                         onClick={() => {
                           setShowUserMenu(false);
                           logout();
                         }}
-                        className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 font-bold text-xs transition"
+                        className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 font-bold text-xs transition"
                       >
                         <LogOut className="w-3.5 h-3.5" />
                         <span>Sair / Trocar de Usuário</span>
@@ -220,7 +264,8 @@ export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavig
                     </div>
                   )}
                 </div>
-              </>
+              </div>,
+              document.body
             )}
           </div>
 
