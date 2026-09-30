@@ -42,7 +42,7 @@ interface SellerMonthMeta {
 
 export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => {
   const { metas, feedbacks, propostas, saveMeta, saveFeedback, importFullSpreadsheetRows } = useCRM();
-  const { allUsers, currentUser } = useAuth();
+  const { allUsers, currentUser, saveUser } = useAuth();
 
   const [activeSubTab, setActiveSubTab] = useState<'metas' | 'feedbacks' | 'importador'>(
     initialSubTab === 'feedbacks' || initialSubTab === 'importador' ? initialSubTab : 'metas'
@@ -248,6 +248,14 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
         metaPercentualTaxa: 11.0,
         isAtivoNoMes: item.isAtivo
       });
+
+      const foundUser = allUsers.find(u => u.id === item.vendedoraId);
+      if (foundUser) {
+        saveUser({
+          ...foundUser,
+          monthlySalesGoal: item.metaVenda
+        });
+      }
     });
 
     setMetasSalvasNotice(true);
@@ -555,8 +563,7 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
                     <th className="py-2.5 px-3">Vendedora</th>
                     <th className="py-2.5 px-3">Status no Mês</th>
                     <th className="py-2.5 px-3">Meta Individual (R$)</th>
-                    <th className="py-2.5 px-3">% do Total da Loja</th>
-                    <th className="py-2.5 px-3 text-right">Realizado no Mês</th>
+                    <th className="py-2.5 px-3 text-right">% do Total da Loja</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
@@ -568,12 +575,7 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
                       metaVenda: 0
                     };
 
-                    const sellerProps = actualSalesForSelectedMonth.monthProposals.filter(
-                      p => normalizeSellerName(p.vendedora) === normalizeSellerName(seller.name)
-                    );
-                    const realizado = sellerProps.reduce((acc, p) => acc + p.valorEmprestimo, 0);
                     const pctOfStore = totalMetaLojaInput > 0 ? (item.metaVenda / totalMetaLojaInput) * 100 : 0;
-                    const atingimento = item.metaVenda > 0 ? (realizado / item.metaVenda) * 100 : 0;
 
                     return (
                       <tr
@@ -653,67 +655,12 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
                           </div>
                         </td>
 
-                        <td className="py-3 px-3 tabular-nums font-bold text-slate-600 dark:text-slate-400">
+                        <td className="py-3 px-3 tabular-nums font-bold text-slate-600 dark:text-slate-400 text-right">
                           {formatPercent(pctOfStore)}
-                        </td>
-
-                        <td className="py-3 px-3 text-right">
-                          <span className="font-extrabold text-slate-900 dark:text-white tabular-nums block">
-                            {formatCurrency(realizado)}
-                          </span>
-                          <span className={`text-[10px] font-bold tabular-nums ${atingimento >= 100 ? 'text-emerald-600' : 'text-amber-600'}`}>
-                            {formatPercent(atingimento)} atingido
-                          </span>
                         </td>
                       </tr>
                     );
                   })}
-
-                  {/* Vendas agrupadas em "Outros" */}
-                  {actualSalesForSelectedMonth.outrosCount > 0 && (
-                    <tr className="bg-amber-50/40 dark:bg-amber-950/20 border-t-2 border-amber-200 dark:border-amber-900/40">
-                      <td className="py-3 px-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full bg-amber-100 text-amber-800 font-bold text-xs flex items-center justify-center">
-                            OU
-                          </div>
-                          <div>
-                            <p className="font-bold text-amber-950 dark:text-amber-200">
-                              Outros
-                            </p>
-                            <p className="text-[10px] text-slate-400">Contratos atribuídos a Outros</p>
-                          </div>
-                        </div>
-                      </td>
-
-                      <td className="py-3 px-3">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
-                          Outros
-                        </span>
-                      </td>
-
-                      <td className="py-3 px-3">
-                        <span className="text-xs font-semibold text-slate-400 italic">
-                          Sem meta ativa
-                        </span>
-                      </td>
-
-                      <td className="py-3 px-3 tabular-nums font-bold text-slate-500">
-                        {totalMetaLojaInput > 0
-                          ? formatPercent((actualSalesForSelectedMonth.outrosTotal / totalMetaLojaInput) * 100)
-                          : '-'}
-                      </td>
-
-                      <td className="py-3 px-3 text-right">
-                        <span className="font-extrabold text-amber-900 dark:text-amber-300 tabular-nums block">
-                          {formatCurrency(actualSalesForSelectedMonth.outrosTotal)}
-                        </span>
-                        <span className="text-[10px] font-medium text-slate-500">
-                          {actualSalesForSelectedMonth.outrosCount} contratos pagos
-                        </span>
-                      </td>
-                    </tr>
-                  )}
                 </tbody>
               </table>
             </div>

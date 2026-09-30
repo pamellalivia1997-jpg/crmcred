@@ -337,7 +337,9 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                     <td className="py-2.5 px-3 text-slate-500">{prop.promotora}</td>
                     <td className="py-2.5 px-3 text-right font-extrabold text-slate-900 dark:text-white tabular-nums">{formatCurrency(prop.valorEmprestimo)}</td>
                     <td className="py-2.5 px-3 text-right font-bold text-amber-600 dark:text-amber-400 tabular-nums">{formatCurrency(prop.valorTaxa)}</td>
-                    <td className="py-2.5 px-3 text-right tabular-nums text-slate-500">{prop.percentualTaxa}%</td>
+                    <td className="py-2.5 px-3 text-right tabular-nums text-slate-500">
+                      {formatPercent(prop.percentualTaxa, 1)}
+                    </td>
                     <td className="py-2.5 px-3 text-slate-600 dark:text-slate-400">{prop.vendedora}</td>
                     <td className="py-2.5 px-3 text-center">
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${

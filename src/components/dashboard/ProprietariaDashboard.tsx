@@ -269,9 +269,67 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   const ticketMedio = paidPropostas.length > 0 ? totalVendas / paidPropostas.length : 0;
   const percentualMedioTaxa = totalVendas > 0 ? (totalTaxas / totalVendas) * 100 : 0;
 
+  // Comparative period deltas
+  const { prevPeriodVendas, prevPeriodTaxas, deltaLabel } = useMemo(() => {
+    let prevProps: Proposta[] = [];
+    let label = 'vs mês ant.';
+
+    if (periodo === 'hoje') {
+      const yesterday = new Date(baseDateInfo.todayStr);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+      prevProps = propostas.filter(p => p.dataDigitacao === yStr && p.status === 'Paga');
+      label = 'vs ontem';
+    } else if (periodo === 'semana') {
+      // Semana anterior
+      prevProps = propostas.filter(p => {
+        const d = p.dataDigitacao;
+        return (
+          p.status === 'Paga' &&
+          ((d >= baseDateInfo.lastFridayStr && d <= baseDateInfo.sundayCurrentStr) ||
+           (d >= baseDateInfo.prevFridayStr && d <= baseDateInfo.prevSundayStr) ||
+           (d >= baseDateInfo.prevSundayStr && d <= baseDateInfo.sundayCurrentStr))
+        );
+      });
+      label = 'vs semana ant.';
+    } else if (periodo === 'semana_anterior') {
+      label = 'vs semana ant.';
+    } else if (periodo === 'mes') {
+      prevProps = propostas.filter(p => p.dataDigitacao.startsWith(baseDateInfo.prevMonthStr) && p.status === 'Paga');
+      label = 'vs mês ant.';
+    } else if (periodo === 'mes_anterior') {
+      prevProps = propostas.filter(p => p.dataDigitacao.startsWith(baseDateInfo.prev2MonthsStr) && p.status === 'Paga');
+      label = 'vs mês ant.';
+    } else if (periodo === 'ultimos_3_meses') {
+      label = 'vs período ant.';
+    } else if (periodo === 'ano') {
+      const prevYear = String((anoSelecionado || 2026) - 1);
+      prevProps = propostas.filter(p => p.dataDigitacao.startsWith(prevYear) && p.status === 'Paga');
+      label = 'vs ano ant.';
+    } else {
+      label = 'vs período ant.';
+    }
+
+    const pVendas = prevProps.reduce((acc, p) => acc + (p.valorEmprestimo || 0), 0);
+    const pTaxas = prevProps.reduce((acc, p) => acc + (p.valorTaxa || 0), 0);
+    return { prevPeriodVendas: pVendas, prevPeriodTaxas: pTaxas, deltaLabel: label };
+  }, [propostas, periodo, baseDateInfo, anoSelecionado]);
+
+  const deltaVendas = prevPeriodVendas > 0 ? ((totalVendas - prevPeriodVendas) / prevPeriodVendas) * 100 : 0;
+
+  // Active saleswomen list (only role === 'vendedora', active status, and not inactivated in month)
+  const activeSellers = useMemo(() => {
+    return allUsers.filter(u => {
+      if (u.role !== 'vendedora') return false;
+      if (u.status !== 'ativo') return false;
+      const foundMeta = metas.find(m => (m.vendedoraId === u.id || normalizeSellerName(m.vendedoraNome) === normalizeSellerName(u.name)) && m.mesAno === baseDateInfo.currentMonthStr);
+      if (foundMeta && foundMeta.isAtivoNoMes === false) return false;
+      return true;
+    });
+  }, [allUsers, metas, baseDateInfo]);
+
   // Store meta sum calculation based on individual saleswomen targets (ONLY users with role === 'vendedora')
   const storeMetaMonthly = useMemo(() => {
-    const activeSellers = allUsers.filter(u => u.role === 'vendedora' && u.status === 'ativo');
     const reps = activeSellers.map(u => normalizeSellerName(u.name)).filter(n => n && n !== 'Outros');
     
     let sum = 0;
@@ -300,7 +358,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
       }
     });
     return sum > 0 ? sum : 335000;
-  }, [metas, allUsers, baseDateInfo]);
+  }, [activeSellers, metas, allUsers, baseDateInfo]);
 
   const metaLoja = useMemo(() => {
     let periodMultiplier = 1;
@@ -321,16 +379,11 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   const atingimentoMeta = metaLoja > 0 ? (totalVendas / metaLoja) * 100 : 0;
   const quantoFalta = Math.max(0, metaLoja - totalVendas);
 
-  // Previous month comparative deltas
-  const prevMonthVendas = prevMonthPropostas.reduce((acc, p) => acc + p.valorEmprestimo, 0);
-  const deltaVendas = prevMonthVendas > 0 ? ((totalVendas - prevMonthVendas) / prevMonthVendas) * 100 : 0;
-
   // Ranking of sales reps (ONLY active users registered as 'vendedora'; everything else goes to 'Outros')
   const rankingVendedoras = useMemo(() => {
     const sellersMap = new Map<string, { nome: string; vendas: number; taxa: number; count: number; meta: number }>();
 
     // Dynamic list of active registered vendedoras ONLY
-    const activeSellers = allUsers.filter(u => u.role === 'vendedora' && u.status === 'ativo');
     const reps = activeSellers.map(u => normalizeSellerName(u.name)).filter(n => n && n !== 'Outros');
     
     // Period multiplier for scaling
@@ -408,7 +461,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     }
 
     return Array.from(sellersMap.values()).sort((a, b) => b.vendas - a.vendas);
-  }, [paidPropostas, metas, allUsers, periodo, baseDateInfo, dataInicioPersonalizada, dataFimPersonalizada]);
+  }, [paidPropostas, activeSellers, metas, allUsers, periodo, baseDateInfo, dataInicioPersonalizada, dataFimPersonalizada]);
 
   // Operations breakdown & profitability
   const operationsChartData = useMemo(() => {
@@ -560,46 +613,105 @@ export const ProprietariaDashboard: React.FC<Props> = ({
         </div>
 
         {/* Period Filter Buttons */}
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-            {/* 1. Hoje */}
+        <div className="flex items-center gap-1.5 overflow-visible relative">
+          {/* Transparent backdrop for mobile/desktop click outside */}
+          {openSubmenu && (
+            <div
+              className="fixed inset-0 z-[50]"
+              onClick={() => setOpenSubmenu(null)}
+            />
+          )}
+
+          {/* 1. Hoje */}
+          <button
+            type="button"
+            onClick={() => {
+              setPeriodo('hoje');
+              setOpenSubmenu(null);
+            }}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+              periodo === 'hoje'
+                ? 'bg-[#0B2A4A] text-white shadow-xs'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+            }`}
+          >
+            Hoje
+          </button>
+
+          {/* 2. Semana */}
+          <div
+            className="relative"
+            onMouseEnter={() => setOpenSubmenu('semana')}
+            onMouseLeave={() => setOpenSubmenu(null)}
+          >
             <button
               type="button"
               onClick={() => {
-                setPeriodo('hoje');
-                setOpenSubmenu(null);
+                setPeriodo('semana');
+                setOpenSubmenu(openSubmenu === 'semana' ? null : 'semana');
               }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
-                periodo === 'hoje'
-                  ? 'bg-[#0B2A4A] text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 active:bg-slate-300'
-              }`}
-            >
-              Hoje
-            </button>
-
-            {/* 2. Semana */}
-            <button
-              type="button"
-              onClick={() => setOpenSubmenu('semana')}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
                 periodo === 'semana' || periodo === 'semana_anterior'
                   ? 'bg-[#0B2A4A] text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 active:bg-slate-300'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
             >
               <span>{periodo === 'semana_anterior' ? 'Semana Anterior' : 'Semana'}</span>
               <ChevronDown className="w-3.5 h-3.5 opacity-80" />
             </button>
 
-            {/* 3. Este Mês */}
+            {openSubmenu === 'semana' && (
+              <div className="absolute top-full left-0 mt-1 z-[60] min-w-[150px] bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPeriodo('semana');
+                    setOpenSubmenu(null);
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-between ${
+                    periodo === 'semana'
+                      ? 'bg-teal-600 text-white shadow-xs'
+                      : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  <span>Semana Atual</span>
+                  {periodo === 'semana' && <Check className="w-3.5 h-3.5" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPeriodo('semana_anterior');
+                    setOpenSubmenu(null);
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-between ${
+                    periodo === 'semana_anterior'
+                      ? 'bg-teal-600 text-white shadow-xs'
+                      : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  <span>Semana Anterior</span>
+                  {periodo === 'semana_anterior' && <Check className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* 3. Este Mês */}
+          <div
+            className="relative"
+            onMouseEnter={() => setOpenSubmenu('mes')}
+            onMouseLeave={() => setOpenSubmenu(null)}
+          >
             <button
               type="button"
-              onClick={() => setOpenSubmenu('mes')}
+              onClick={() => {
+                setPeriodo('mes');
+                setOpenSubmenu(openSubmenu === 'mes' ? null : 'mes');
+              }}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
                 periodo === 'mes' || periodo === 'mes_anterior' || periodo === 'ultimos_3_meses'
                   ? 'bg-[#0B2A4A] text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 active:bg-slate-300'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
             >
               <span>
@@ -608,171 +720,121 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               <ChevronDown className="w-3.5 h-3.5 opacity-80" />
             </button>
 
-            {/* 4. Filtro de Ano */}
+            {openSubmenu === 'mes' && (
+              <div className="absolute top-full left-0 mt-1 z-[60] min-w-[160px] bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPeriodo('mes');
+                    setOpenSubmenu(null);
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-between ${
+                    periodo === 'mes'
+                      ? 'bg-teal-600 text-white shadow-xs'
+                      : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  <span>Este Mês</span>
+                  {periodo === 'mes' && <Check className="w-3.5 h-3.5" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPeriodo('mes_anterior');
+                    setOpenSubmenu(null);
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-between ${
+                    periodo === 'mes_anterior'
+                      ? 'bg-teal-600 text-white shadow-xs'
+                      : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  <span>Mês Anterior</span>
+                  {periodo === 'mes_anterior' && <Check className="w-3.5 h-3.5" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPeriodo('ultimos_3_meses');
+                    setOpenSubmenu(null);
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-between ${
+                    periodo === 'ultimos_3_meses'
+                      ? 'bg-teal-600 text-white shadow-xs'
+                      : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                  }`}
+                >
+                  <span>Últimos 3 Meses</span>
+                  {periodo === 'ultimos_3_meses' && <Check className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* 4. Filtro de Ano */}
+          <div
+            className="relative"
+            onMouseEnter={() => setOpenSubmenu('ano')}
+            onMouseLeave={() => setOpenSubmenu(null)}
+          >
             <button
               type="button"
-              onClick={() => setOpenSubmenu('ano')}
+              onClick={() => {
+                setPeriodo('ano');
+                setOpenSubmenu(openSubmenu === 'ano' ? null : 'ano');
+              }}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
                 periodo === 'ano'
                   ? 'bg-[#0B2A4A] text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 active:bg-slate-300'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
               }`}
             >
               <span>{periodo === 'ano' && anoSelecionado ? String(anoSelecionado) : '2026'}</span>
               <ChevronDown className="w-3.5 h-3.5 opacity-80" />
             </button>
 
-            {/* 5. Personalizado */}
-            <button
-              type="button"
-              onClick={() => {
-                setPeriodo('personalizado');
-                setOpenSubmenu(null);
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-                periodo === 'personalizado'
-                  ? 'bg-[#0B2A4A] text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 active:bg-slate-300'
-              }`}
-            >
-              <Calendar className="w-3.5 h-3.5" />
-              <span>Personalizado</span>
-            </button>
+            {openSubmenu === 'ano' && (
+              <div className="absolute top-full left-0 mt-1 z-[60] min-w-[120px] bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-100">
+                {[2026, 2025, 2024, 2023, 2022].map((yr) => (
+                  <button
+                    key={yr}
+                    type="button"
+                    onClick={() => {
+                      setAnoSelecionado(yr);
+                      setPeriodo('ano');
+                      setOpenSubmenu(null);
+                    }}
+                    className={`w-full text-left px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center justify-between ${
+                      periodo === 'ano' && (anoSelecionado === yr || (!anoSelecionado && yr === 2026))
+                        ? 'bg-teal-600 text-white shadow-xs'
+                        : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    <span>{yr}</span>
+                    {periodo === 'ano' && (anoSelecionado === yr || (!anoSelecionado && yr === 2026)) && <Check className="w-3.5 h-3.5" />}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Fixed Screen-Wide Popover Overlay for Period Selection (No scrolling bugs on mobile) */}
-          {openSubmenu && (
-            <div
-              className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150"
-              onClick={() => setOpenSubmenu(null)}
-            >
-              <div
-                className="w-full max-w-xs bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl p-4 space-y-2 animate-in zoom-in-95 duration-150"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-                  <span className="font-extrabold text-xs text-slate-800 dark:text-white uppercase tracking-wider">
-                    {openSubmenu === 'semana' ? 'Filtrar por Semana' : openSubmenu === 'mes' ? 'Filtrar por Mês' : 'Selecionar Ano'}
-                  </span>
-                  <button
-                    onClick={() => setOpenSubmenu(null)}
-                    className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {openSubmenu === 'semana' && (
-                  <div className="space-y-1.5 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPeriodo('semana');
-                        setOpenSubmenu(null);
-                      }}
-                      className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-between ${
-                        periodo === 'semana'
-                          ? 'bg-teal-600 text-white shadow-xs'
-                          : 'bg-slate-50 text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200'
-                      }`}
-                    >
-                      <span>Semana Atual (Dom até Hoje)</span>
-                      {periodo === 'semana' && <Check className="w-4 h-4" />}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPeriodo('semana_anterior');
-                        setOpenSubmenu(null);
-                      }}
-                      className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-between ${
-                        periodo === 'semana_anterior'
-                          ? 'bg-teal-600 text-white shadow-xs'
-                          : 'bg-slate-50 text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200'
-                      }`}
-                    >
-                      <span>Semana Anterior</span>
-                      {periodo === 'semana_anterior' && <Check className="w-4 h-4" />}
-                    </button>
-                  </div>
-                )}
-
-                {openSubmenu === 'mes' && (
-                  <div className="space-y-1.5 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPeriodo('mes');
-                        setOpenSubmenu(null);
-                      }}
-                      className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-between ${
-                        periodo === 'mes'
-                          ? 'bg-teal-600 text-white shadow-xs'
-                          : 'bg-slate-50 text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200'
-                      }`}
-                    >
-                      <span>Este Mês ({baseDateInfo.currentMonthStr})</span>
-                      {periodo === 'mes' && <Check className="w-4 h-4" />}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPeriodo('mes_anterior');
-                        setOpenSubmenu(null);
-                      }}
-                      className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-between ${
-                        periodo === 'mes_anterior'
-                          ? 'bg-teal-600 text-white shadow-xs'
-                          : 'bg-slate-50 text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200'
-                      }`}
-                    >
-                      <span>Mês Anterior ({baseDateInfo.prevMonthStr})</span>
-                      {periodo === 'mes_anterior' && <Check className="w-4 h-4" />}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPeriodo('ultimos_3_meses');
-                        setOpenSubmenu(null);
-                      }}
-                      className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-between ${
-                        periodo === 'ultimos_3_meses'
-                          ? 'bg-teal-600 text-white shadow-xs'
-                          : 'bg-slate-50 text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200'
-                      }`}
-                    >
-                      <span>Últimos Três Meses</span>
-                      {periodo === 'ultimos_3_meses' && <Check className="w-4 h-4" />}
-                    </button>
-                  </div>
-                )}
-
-                {openSubmenu === 'ano' && (
-                  <div className="space-y-1.5 pt-1 max-h-60 overflow-y-auto">
-                    {[2026, 2025, 2024, 2023, 2022].map((yr) => (
-                      <button
-                        key={yr}
-                        type="button"
-                        onClick={() => {
-                          setAnoSelecionado(yr);
-                          setPeriodo('ano');
-                          setOpenSubmenu(null);
-                        }}
-                        className={`w-full text-left px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center justify-between ${
-                          periodo === 'ano' && (anoSelecionado === yr || (!anoSelecionado && yr === 2026))
-                            ? 'bg-teal-600 text-white shadow-xs'
-                            : 'bg-slate-50 text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200'
-                        }`}
-                      >
-                        <span>{yr} {yr === 2026 ? '(Ano Atual)' : ''}</span>
-                        {periodo === 'ano' && (anoSelecionado === yr || (!anoSelecionado && yr === 2026)) && <Check className="w-4 h-4" />}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          {/* 5. Personalizado */}
+          <button
+            type="button"
+            onClick={() => {
+              setPeriodo('personalizado');
+              setOpenSubmenu(null);
+            }}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+              periodo === 'personalizado'
+                ? 'bg-[#0B2A4A] text-white shadow-xs'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5" />
+            <span>Personalizado</span>
+          </button>
+        </div>
 
           {/* Inline Date Range Picker for "Personalizado" */}
           {periodo === 'personalizado' && (
@@ -804,7 +866,6 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               </span>
             </div>
           )}
-        </div>
       </div>
 
       {/* Global Month Target Progress Banner */}
@@ -882,7 +943,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
                 {deltaVendas.toFixed(1)}%
               </span>
             )}
-            <span className="text-slate-400">vs mês ant.</span>
+            <span className="text-slate-400">{deltaLabel}</span>
           </div>
         </div>
 
@@ -1013,9 +1074,12 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               <div
                 key={vendedora.nome}
                 onClick={() => {
-                  const activeSellersSet = new Set(allUsers.filter(u => u.status === 'ativo').map(u => normalizeSellerName(u.name)));
+                  const recognizedRepsSet = new Set(activeSellers.map(u => normalizeSellerName(u.name)).filter(n => n && n !== 'Outros'));
                   const propsForSeller = vendedora.nome === 'Outros'
-                    ? filteredPropostas.filter(p => !activeSellersSet.has(normalizeSellerName(p.vendedora)) && !normalizeSellerName(p.vendedora).includes('IGARASSU'))
+                    ? filteredPropostas.filter(p => {
+                        const norm = normalizeSellerName(p.vendedora);
+                        return !norm || norm === 'Outros' || !recognizedRepsSet.has(norm);
+                      })
                     : filteredPropostas.filter(p => normalizeSellerName(p.vendedora) === vendedora.nome);
                   setSelectedSellerName(vendedora.nome);
                   setSelectedSellerProposals(propsForSeller);
@@ -1063,11 +1127,11 @@ export const ProprietariaDashboard: React.FC<Props> = ({
                     ) : (
                       <>
                         <p className="text-slate-500 font-semibold flex items-center gap-1.5 sm:justify-end">
-                          <span>Pagos - meta {formatCompactMeta(metaVenda)} :</span>
+                          <span>Pagos:</span>
                           <span className="font-black text-[#0F5C63] dark:text-[#28B0B7]">{formatCurrency(vendedora.vendas)}</span>
                         </p>
                         <p className="text-slate-500 font-semibold mt-1 flex items-center gap-1.5 sm:justify-end">
-                          <span>Taxa - meta {formatCompactMeta(metaTaxa)} :</span>
+                          <span>Taxa:</span>
                           <span className="font-black text-amber-600 dark:text-amber-400">{formatCurrency(vendedora.taxa)}</span>
                         </p>
                       </>

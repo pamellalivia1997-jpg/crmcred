@@ -481,7 +481,7 @@ export const crmStorage = {
         promotora: (row.promotora as Promotora) || 'J2 Promotora',
         valorEmprestimo: parsedEmp,
         valorTaxa: parsedTaxa,
-        percentualTaxa: parsedPercentTaxa || (parsedEmp > 0 ? (parsedTaxa / parsedEmp) * 100 : 0),
+        percentualTaxa: parsedPercentTaxa ? Number(parsedPercentTaxa.toFixed(2)) : (parsedEmp > 0 ? Number(((parsedTaxa / parsedEmp) * 100).toFixed(2)) : 0),
         taxaPaga: statusProp === 'Paga',
         clientePagouTaxa: String(row.clientePagou).toUpperCase() === 'SIM' || parsedTaxa > 0,
         vendedora: sellerName,
