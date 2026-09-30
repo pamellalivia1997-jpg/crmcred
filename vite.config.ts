@@ -26,13 +26,13 @@ export default defineConfig(() => {
           scope: basePath,
           icons: [
             {
-              src: '/logo.png',
+              src: 'logo.png',
               sizes: '192x192 512x512',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: '/logo.png',
+              src: 'logo.png',
               sizes: '192x192 512x512',
               type: 'image/png',
               purpose: 'maskable',

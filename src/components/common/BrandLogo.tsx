@@ -18,7 +18,7 @@ export const BrandLogo: React.FC<Props> = ({ className = '', size = 'md', showSu
     <div className={`flex items-center select-none ${className}`}>
       <div className={`relative ${iconSizes[size]} shrink-0`}>
         <img
-          src="/logo.png"
+          src="logo.png"
           alt="Lívia Cred Saúde"
           className="h-full w-auto object-contain"
           style={{ background: 'transparent' }}
