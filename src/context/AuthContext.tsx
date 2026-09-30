@@ -276,7 +276,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return { success: true };
     } catch (e) {
       console.error('Erro na autenticação Firebase Auth Google:', e);
-      return { success: false, message: 'Erro ao autenticar com o Firebase Auth Google. Tente novamente.' };
+      return { success: false, message: `Erro ao autenticar: ${e instanceof Error ? e.message : 'Tente novamente.'}` };
     }
   };
 
