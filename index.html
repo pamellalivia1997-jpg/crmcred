@@ -8,10 +8,12 @@
     <meta property="og:title" content="Lívia Cred Saúde CRM" />
     <meta property="og:description" content="CRM e gestão operacional de correspondente de crédito consignado: propostas, comissões de promotoras, metas, ranking e rentabilidade." />
     <meta property="og:type" content="website" />
-    <meta name="theme-color" content="#0B2A4A" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="background-color" content="#ffffff" />
+    <meta name="msapplication-navbutton-color" content="#ffffff" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Lívia Cred" />
     <link rel="icon" href="logo.png" />
     <link rel="apple-touch-icon" href="logo.png" />
@@ -19,8 +21,15 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   </head>
-  <body class="bg-slate-50 text-slate-900 antialiased selection:bg-teal-500/20 selection:text-teal-900 min-h-screen">
-    <div id="root"></div>
+  <body class="bg-white text-slate-900 antialiased selection:bg-teal-500/20 selection:text-teal-900 min-h-screen">
+    <div id="root">
+      <div style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #ffffff; padding: 20px;">
+        <div style="background-color: #ffffff; padding: 20px 28px; border-radius: 24px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; box-shadow: 0 4px 24px rgba(11,42,74,0.06);">
+          <img src="logo.png" alt="Lívia Cred Saúde" style="height: 68px; max-width: 240px; object-fit: contain; background: #ffffff;" />
+          <div style="width: 36px; height: 4px; background: #0F5C63; border-radius: 9999px; opacity: 0.85;"></div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

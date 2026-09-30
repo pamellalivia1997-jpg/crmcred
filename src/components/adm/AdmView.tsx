@@ -25,7 +25,8 @@ import {
   formatPercent,
   formatDate,
   cleanPersonName,
-  getMonthYearLabel
+  getMonthYearLabel,
+  normalizeSellerName
 } from '../../utils/formatters';
 
 interface AdmViewProps {
@@ -53,7 +54,7 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
     }
   }, [initialSubTab]);
 
-  // All sellers in company
+  // Only registered sellers (role === 'vendedora') have individual sales goals
   const sellersList = useMemo(() => {
     return allUsers.filter(u => u.role === 'vendedora');
   }, [allUsers]);
@@ -258,14 +259,15 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
     const monthProposals = propostas.filter(p => p.dataDigitacao.startsWith(selectedMesAno) && p.status === 'Paga');
     const totalMonthSales = monthProposals.reduce((acc, p) => acc + p.valorEmprestimo, 0);
     
-    // Check sales of ex-collaborators or unmapped ("Outros")
-    const activeNamesSet = new Set(sellersList.map(s => cleanPersonName(s.name).toUpperCase()));
+    // Set of registered sales team
+    const recognizedTeamSet = new Set(sellersList.map(u => normalizeSellerName(u.name)));
+
     let outrosTotal = 0;
     let outrosCount = 0;
 
     monthProposals.forEach(p => {
-      const cleanVendedora = cleanPersonName(p.vendedora).toUpperCase();
-      if (!activeNamesSet.has(cleanVendedora)) {
+      const normVendedora = normalizeSellerName(p.vendedora);
+      if (!normVendedora || normVendedora === 'Outros' || !recognizedTeamSet.has(normVendedora)) {
         outrosTotal += p.valorEmprestimo;
         outrosCount++;
       }
@@ -567,7 +569,7 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
                     };
 
                     const sellerProps = actualSalesForSelectedMonth.monthProposals.filter(
-                      p => cleanPersonName(p.vendedora).toUpperCase() === cleanPersonName(seller.name).toUpperCase()
+                      p => normalizeSellerName(p.vendedora) === normalizeSellerName(seller.name)
                     );
                     const realizado = sellerProps.reduce((acc, p) => acc + p.valorEmprestimo, 0);
                     const pctOfStore = totalMetaLojaInput > 0 ? (item.metaVenda / totalMetaLojaInput) * 100 : 0;
@@ -667,7 +669,7 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
                     );
                   })}
 
-                  {/* Vendas de Ex-Funcionários agrupadas em "Outros" */}
+                  {/* Vendas agrupadas em "Outros" */}
                   {actualSalesForSelectedMonth.outrosCount > 0 && (
                     <tr className="bg-amber-50/40 dark:bg-amber-950/20 border-t-2 border-amber-200 dark:border-amber-900/40">
                       <td className="py-3 px-3">
@@ -676,18 +678,17 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
                             OU
                           </div>
                           <div>
-                            <p className="font-bold text-amber-950 dark:text-amber-200 flex items-center gap-1.5">
-                              <span>Outros (Ex-Funcionários)</span>
-                              <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-200 text-amber-900 font-semibold">Histórico</span>
+                            <p className="font-bold text-amber-950 dark:text-amber-200">
+                              Outros
                             </p>
-                            <p className="text-[10px] text-slate-400">Contratos de colaboradores anteriores</p>
+                            <p className="text-[10px] text-slate-400">Contratos atribuídos a Outros</p>
                           </div>
                         </div>
                       </td>
 
                       <td className="py-3 px-3">
                         <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
-                          Ex-colaboradores
+                          Outros
                         </span>
                       </td>
 
@@ -717,16 +718,16 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
               </table>
             </div>
 
-            {/* Informative Card: 7. Tratamento de Vendas de Ex-Funcionários ("Outros") */}
+            {/* Informative Card: Outros */}
             <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
               <div className="flex items-start gap-2.5">
                 <Info className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
                 <div>
                   <p className="font-bold text-slate-800 dark:text-slate-200">
-                    Vendas de Ex-Funcionários & Contratos Anteriores ("Outros")
+                    Contratos em "Outros"
                   </p>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    Contratos importados de colaboradores que não fazem mais parte da equipe ativa são automaticamente agrupados e contabilizados sob a categoria genérica <strong>"Outros"</strong> nos relatórios e ranking.
+                    Contratos importados que não pertencem à equipe atual são agrupados sob a categoria genérica <strong>"Outros"</strong>.
                   </p>
                 </div>
               </div>

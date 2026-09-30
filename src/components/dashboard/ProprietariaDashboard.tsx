@@ -39,7 +39,8 @@ import {
 import { useCRM, PeriodoFiltro } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
 import { Proposta, Operacao, Promotora } from '../../types';
-import { formatCurrency, formatPercent, formatDate } from '../../utils/formatters';
+import { formatCurrency, formatPercent, formatDate, normalizeSellerName } from '../../utils/formatters';
+import { DetalhePropostaModal } from '../propostas/DetalhePropostaModal';
 
 interface Props {
   onNavigateToPropostas?: (filter?: any) => void;
@@ -93,6 +94,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   const [detailModalContracts, setDetailModalContracts] = useState<Proposta[]>([]);
   const [selectedSellerName, setSelectedSellerName] = useState<string | null>(null);
   const [selectedSellerProposals, setSelectedSellerProposals] = useState<Proposta[]>([]);
+  const [selectedProposalDetail, setSelectedProposalDetail] = useState<Proposta | null>(null);
 
   // Dynamically adapt baseDate based on current date and latest proposal date
   const baseDateInfo = useMemo(() => {
@@ -267,25 +269,10 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   const ticketMedio = paidPropostas.length > 0 ? totalVendas / paidPropostas.length : 0;
   const percentualMedioTaxa = totalVendas > 0 ? (totalTaxas / totalVendas) * 100 : 0;
 
-  // Helper to normalize salesperson name
-  const normalizeSellerName = (name: string): string => {
-    const n = (name || '').trim().toUpperCase();
-    if (n.includes('HELLEN') || n.includes('HELON')) return 'Hellen Vasconcelos';
-    if (n.includes('BIANCA')) return 'Bianca';
-    if (n.includes('TACIANA') || n.includes('TACI')) return 'Taciana Silva';
-    if (n.includes('LUCELIA') || n.includes('LUCÉLIA')) return 'Lucélia Ramos';
-    if (n.includes('PAMELLA') || n.includes('PÂMELLA')) return 'Pamella';
-    if (n.includes('IGARASSU') || n.includes('BALCÃO') || n.includes('BALCAO')) return 'Loja Igarassu (Balcão)';
-    return name || 'Outros';
-  };
-
-  // Store meta sum calculation based on individual saleswomen targets
+  // Store meta sum calculation based on individual saleswomen targets (ONLY users with role === 'vendedora')
   const storeMetaMonthly = useMemo(() => {
     const activeSellers = allUsers.filter(u => u.role === 'vendedora' && u.status === 'ativo');
-    const reps = activeSellers.map(u => u.name);
-    if (!reps.includes('Loja Igarassu (Balcão)')) {
-      reps.push('Loja Igarassu (Balcão)');
-    }
+    const reps = activeSellers.map(u => normalizeSellerName(u.name)).filter(n => n && n !== 'Outros');
     
     let sum = 0;
     reps.forEach(nome => {
@@ -305,15 +292,14 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               'Bianca': 85000,
               'Hellen Vasconcelos': 95000,
               'Taciana Silva': 80000,
-              'Lucélia Ramos': 75000,
-              'Pamella': 50000
+              'Lucélia Ramos': 75000
             };
             sum += defaults[nome] || 80000;
           }
         }
       }
     });
-    return sum > 0 ? sum : 380000;
+    return sum > 0 ? sum : 335000;
   }, [metas, allUsers, baseDateInfo]);
 
   const metaLoja = useMemo(() => {
@@ -339,16 +325,13 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   const prevMonthVendas = prevMonthPropostas.reduce((acc, p) => acc + p.valorEmprestimo, 0);
   const deltaVendas = prevMonthVendas > 0 ? ((totalVendas - prevMonthVendas) / prevMonthVendas) * 100 : 0;
 
-  // Ranking of sales reps
+  // Ranking of sales reps (ONLY active users registered as 'vendedora'; everything else goes to 'Outros')
   const rankingVendedoras = useMemo(() => {
     const sellersMap = new Map<string, { nome: string; vendas: number; taxa: number; count: number; meta: number }>();
 
-    // Dynamic list of active reps
+    // Dynamic list of active registered vendedoras ONLY
     const activeSellers = allUsers.filter(u => u.role === 'vendedora' && u.status === 'ativo');
-    const reps = activeSellers.map(u => u.name);
-    if (!reps.includes('Loja Igarassu (Balcão)')) {
-      reps.push('Loja Igarassu (Balcão)');
-    }
+    const reps = activeSellers.map(u => normalizeSellerName(u.name)).filter(n => n && n !== 'Outros');
     
     // Period multiplier for scaling
     let periodMultiplier = 1;
@@ -379,8 +362,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
         'Bianca': 85000,
         'Hellen Vasconcelos': 95000,
         'Taciana Silva': 80000,
-        'Lucélia Ramos': 75000,
-        'Pamella': 50000
+        'Lucélia Ramos': 75000
       };
       return defaults[name] || 80000;
     };
@@ -391,8 +373,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
       sellersMap.set(nome, { nome, vendas: 0, taxa: 0, count: 0, meta: scaledMeta });
     });
 
-    const activeSellersSet = new Set(allUsers.filter(u => u.status === 'ativo').map(u => normalizeSellerName(u.name)));
-    const recognizedRepsSet = new Set(reps.map(r => normalizeSellerName(r)));
+    const recognizedRepsSet = new Set(reps);
 
     let outrosVendas = 0;
     let outrosTaxa = 0;
@@ -400,24 +381,20 @@ export const ProprietariaDashboard: React.FC<Props> = ({
 
     paidPropostas.forEach(p => {
       const normName = normalizeSellerName(p.vendedora);
-      if (!activeSellersSet.has(normName) && !recognizedRepsSet.has(normName)) {
-        // Collect into generic "Outros" for former employees
+      if (!normName || normName === 'Outros' || !recognizedRepsSet.has(normName)) {
+        // Collect into generic "Outros" for non-vendedoras/unassigned
         outrosVendas += p.valorEmprestimo;
         outrosTaxa += p.valorTaxa;
         outrosCount += 1;
         return;
       }
 
-      let rep = sellersMap.get(normName);
-      if (!rep) {
-        const baseMonthlyGoal = getUserBaseMonthlyGoal(normName);
-        const scaledMeta = baseMonthlyGoal * periodMultiplier;
-        rep = { nome: normName, vendas: 0, taxa: 0, count: 0, meta: scaledMeta };
-        sellersMap.set(normName, rep);
+      const rep = sellersMap.get(normName);
+      if (rep) {
+        rep.vendas += p.valorEmprestimo;
+        rep.taxa += p.valorTaxa;
+        rep.count += 1;
       }
-      rep.vendas += p.valorEmprestimo;
-      rep.taxa += p.valorTaxa;
-      rep.count += 1;
     });
 
     if (outrosCount > 0) {
@@ -582,7 +559,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
           </p>
         </div>
 
-        {/* Period Filter Buttons with Hover & Mobile Double-Click Support */}
+        {/* Period Filter Buttons */}
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
             {/* 1. Hoje */}
@@ -595,172 +572,55 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
                 periodo === 'hoje'
                   ? 'bg-[#0B2A4A] text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 active:bg-slate-300'
               }`}
             >
               Hoje
             </button>
 
-            {/* 2. Semana (Obrigatório: Domingo da semana atual até hoje. Submenu: Semana Anterior) */}
-            <div
-              className="relative"
-              onMouseEnter={() => setOpenSubmenu('semana')}
-              onMouseLeave={() => setOpenSubmenu(null)}
+            {/* 2. Semana */}
+            <button
+              type="button"
+              onClick={() => setOpenSubmenu('semana')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                periodo === 'semana' || periodo === 'semana_anterior'
+                  ? 'bg-[#0B2A4A] text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 active:bg-slate-300'
+              }`}
             >
-              <button
-                type="button"
-                onClick={() => handleFilterClickOrDoubleTap('semana', () => setPeriodo('semana'))}
-                onDoubleClick={() => setOpenSubmenu(prev => (prev === 'semana' ? null : 'semana'))}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1 ${
-                  periodo === 'semana' || periodo === 'semana_anterior'
-                    ? 'bg-[#0B2A4A] text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                <span>{periodo === 'semana_anterior' ? 'Semana Anterior' : 'Semana'}</span>
-                <ChevronDown className="w-3 h-3 opacity-70 shrink-0" />
-              </button>
+              <span>{periodo === 'semana_anterior' ? 'Semana Anterior' : 'Semana'}</span>
+              <ChevronDown className="w-3.5 h-3.5 opacity-80" />
+            </button>
 
-              {openSubmenu === 'semana' && (
-                <div className="absolute top-full left-0 mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg p-1 min-w-[145px] animate-in fade-in duration-150">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPeriodo('semana');
-                      setOpenSubmenu(null);
-                    }}
-                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
-                      periodo === 'semana' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    Semana Atual
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPeriodo('semana_anterior');
-                      setOpenSubmenu(null);
-                    }}
-                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
-                      periodo === 'semana_anterior' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    Semana Anterior
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* 3. Este Mês (Sem Mês Anterior ao lado direto. Submenu: Mês Anterior e Últimos Três Meses) */}
-            <div
-              className="relative"
-              onMouseEnter={() => setOpenSubmenu('mes')}
-              onMouseLeave={() => setOpenSubmenu(null)}
+            {/* 3. Este Mês */}
+            <button
+              type="button"
+              onClick={() => setOpenSubmenu('mes')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                periodo === 'mes' || periodo === 'mes_anterior' || periodo === 'ultimos_3_meses'
+                  ? 'bg-[#0B2A4A] text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 active:bg-slate-300'
+              }`}
             >
-              <button
-                type="button"
-                onClick={() => handleFilterClickOrDoubleTap('mes', () => setPeriodo('mes'))}
-                onDoubleClick={() => setOpenSubmenu(prev => (prev === 'mes' ? null : 'mes'))}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1 ${
-                  periodo === 'mes' || periodo === 'mes_anterior' || periodo === 'ultimos_3_meses'
-                    ? 'bg-[#0B2A4A] text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                <span>
-                  {periodo === 'mes_anterior' ? 'Mês Anterior' : periodo === 'ultimos_3_meses' ? '3 Meses' : 'Este Mês'}
-                </span>
-                <ChevronDown className="w-3 h-3 opacity-70 shrink-0" />
-              </button>
+              <span>
+                {periodo === 'mes_anterior' ? 'Mês Anterior' : periodo === 'ultimos_3_meses' ? '3 Meses' : 'Este Mês'}
+              </span>
+              <ChevronDown className="w-3.5 h-3.5 opacity-80" />
+            </button>
 
-              {openSubmenu === 'mes' && (
-                <div className="absolute top-full left-0 mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg p-1 min-w-[165px] animate-in fade-in duration-150">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPeriodo('mes');
-                      setOpenSubmenu(null);
-                    }}
-                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
-                      periodo === 'mes' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    Este Mês
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPeriodo('mes_anterior');
-                      setOpenSubmenu(null);
-                    }}
-                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
-                      periodo === 'mes_anterior' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    Mês Anterior
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPeriodo('ultimos_3_meses');
-                      setOpenSubmenu(null);
-                    }}
-                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
-                      periodo === 'ultimos_3_meses' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    Últimos Três Meses
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* 4. Filtro de Ano (2026 padrão. Submenu: anos anteriores) */}
-            <div
-              className="relative"
-              onMouseEnter={() => setOpenSubmenu('ano')}
-              onMouseLeave={() => setOpenSubmenu(null)}
+            {/* 4. Filtro de Ano */}
+            <button
+              type="button"
+              onClick={() => setOpenSubmenu('ano')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                periodo === 'ano'
+                  ? 'bg-[#0B2A4A] text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 active:bg-slate-300'
+              }`}
             >
-              <button
-                type="button"
-                onClick={() => handleFilterClickOrDoubleTap('ano', () => {
-                  setPeriodo('ano');
-                  if (!anoSelecionado) setAnoSelecionado(2026);
-                })}
-                onDoubleClick={() => setOpenSubmenu(prev => (prev === 'ano' ? null : 'ano'))}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1 ${
-                  periodo === 'ano'
-                    ? 'bg-[#0B2A4A] text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                <span>{periodo === 'ano' && anoSelecionado ? String(anoSelecionado) : '2026'}</span>
-                <ChevronDown className="w-3 h-3 opacity-70 shrink-0" />
-              </button>
-
-              {openSubmenu === 'ano' && (
-                <div className="absolute top-full left-0 mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg p-1 min-w-[130px] animate-in fade-in duration-150">
-                  {[2026, 2025, 2024, 2023, 2022].map((yr) => (
-                    <button
-                      key={yr}
-                      type="button"
-                      onClick={() => {
-                        setAnoSelecionado(yr);
-                        setPeriodo('ano');
-                        setOpenSubmenu(null);
-                      }}
-                      className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
-                        periodo === 'ano' && (anoSelecionado === yr || (!anoSelecionado && yr === 2026))
-                          ? 'bg-slate-100 text-slate-900 font-bold'
-                          : 'text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
-                      {yr} {yr === 2026 ? '(Padrão)' : ''}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+              <span>{periodo === 'ano' && anoSelecionado ? String(anoSelecionado) : '2026'}</span>
+              <ChevronDown className="w-3.5 h-3.5 opacity-80" />
+            </button>
 
             {/* 5. Personalizado */}
             <button
@@ -772,13 +632,147 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
                 periodo === 'personalizado'
                   ? 'bg-[#0B2A4A] text-white shadow-xs'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 active:bg-slate-300'
               }`}
             >
               <Calendar className="w-3.5 h-3.5" />
               <span>Personalizado</span>
             </button>
           </div>
+
+          {/* Fixed Screen-Wide Popover Overlay for Period Selection (No scrolling bugs on mobile) */}
+          {openSubmenu && (
+            <div
+              className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150"
+              onClick={() => setOpenSubmenu(null)}
+            >
+              <div
+                className="w-full max-w-xs bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl p-4 space-y-2 animate-in zoom-in-95 duration-150"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+                  <span className="font-extrabold text-xs text-slate-800 dark:text-white uppercase tracking-wider">
+                    {openSubmenu === 'semana' ? 'Filtrar por Semana' : openSubmenu === 'mes' ? 'Filtrar por Mês' : 'Selecionar Ano'}
+                  </span>
+                  <button
+                    onClick={() => setOpenSubmenu(null)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {openSubmenu === 'semana' && (
+                  <div className="space-y-1.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPeriodo('semana');
+                        setOpenSubmenu(null);
+                      }}
+                      className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-between ${
+                        periodo === 'semana'
+                          ? 'bg-teal-600 text-white shadow-xs'
+                          : 'bg-slate-50 text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200'
+                      }`}
+                    >
+                      <span>Semana Atual (Dom até Hoje)</span>
+                      {periodo === 'semana' && <Check className="w-4 h-4" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPeriodo('semana_anterior');
+                        setOpenSubmenu(null);
+                      }}
+                      className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-between ${
+                        periodo === 'semana_anterior'
+                          ? 'bg-teal-600 text-white shadow-xs'
+                          : 'bg-slate-50 text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200'
+                      }`}
+                    >
+                      <span>Semana Anterior</span>
+                      {periodo === 'semana_anterior' && <Check className="w-4 h-4" />}
+                    </button>
+                  </div>
+                )}
+
+                {openSubmenu === 'mes' && (
+                  <div className="space-y-1.5 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPeriodo('mes');
+                        setOpenSubmenu(null);
+                      }}
+                      className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-between ${
+                        periodo === 'mes'
+                          ? 'bg-teal-600 text-white shadow-xs'
+                          : 'bg-slate-50 text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200'
+                      }`}
+                    >
+                      <span>Este Mês ({baseDateInfo.currentMonthStr})</span>
+                      {periodo === 'mes' && <Check className="w-4 h-4" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPeriodo('mes_anterior');
+                        setOpenSubmenu(null);
+                      }}
+                      className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-between ${
+                        periodo === 'mes_anterior'
+                          ? 'bg-teal-600 text-white shadow-xs'
+                          : 'bg-slate-50 text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200'
+                      }`}
+                    >
+                      <span>Mês Anterior ({baseDateInfo.prevMonthStr})</span>
+                      {periodo === 'mes_anterior' && <Check className="w-4 h-4" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPeriodo('ultimos_3_meses');
+                        setOpenSubmenu(null);
+                      }}
+                      className={`w-full text-left px-3.5 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-between ${
+                        periodo === 'ultimos_3_meses'
+                          ? 'bg-teal-600 text-white shadow-xs'
+                          : 'bg-slate-50 text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200'
+                      }`}
+                    >
+                      <span>Últimos Três Meses</span>
+                      {periodo === 'ultimos_3_meses' && <Check className="w-4 h-4" />}
+                    </button>
+                  </div>
+                )}
+
+                {openSubmenu === 'ano' && (
+                  <div className="space-y-1.5 pt-1 max-h-60 overflow-y-auto">
+                    {[2026, 2025, 2024, 2023, 2022].map((yr) => (
+                      <button
+                        key={yr}
+                        type="button"
+                        onClick={() => {
+                          setAnoSelecionado(yr);
+                          setPeriodo('ano');
+                          setOpenSubmenu(null);
+                        }}
+                        className={`w-full text-left px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center justify-between ${
+                          periodo === 'ano' && (anoSelecionado === yr || (!anoSelecionado && yr === 2026))
+                            ? 'bg-teal-600 text-white shadow-xs'
+                            : 'bg-slate-50 text-slate-700 hover:bg-slate-100 dark:bg-slate-800 dark:text-slate-200'
+                        }`}
+                      >
+                        <span>{yr} {yr === 2026 ? '(Ano Atual)' : ''}</span>
+                        {periodo === 'ano' && (anoSelecionado === yr || (!anoSelecionado && yr === 2026)) && <Check className="w-4 h-4" />}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Inline Date Range Picker for "Personalizado" */}
           {periodo === 'personalizado' && (
@@ -1023,7 +1017,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
                   const propsForSeller = vendedora.nome === 'Outros'
                     ? filteredPropostas.filter(p => !activeSellersSet.has(normalizeSellerName(p.vendedora)) && !normalizeSellerName(p.vendedora).includes('IGARASSU'))
                     : filteredPropostas.filter(p => normalizeSellerName(p.vendedora) === vendedora.nome);
-                  setSelectedSellerName(vendedora.nome === 'Outros' ? 'Outros (Ex-Colaboradores)' : vendedora.nome);
+                  setSelectedSellerName(vendedora.nome);
                   setSelectedSellerProposals(propsForSeller);
                 }}
                 className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 cursor-pointer transition-all duration-150 hover:shadow-xs hover:scale-[1.005]"
@@ -1041,7 +1035,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
                     </span>
                     <div className="min-w-0">
                       <p className="text-sm font-extrabold text-slate-900 dark:text-white truncate flex items-center gap-1.5">
-                        <span>{vendedora.nome === 'Outros' ? 'Outros (Ex-Colaboradores)' : vendedora.nome}</span>
+                        <span>{vendedora.nome}</span>
                         {vendedora.nome === 'Outros' && (
                           <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-200">
                             Histórico
@@ -1055,47 +1049,69 @@ export const ProprietariaDashboard: React.FC<Props> = ({
                   </div>
 
                   <div className="text-left sm:text-right shrink-0 text-xs leading-normal">
-                    <p className="text-slate-500 font-semibold flex items-center gap-1.5 sm:justify-end">
-                      <span>Pagos - meta {formatCompactMeta(metaVenda)} :</span>
-                      <span className="font-black text-[#0F5C63] dark:text-[#28B0B7]">{formatCurrency(vendedora.vendas)}</span>
-                    </p>
-                    <p className="text-slate-500 font-semibold mt-1 flex items-center gap-1.5 sm:justify-end">
-                      <span>Taxa - meta {formatCompactMeta(metaTaxa)} :</span>
-                      <span className="font-black text-amber-600 dark:text-amber-400">{formatCurrency(vendedora.taxa)}</span>
-                    </p>
+                    {vendedora.nome === 'Outros' ? (
+                      <>
+                        <p className="text-slate-500 font-semibold flex items-center gap-1.5 sm:justify-end">
+                          <span>Total Vendas:</span>
+                          <span className="font-black text-[#0F5C63] dark:text-[#28B0B7]">{formatCurrency(vendedora.vendas)}</span>
+                        </p>
+                        <p className="text-slate-500 font-semibold mt-1 flex items-center gap-1.5 sm:justify-end">
+                          <span>Taxa Total:</span>
+                          <span className="font-black text-amber-600 dark:text-amber-400">{formatCurrency(vendedora.taxa)}</span>
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-slate-500 font-semibold flex items-center gap-1.5 sm:justify-end">
+                          <span>Pagos - meta {formatCompactMeta(metaVenda)} :</span>
+                          <span className="font-black text-[#0F5C63] dark:text-[#28B0B7]">{formatCurrency(vendedora.vendas)}</span>
+                        </p>
+                        <p className="text-slate-500 font-semibold mt-1 flex items-center gap-1.5 sm:justify-end">
+                          <span>Taxa - meta {formatCompactMeta(metaTaxa)} :</span>
+                          <span className="font-black text-amber-600 dark:text-amber-400">{formatCurrency(vendedora.taxa)}</span>
+                        </p>
+                      </>
+                    )}
                   </div>
                 </div>
 
-                {/* TWO COMPACT PROGRESS BARS - Clean zero-pill style */}
-                <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/60">
-                  {/* Bar 1: Total Liberado */}
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <span className="text-[10px] font-bold text-teal-700 dark:text-teal-400 w-12 sm:w-16 shrink-0">Vendas</span>
-                    <div className="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden relative">
-                      <div
-                        className="h-full rounded-full bg-[#0F5C63] transition-all duration-500"
-                        style={{ width: `${Math.min(100, percentualVenda)}%` }}
-                      />
+                {/* Progress bars (only for individual saleswomen with goals) */}
+                {vendedora.nome !== 'Outros' ? (
+                  <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/60">
+                    {/* Bar 1: Total Liberado */}
+                    <div className="flex items-center gap-2 sm:gap-3">
+                      <span className="text-[10px] font-bold text-teal-700 dark:text-teal-400 w-12 sm:w-16 shrink-0">Vendas</span>
+                      <div className="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden relative">
+                        <div
+                          className="h-full rounded-full bg-[#0F5C63] transition-all duration-500"
+                          style={{ width: `${Math.min(100, percentualVenda)}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] font-black text-teal-700 dark:text-teal-400 w-10 text-right tabular-nums">
+                        {percentualVenda.toFixed(0)}%
+                      </span>
                     </div>
-                    <span className="text-[10px] font-black text-teal-700 dark:text-teal-400 w-10 text-right tabular-nums">
-                      {percentualVenda.toFixed(0)}%
-                    </span>
-                  </div>
 
-                  {/* Bar 2: Taxa Arrecadada */}
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 w-12 sm:w-16 shrink-0">Taxa</span>
-                    <div className="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden relative">
-                      <div
-                        className="h-full rounded-full bg-amber-500 transition-all duration-500"
-                        style={{ width: `${Math.min(100, percentualTaxaGoal)}%` }}
-                      />
+                    {/* Bar 2: Taxa Arrecadada */}
+                    <div className="flex items-center gap-2 sm:gap-3">
+                      <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 w-12 sm:w-16 shrink-0">Taxa</span>
+                      <div className="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden relative">
+                        <div
+                          className="h-full rounded-full bg-amber-500 transition-all duration-500"
+                          style={{ width: `${Math.min(100, percentualTaxaGoal)}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] font-black text-amber-600 dark:text-amber-400 w-10 text-right tabular-nums">
+                        {percentualTaxaGoal.toFixed(0)}%
+                      </span>
                     </div>
-                    <span className="text-[10px] font-black text-amber-600 dark:text-amber-400 w-10 text-right tabular-nums">
-                      {percentualTaxaGoal.toFixed(0)}%
-                    </span>
                   </div>
-                </div>
+                ) : (
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800/60 text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                    <span>Contratos de balcão / ex-colaboradores / canais externos</span>
+                    <span className="font-bold text-teal-700 dark:text-teal-400">Ver contratos ➔</span>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -1470,7 +1486,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
                   {detailModalTitle}
                 </h3>
                 <p className="text-xs text-slate-500">
-                  {detailModalContracts.length} contratos listados neste agrupamento
+                  {detailModalContracts.length} contratos listados • <span className="text-teal-600 dark:text-teal-400 font-semibold">Clique na linha para abrir a proposta</span>
                 </p>
               </div>
               <button
@@ -1498,17 +1514,24 @@ export const ProprietariaDashboard: React.FC<Props> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {detailModalContracts.map((prop) => (
-                    <tr key={prop.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                      <td className="py-2 px-2 tabular-nums text-slate-500">{formatDate(prop.dataDigitacao)}</td>
-                      <td className="py-2 px-2 font-bold text-slate-900 dark:text-white truncate max-w-[140px]">
+                    <tr
+                      key={prop.id}
+                      onClick={() => setSelectedProposalDetail(prop)}
+                      className="hover:bg-teal-50/80 dark:hover:bg-teal-950/40 cursor-pointer transition-colors group"
+                      title="Clique para ver os detalhes da proposta"
+                    >
+                      <td className="py-2.5 px-2 tabular-nums text-slate-500">{formatDate(prop.dataDigitacao)}</td>
+                      <td className="py-2.5 px-2 font-bold text-slate-900 dark:text-white truncate max-w-[140px] group-hover:text-teal-700 dark:group-hover:text-teal-300">
                         {prop.nomeCliente}
                       </td>
-                      <td className="py-2 px-2 text-slate-600 dark:text-slate-300">{prop.operacao}</td>
-                      <td className="py-2 px-2 text-slate-600 dark:text-slate-300">{prop.banco}</td>
-                      <td className="py-2 px-2 text-right font-bold tabular-nums">{formatCurrency(prop.valorEmprestimo)}</td>
-                      <td className="py-2 px-2 text-right font-bold text-amber-600 tabular-nums">{formatCurrency(prop.valorTaxa)}</td>
-                      <td className="py-2 px-2 text-slate-500 truncate max-w-[100px]">{prop.vendedora}</td>
-                      <td className="py-2 px-2 text-center">
+                      <td className="py-2.5 px-2 text-slate-600 dark:text-slate-300">{prop.operacao}</td>
+                      <td className="py-2.5 px-2 text-slate-600 dark:text-slate-300">{prop.banco}</td>
+                      <td className="py-2.5 px-2 text-right font-bold tabular-nums">{formatCurrency(prop.valorEmprestimo)}</td>
+                      <td className="py-2.5 px-2 text-right font-bold text-amber-600 tabular-nums">{formatCurrency(prop.valorTaxa)}</td>
+                      <td className="py-2.5 px-2 text-slate-700 dark:text-slate-300 font-semibold truncate max-w-[110px]">
+                        {prop.vendedora || 'Não informado'}
+                      </td>
+                      <td className="py-2.5 px-2 text-center">
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                           prop.status === 'Paga' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
                           prop.status === 'Aprovada' ? 'bg-blue-100 text-blue-800' :
@@ -1548,7 +1571,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
                   Produção de {selectedSellerName}
                 </h3>
                 <p className="text-xs text-slate-500">
-                  {selectedSellerProposals.length} contratos formalizados e pagos no período selecionado
+                  {selectedSellerProposals.length} contratos formalizados • <span className="text-teal-600 dark:text-teal-400 font-semibold">Clique na linha para abrir a proposta</span>
                 </p>
               </div>
               <button
@@ -1570,26 +1593,35 @@ export const ProprietariaDashboard: React.FC<Props> = ({
                     <th className="py-2 px-2">Banco</th>
                     <th className="py-2 px-2 text-right">Liberado (R$)</th>
                     <th className="py-2 px-2 text-right">Taxa (R$)</th>
+                    <th className="py-2 px-2">Vendedora</th>
                     <th className="py-2 px-2 text-center">Status</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                   {selectedSellerProposals.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-4 text-center text-slate-400">Nenhum contrato encontrado para esta vendedora no período.</td>
+                      <td colSpan={8} className="py-4 text-center text-slate-400">Nenhum contrato encontrado para este filtro no período.</td>
                     </tr>
                   ) : (
                     selectedSellerProposals.map((prop) => (
-                      <tr key={prop.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                        <td className="py-2 px-2 tabular-nums text-slate-500">{formatDate(prop.dataDigitacao)}</td>
-                        <td className="py-2 px-2 font-bold text-slate-900 dark:text-white truncate max-w-[140px]">
+                      <tr
+                        key={prop.id}
+                        onClick={() => setSelectedProposalDetail(prop)}
+                        className="hover:bg-teal-50/80 dark:hover:bg-teal-950/40 cursor-pointer transition-colors group"
+                        title="Clique para ver os detalhes da proposta"
+                      >
+                        <td className="py-2.5 px-2 tabular-nums text-slate-500">{formatDate(prop.dataDigitacao)}</td>
+                        <td className="py-2.5 px-2 font-bold text-slate-900 dark:text-white truncate max-w-[140px] group-hover:text-teal-700 dark:group-hover:text-teal-300">
                           {prop.nomeCliente}
                         </td>
-                        <td className="py-2 px-2 text-slate-600 dark:text-slate-300">{prop.operacao}</td>
-                        <td className="py-2 px-2 text-slate-600 dark:text-slate-300">{prop.banco}</td>
-                        <td className="py-2 px-2 text-right font-bold tabular-nums text-teal-600">{formatCurrency(prop.valorEmprestimo)}</td>
-                        <td className="py-2 px-2 text-right font-bold text-amber-600 tabular-nums">{formatCurrency(prop.valorTaxa)}</td>
-                        <td className="py-2 px-2 text-center">
+                        <td className="py-2.5 px-2 text-slate-600 dark:text-slate-300">{prop.operacao}</td>
+                        <td className="py-2.5 px-2 text-slate-600 dark:text-slate-300">{prop.banco}</td>
+                        <td className="py-2.5 px-2 text-right font-bold tabular-nums text-teal-600">{formatCurrency(prop.valorEmprestimo)}</td>
+                        <td className="py-2.5 px-2 text-right font-bold text-amber-600 tabular-nums">{formatCurrency(prop.valorTaxa)}</td>
+                        <td className="py-2.5 px-2 text-slate-700 dark:text-slate-300 font-semibold truncate max-w-[110px]">
+                          {prop.vendedora || selectedSellerName}
+                        </td>
+                        <td className="py-2.5 px-2 text-center">
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                             prop.status === 'Paga' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
                             prop.status === 'Aprovada' ? 'bg-blue-100 text-blue-800' :
@@ -1617,6 +1649,14 @@ export const ProprietariaDashboard: React.FC<Props> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Proposal Detail Full Modal */}
+      {selectedProposalDetail && (
+        <DetalhePropostaModal
+          proposta={selectedProposalDetail}
+          onClose={() => setSelectedProposalDetail(null)}
+        />
       )}
     </div>
   );

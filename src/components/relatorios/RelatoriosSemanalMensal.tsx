@@ -81,7 +81,7 @@ export const RelatoriosSemanalMensal: React.FC = () => {
         opsBreakdown[op] = { venda, taxa, percent };
       });
       list.push({
-        repName: 'Outros (Ex-Colaboradores)',
+        repName: 'Outros',
         totalVendaRep,
         totalTaxaRep,
         percentTaxaGeral,

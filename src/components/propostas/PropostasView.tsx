@@ -22,12 +22,17 @@ import { NovaPropostaModal } from './NovaPropostaModal';
 import { DetalhePropostaModal } from './DetalhePropostaModal';
 import { CPFValidationBadge } from '../common/CPFValidationBadge';
 
-export const PropostasView: React.FC = () => {
+interface PropostasViewProps {
+  initialProposta?: Proposta | null;
+  initialSearchTerm?: string;
+}
+
+export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = null, initialSearchTerm = '' }) => {
   const { propostas, updateStatusProposta } = useCRM();
   const { currentUser } = useAuth();
 
   const [viewMode, setViewMode] = useState<'kanban' | 'tabela'>('kanban');
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(initialSearchTerm);
   const [filterVendedora, setFilterVendedora] = useState('todas');
   const [filterOperacao, setFilterOperacao] = useState('todas');
   const [filterBanco, setFilterBanco] = useState('todos');
@@ -35,7 +40,13 @@ export const PropostasView: React.FC = () => {
   
   // Modals state
   const [isNovaModalOpen, setIsNovaModalOpen] = useState(false);
-  const [selectedProposta, setSelectedProposta] = useState<Proposta | null>(null);
+  const [selectedProposta, setSelectedProposta] = useState<Proposta | null>(initialProposta);
+
+  React.useEffect(() => {
+    if (initialProposta) {
+      setSelectedProposta(initialProposta);
+    }
+  }, [initialProposta]);
 
   // Kanban Columns
   const kanbanColumns: { status: StatusProposta; title: string; color: string; badgeColor: string }[] = [

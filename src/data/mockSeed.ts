@@ -24,8 +24,8 @@ export const INITIAL_USERS: User[] = [
     role: 'proprietaria',
     phone: '(81) 99123-4567',
     status: 'ativo',
-    monthlySalesGoal: 380000,
-    monthlyTaxPercentGoal: 11.5,
+    monthlySalesGoal: 0,
+    monthlyTaxPercentGoal: 0,
     baseSalaryCost: 0,
   },
   {
@@ -36,8 +36,8 @@ export const INITIAL_USERS: User[] = [
     role: 'adm',
     phone: '(81) 98765-4321',
     status: 'ativo',
-    monthlySalesGoal: 50000,
-    monthlyTaxPercentGoal: 10.0,
+    monthlySalesGoal: 0,
+    monthlyTaxPercentGoal: 0,
     baseSalaryCost: 3500,
   },
   {
@@ -101,18 +101,6 @@ export const INITIAL_USERS: User[] = [
     baseSalaryCost: 2200,
   },
   {
-    id: 'user-loja-igarassu',
-    name: 'Loja Igarassu (Balcão)',
-    email: 'igarassu@liviacredsaude.com.br',
-    password: '123',
-    role: 'vendedora',
-    phone: '(81) 3543-1200',
-    status: 'ativo',
-    monthlySalesGoal: 85000,
-    monthlyTaxPercentGoal: 11.0,
-    baseSalaryCost: 2400,
-  },
-  {
     id: 'user-ana',
     name: 'Ana Paula',
     email: 'ana@liviacredsaude.com.br',
@@ -149,7 +137,7 @@ const CLIENT_NAMES = [
 
 const CIDADES = ['Igarassu', 'Abreu e Lima', 'Paulista', 'Olinda', 'Recife', 'Jaboatão dos Guararapes', 'Itapissuma', 'Goiana'];
 const CONVENIOS: Convenio[] = ['INSS', 'INSS', 'INSS', 'Prefeitura de Igarassu', 'Governo de PE', 'SIAPE', 'FGTS'];
-const VENDEDORAS = ['Hellen Vasconcelos', 'Taciana Silva', 'Lucélia Ramos', 'Loja Igarassu (Balcão)', 'Pamella'];
+const VENDEDORAS = ['Bianca', 'Hellen Vasconcelos', 'Taciana Silva', 'Lucélia Ramos', 'Outros'];
 const OPERACOES: Operacao[] = [
   'FGTS', 'Saque Complementar', 'Refin', 'Conta de Energia Elétrica/Luz',
   'Portabilidade', 'Refin da Port', 'Margem', 'Cartão Novo', 'Credcesta',
@@ -485,6 +473,14 @@ export function generateSeedData() {
       metaPercentualTaxa: 12.0
     },
     {
+      id: 'meta-bianca-2026-09',
+      vendedoraId: 'user-bianca',
+      vendedoraNome: 'Bianca',
+      mesAno: '2026-09',
+      metaVenda: 85000,
+      metaPercentualTaxa: 11.0
+    },
+    {
       id: 'meta-taciana-2026-09',
       vendedoraId: 'user-taciana',
       vendedoraNome: 'Taciana Silva',
@@ -498,22 +494,6 @@ export function generateSeedData() {
       vendedoraNome: 'Lucélia Ramos',
       mesAno: '2026-09',
       metaVenda: 75000,
-      metaPercentualTaxa: 10.0
-    },
-    {
-      id: 'meta-loja-2026-09',
-      vendedoraId: 'user-loja-igarassu',
-      vendedoraNome: 'Loja Igarassu (Balcão)',
-      mesAno: '2026-09',
-      metaVenda: 85000,
-      metaPercentualTaxa: 11.0
-    },
-    {
-      id: 'meta-pamella-2026-09',
-      vendedoraId: 'user-pamella',
-      vendedoraNome: 'Pamella',
-      mesAno: '2026-09',
-      metaVenda: 50000,
       metaPercentualTaxa: 10.0
     }
   ];

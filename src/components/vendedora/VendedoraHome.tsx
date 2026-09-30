@@ -160,7 +160,7 @@ export const VendedoraHome: React.FC<Props> = ({
     const list = Array.from(map.entries())
       .map(([nome, vendas]) => ({ nome, vendas }));
     if (outrosTotal > 0) {
-      list.push({ nome: 'Outros (Ex-Colaboradores)', vendas: outrosTotal });
+      list.push({ nome: 'Outros', vendas: outrosTotal });
     }
 
     return list.sort((a, b) => b.vendas - a.vendas);
