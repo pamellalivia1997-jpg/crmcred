@@ -13,7 +13,16 @@ import {
 import { crmStorage, subscribeToData, SpreadsheetRowInput } from '../services/crmStorage';
 import { useAuth } from './AuthContext';
 
-export type PeriodoFiltro = 'hoje' | 'semana' | 'mes' | 'mes_anterior' | 'ultimos_3_meses' | 'ano' | 'tudo';
+export type PeriodoFiltro =
+  | 'hoje'
+  | 'semana'
+  | 'semana_anterior'
+  | 'mes'
+  | 'mes_anterior'
+  | 'ultimos_3_meses'
+  | 'ano'
+  | 'personalizado'
+  | 'tudo';
 
 interface CRMContextType {
   clientes: Cliente[];
@@ -30,6 +39,12 @@ interface CRMContextType {
   setPeriodo: (p: PeriodoFiltro) => void;
   filtroMesAno: string; // Ex: '2026-09'
   setFiltroMesAno: (val: string) => void;
+  dataInicioPersonalizada: string;
+  setDataInicioPersonalizada: (val: string) => void;
+  dataFimPersonalizada: string;
+  setDataFimPersonalizada: (val: string) => void;
+  anoSelecionado: number;
+  setAnoSelecionado: (val: number) => void;
 
   // Actions
   saveCliente: (cliente: Cliente) => void;
@@ -63,6 +78,9 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [storeState, setStoreState] = useState(() => crmStorage.getStore());
   const [periodo, setPeriodo] = useState<PeriodoFiltro>('mes');
   const [filtroMesAno, setFiltroMesAno] = useState<string>('2026-09');
+  const [dataInicioPersonalizada, setDataInicioPersonalizada] = useState<string>('2026-09-01');
+  const [dataFimPersonalizada, setDataFimPersonalizada] = useState<string>('2026-09-30');
+  const [anoSelecionado, setAnoSelecionado] = useState<number>(2026);
 
   useEffect(() => {
     return subscribeToData(() => {
@@ -162,6 +180,12 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setPeriodo,
         filtroMesAno,
         setFiltroMesAno,
+        dataInicioPersonalizada,
+        setDataInicioPersonalizada,
+        dataFimPersonalizada,
+        setDataFimPersonalizada,
+        anoSelecionado,
+        setAnoSelecionado,
         saveCliente,
         saveProposta,
         updateStatusProposta,

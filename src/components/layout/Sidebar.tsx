@@ -175,21 +175,11 @@ export const Sidebar: React.FC<Props> = ({
             {canManageTeam() && (
               <>
                 <button
-                  onClick={() => handleNavClick('vanguard')}
-                  className={navItemClass(currentTab === 'vanguard')}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Zap className="w-4 h-4 text-amber-500 fill-amber-500" />
-                    <span>Coban Vanguard ERP</span>
-                  </div>
-                </button>
-
-                <button
                   onClick={() => handleNavClick('adm_usuarios')}
                   className={navItemClass(currentTab === 'adm_usuarios')}
                 >
                   <div className="flex items-center gap-2.5">
-                    <UserPlus className="w-4 h-4" />
+                    <Users className="w-4 h-4" />
                     <span>Cadastro de Usuários</span>
                   </div>
                 </button>
@@ -199,8 +189,8 @@ export const Sidebar: React.FC<Props> = ({
                   className={navItemClass(currentTab === 'adm')}
                 >
                   <div className="flex items-center gap-2.5">
-                    <UserCheck className="w-4 h-4" />
-                    <span>Painel ADM & Metas</span>
+                    <Target className="w-4 h-4" />
+                    <span>Metas do Mês</span>
                   </div>
                 </button>
               </>

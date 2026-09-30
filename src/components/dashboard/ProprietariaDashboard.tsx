@@ -19,7 +19,8 @@ import {
   Check,
   X,
   FileSpreadsheet,
-  Calculator
+  Calculator,
+  ChevronDown
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -51,8 +52,41 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   onNavigateToClientes,
   onNavigateToAlertas,
 }) => {
-  const { propostas, comissoesPromotoras, contasPagar, metas, alertas, periodo, setPeriodo } = useCRM();
+  const {
+    propostas,
+    comissoesPromotoras,
+    contasPagar,
+    metas,
+    alertas,
+    periodo,
+    setPeriodo,
+    anoSelecionado,
+    setAnoSelecionado,
+    dataInicioPersonalizada,
+    setDataInicioPersonalizada,
+    dataFimPersonalizada,
+    setDataFimPersonalizada
+  } = useCRM();
   const { allUsers } = useAuth();
+
+  // Submenu state for touch/mobile and desktop hover
+  const [openSubmenu, setOpenSubmenu] = useState<'semana' | 'mes' | 'ano' | null>(null);
+  const lastTapRef = React.useRef<{ key: string; time: number }>({ key: '', time: 0 });
+
+  const handleFilterClickOrDoubleTap = (
+    key: 'semana' | 'mes' | 'ano',
+    onSelectMain: () => void
+  ) => {
+    const now = Date.now();
+    // Detect double click/double tap (within 380ms)
+    if (lastTapRef.current.key === key && now - lastTapRef.current.time < 380) {
+      setOpenSubmenu(prev => (prev === key ? null : key));
+      lastTapRef.current = { key: '', time: 0 };
+    } else {
+      lastTapRef.current = { key, time: now };
+      onSelectMain();
+    }
+  };
 
   // State for detail modal when user taps an element if needed
   const [detailModalTitle, setDetailModalTitle] = useState<string | null>(null);
@@ -60,27 +94,14 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   const [selectedSellerName, setSelectedSellerName] = useState<string | null>(null);
   const [selectedSellerProposals, setSelectedSellerProposals] = useState<Proposta[]>([]);
 
-  // Dynamically adapt baseDate based on the latest proposal date in the system (fallbacks to Sept 2026)
+  // Dynamically adapt baseDate based on current date and latest proposal date
   const baseDateInfo = useMemo(() => {
-    let latestDateStr = '2026-09-28';
-    if (propostas.length > 0) {
-      let maxDate = '';
-      propostas.forEach(p => {
-        if (p.dataDigitacao && p.dataDigitacao > maxDate) {
-          maxDate = p.dataDigitacao;
-        }
-      });
-      if (maxDate) {
-        latestDateStr = maxDate;
-      }
-    }
+    const now = new Date();
+    const safeYr = now.getFullYear();
+    const safeMo = now.getMonth() + 1;
+    const safeDy = now.getDate();
 
-    const [yr, mo, dy] = latestDateStr.split('-').map(Number);
-    const safeYr = isNaN(yr) ? 2026 : yr;
-    const safeMo = isNaN(mo) ? 9 : mo;
-    const safeDy = isNaN(dy) ? 28 : dy;
-
-    const baseDate = new Date(safeYr, safeMo - 1, safeDy);
+    const todayStr = `${safeYr}-${String(safeMo).padStart(2, '0')}-${String(safeDy).padStart(2, '0')}`;
     
     // Format helper for year-month strings
     const getYearMonthStr = (year: number, month: number) => {
@@ -108,51 +129,86 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     }
     const prev2MonthsStr = getYearMonthStr(prev2Yr, prev2Mo);
 
+    // Domingo da semana atual
+    const dayOfWeek = now.getDay(); // 0 = Domingo
+    const sundayCurrent = new Date(now);
+    sundayCurrent.setDate(now.getDate() - dayOfWeek);
+    const sundayCurrentStr = `${sundayCurrent.getFullYear()}-${String(sundayCurrent.getMonth() + 1).padStart(2, '0')}-${String(sundayCurrent.getDate()).padStart(2, '0')}`;
+
+    // Sexta-feira anterior (2 dias antes do Domingo da semana atual)
+    const lastFriday = new Date(sundayCurrent);
+    lastFriday.setDate(sundayCurrent.getDate() - 2);
+    const lastFridayStr = `${lastFriday.getFullYear()}-${String(lastFriday.getMonth() + 1).padStart(2, '0')}-${String(lastFriday.getDate()).padStart(2, '0')}`;
+
+    // Domingo anterior ao domingo atual (7 dias antes)
+    const prevSunday = new Date(sundayCurrent);
+    prevSunday.setDate(sundayCurrent.getDate() - 7);
+    const prevSundayStr = `${prevSunday.getFullYear()}-${String(prevSunday.getMonth() + 1).padStart(2, '0')}-${String(prevSunday.getDate()).padStart(2, '0')}`;
+
+    // Sexta-feira da semana anterior (9 dias antes do domingo atual)
+    const prevFriday = new Date(sundayCurrent);
+    prevFriday.setDate(sundayCurrent.getDate() - 9);
+    const prevFridayStr = `${prevFriday.getFullYear()}-${String(prevFriday.getMonth() + 1).padStart(2, '0')}-${String(prevFriday.getDate()).padStart(2, '0')}`;
+
     return {
-      baseDate,
-      latestDateStr,
+      todayStr,
+      sundayCurrentStr,
+      lastFridayStr,
+      prevSundayStr,
+      prevFridayStr,
       currentMonthStr,
       prevMonthStr,
       prev2MonthsStr,
       yearStr: String(safeYr)
     };
-  }, [propostas]);
+  }, []);
 
   // Filter propostas by period
   const filteredPropostas = useMemo(() => {
-    const now = baseDateInfo.baseDate;
-
     return propostas.filter(p => {
-      const pDate = new Date(p.dataDigitacao);
-      if (isNaN(pDate.getTime())) return true;
+      const d = p.dataDigitacao;
+      if (!d) return false;
 
       if (periodo === 'hoje') {
-        return p.dataDigitacao === baseDateInfo.latestDateStr;
+        return d === baseDateInfo.todayStr;
       }
       if (periodo === 'semana') {
-        const diffTime = Math.abs(now.getTime() - pDate.getTime());
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        return diffDays <= 7 && pDate <= now;
+        // Obrigatório: do Domingo da semana atual até a data atual (hoje)
+        return d >= baseDateInfo.sundayCurrentStr && d <= baseDateInfo.todayStr;
+      }
+      if (periodo === 'semana_anterior') {
+        // "Semana Anterior" (definida da sexta-feira anterior até o domingo anterior)
+        return (
+          (d >= baseDateInfo.lastFridayStr && d <= baseDateInfo.sundayCurrentStr) ||
+          (d >= baseDateInfo.prevFridayStr && d <= baseDateInfo.prevSundayStr) ||
+          (d >= baseDateInfo.prevSundayStr && d <= baseDateInfo.sundayCurrentStr)
+        );
       }
       if (periodo === 'mes') {
-        return p.dataDigitacao.startsWith(baseDateInfo.currentMonthStr);
+        return d.startsWith(baseDateInfo.currentMonthStr);
       }
       if (periodo === 'mes_anterior') {
-        return p.dataDigitacao.startsWith(baseDateInfo.prevMonthStr);
+        return d.startsWith(baseDateInfo.prevMonthStr);
       }
       if (periodo === 'ultimos_3_meses') {
         return (
-          p.dataDigitacao.startsWith(baseDateInfo.currentMonthStr) ||
-          p.dataDigitacao.startsWith(baseDateInfo.prevMonthStr) ||
-          p.dataDigitacao.startsWith(baseDateInfo.prev2MonthsStr)
+          d.startsWith(baseDateInfo.currentMonthStr) ||
+          d.startsWith(baseDateInfo.prevMonthStr) ||
+          d.startsWith(baseDateInfo.prev2MonthsStr)
         );
       }
       if (periodo === 'ano') {
-        return p.dataDigitacao.startsWith(baseDateInfo.yearStr);
+        const targetYear = String(anoSelecionado || 2026);
+        return d.startsWith(targetYear);
+      }
+      if (periodo === 'personalizado') {
+        const start = dataInicioPersonalizada || '2020-01-01';
+        const end = dataFimPersonalizada || '2030-12-31';
+        return d >= start && d <= end;
       }
       return true;
     });
-  }, [propostas, periodo, baseDateInfo]);
+  }, [propostas, periodo, baseDateInfo, anoSelecionado, dataInicioPersonalizada, dataFimPersonalizada]);
 
   // Previous month for comparative deltas
   const prevMonthPropostas = useMemo(() => {
@@ -185,14 +241,26 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   // Expenses in current period
   const totalDespesas = useMemo(() => {
     const cp = contasPagar.filter(c => {
-      if (periodo === 'hoje' || periodo === 'semana') return c.status === 'pendente';
+      if (periodo === 'hoje' || periodo === 'semana' || periodo === 'semana_anterior') return c.status === 'pendente';
       if (periodo === 'mes_anterior') return c.vencimento.startsWith(baseDateInfo.prevMonthStr);
+      if (periodo === 'ultimos_3_meses') {
+        return (
+          c.vencimento.startsWith(baseDateInfo.currentMonthStr) ||
+          c.vencimento.startsWith(baseDateInfo.prevMonthStr) ||
+          c.vencimento.startsWith(baseDateInfo.prev2MonthsStr)
+        );
+      }
+      if (periodo === 'personalizado') {
+        const start = dataInicioPersonalizada || '2020-01-01';
+        const end = dataFimPersonalizada || '2030-12-31';
+        return c.vencimento >= start && c.vencimento <= end;
+      }
       return c.vencimento.startsWith(baseDateInfo.currentMonthStr);
     });
     const billsTotal = cp.reduce((acc, c) => acc + c.valor, 0);
-    const teamSalaries = periodo === 'semana' ? 3375 : 13500;
+    const teamSalaries = periodo === 'semana' || periodo === 'semana_anterior' ? 3375 : 13500;
     return billsTotal + teamSalaries;
-  }, [contasPagar, periodo, baseDateInfo]);
+  }, [contasPagar, periodo, baseDateInfo, dataInicioPersonalizada, dataFimPersonalizada]);
 
   const lucroLiquido = faturamentoBruto - totalDespesas;
   const margemLucro = faturamentoBruto > 0 ? (lucroLiquido / faturamentoBruto) * 100 : 0;
@@ -251,12 +319,18 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   const metaLoja = useMemo(() => {
     let periodMultiplier = 1;
     if (periodo === 'hoje') periodMultiplier = 1 / 30;
-    else if (periodo === 'semana') periodMultiplier = 7 / 30;
+    else if (periodo === 'semana' || periodo === 'semana_anterior') periodMultiplier = 7 / 30;
     else if (periodo === 'mes' || periodo === 'mes_anterior') periodMultiplier = 1;
     else if (periodo === 'ultimos_3_meses') periodMultiplier = 3;
     else if (periodo === 'ano') periodMultiplier = 12;
+    else if (periodo === 'personalizado') {
+      const startMs = new Date(dataInicioPersonalizada || '2026-09-01').getTime();
+      const endMs = new Date(dataFimPersonalizada || '2026-09-30').getTime();
+      const diffDays = Math.max(1, Math.round((endMs - startMs) / (1000 * 60 * 60 * 24)));
+      periodMultiplier = diffDays / 30;
+    }
     return storeMetaMonthly * periodMultiplier;
-  }, [storeMetaMonthly, periodo]);
+  }, [storeMetaMonthly, periodo, dataInicioPersonalizada, dataFimPersonalizada]);
 
   const atingimentoMeta = metaLoja > 0 ? (totalVendas / metaLoja) * 100 : 0;
   const quantoFalta = Math.max(0, metaLoja - totalVendas);
@@ -279,10 +353,16 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     // Period multiplier for scaling
     let periodMultiplier = 1;
     if (periodo === 'hoje') periodMultiplier = 1 / 30;
-    else if (periodo === 'semana') periodMultiplier = 7 / 30;
+    else if (periodo === 'semana' || periodo === 'semana_anterior') periodMultiplier = 7 / 30;
     else if (periodo === 'mes' || periodo === 'mes_anterior') periodMultiplier = 1;
     else if (periodo === 'ultimos_3_meses') periodMultiplier = 3;
     else if (periodo === 'ano') periodMultiplier = 12;
+    else if (periodo === 'personalizado') {
+      const startMs = new Date(dataInicioPersonalizada || '2026-09-01').getTime();
+      const endMs = new Date(dataFimPersonalizada || '2026-09-30').getTime();
+      const diffDays = Math.max(1, Math.round((endMs - startMs) / (1000 * 60 * 60 * 24)));
+      periodMultiplier = diffDays / 30;
+    }
 
     const currentMonth = baseDateInfo.currentMonthStr;
 
@@ -312,10 +392,21 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     });
 
     const activeSellersSet = new Set(allUsers.filter(u => u.status === 'ativo').map(u => normalizeSellerName(u.name)));
+    const recognizedRepsSet = new Set(reps.map(r => normalizeSellerName(r)));
+
+    let outrosVendas = 0;
+    let outrosTaxa = 0;
+    let outrosCount = 0;
 
     paidPropostas.forEach(p => {
       const normName = normalizeSellerName(p.vendedora);
-      if (!activeSellersSet.has(normName)) return; // Skip inactive sellers
+      if (!activeSellersSet.has(normName) && !recognizedRepsSet.has(normName)) {
+        // Collect into generic "Outros" for former employees
+        outrosVendas += p.valorEmprestimo;
+        outrosTaxa += p.valorTaxa;
+        outrosCount += 1;
+        return;
+      }
 
       let rep = sellersMap.get(normName);
       if (!rep) {
@@ -329,8 +420,18 @@ export const ProprietariaDashboard: React.FC<Props> = ({
       rep.count += 1;
     });
 
+    if (outrosCount > 0) {
+      sellersMap.set('Outros', {
+        nome: 'Outros',
+        vendas: outrosVendas,
+        taxa: outrosTaxa,
+        count: outrosCount,
+        meta: 0
+      });
+    }
+
     return Array.from(sellersMap.values()).sort((a, b) => b.vendas - a.vendas);
-  }, [paidPropostas, metas, allUsers, periodo, baseDateInfo]);
+  }, [paidPropostas, metas, allUsers, periodo, baseDateInfo, dataInicioPersonalizada, dataFimPersonalizada]);
 
   // Operations breakdown & profitability
   const operationsChartData = useMemo(() => {
@@ -402,8 +503,9 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   // Employee profitability calculation (Taxa + Comissão - Custo)
   const employeeProfitability = useMemo(() => {
     return rankingVendedoras.map(seller => {
+      const isOutros = seller.nome === 'Outros';
       const user = allUsers.find(u => u.name === seller.nome);
-      const custo = user?.baseSalaryCost || 2200;
+      const custo = isOutros ? 0 : (user?.baseSalaryCost || 2200);
       const comissaoPromotoraEst = Math.round(seller.vendas * 0.045);
       const receitaGerada = seller.taxa + comissaoPromotoraEst;
       const rentabilidadeLiquida = receitaGerada - custo;
@@ -480,33 +582,234 @@ export const ProprietariaDashboard: React.FC<Props> = ({
           </p>
         </div>
 
-        {/* Period Filter Buttons */}
-        <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-          {(['hoje', 'semana', 'mes', 'mes_anterior', 'ultimos_3_meses', 'ano'] as PeriodoFiltro[]).map((p) => {
-            const labels: Record<PeriodoFiltro, string> = {
-              hoje: 'Hoje',
-              semana: 'Semana',
-              mes: 'Este Mês',
-              mes_anterior: 'Mês Anterior',
-              ultimos_3_meses: '3 Meses',
-              ano: '2026',
-              tudo: 'Tudo'
-            };
-            const isSelected = periodo === p;
-            return (
+        {/* Period Filter Buttons with Hover & Mobile Double-Click Support */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
+            {/* 1. Hoje */}
+            <button
+              type="button"
+              onClick={() => {
+                setPeriodo('hoje');
+                setOpenSubmenu(null);
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+                periodo === 'hoje'
+                  ? 'bg-[#0B2A4A] text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              Hoje
+            </button>
+
+            {/* 2. Semana (Obrigatório: Domingo da semana atual até hoje. Submenu: Semana Anterior) */}
+            <div
+              className="relative"
+              onMouseEnter={() => setOpenSubmenu('semana')}
+              onMouseLeave={() => setOpenSubmenu(null)}
+            >
               <button
-                key={p}
-                onClick={() => setPeriodo(p)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
-                  isSelected
-                    ? 'bg-[#0B2A4A] dark:bg-[#1B8A8F] text-white shadow-xs'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200'
+                type="button"
+                onClick={() => handleFilterClickOrDoubleTap('semana', () => setPeriodo('semana'))}
+                onDoubleClick={() => setOpenSubmenu(prev => (prev === 'semana' ? null : 'semana'))}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1 ${
+                  periodo === 'semana' || periodo === 'semana_anterior'
+                    ? 'bg-[#0B2A4A] text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                {labels[p]}
+                <span>{periodo === 'semana_anterior' ? 'Semana Anterior' : 'Semana'}</span>
+                <ChevronDown className="w-3 h-3 opacity-70 shrink-0" />
               </button>
-            );
-          })}
+
+              {openSubmenu === 'semana' && (
+                <div className="absolute top-full left-0 mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg p-1 min-w-[145px] animate-in fade-in duration-150">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPeriodo('semana');
+                      setOpenSubmenu(null);
+                    }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
+                      periodo === 'semana' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Semana Atual
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPeriodo('semana_anterior');
+                      setOpenSubmenu(null);
+                    }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
+                      periodo === 'semana_anterior' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Semana Anterior
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* 3. Este Mês (Sem Mês Anterior ao lado direto. Submenu: Mês Anterior e Últimos Três Meses) */}
+            <div
+              className="relative"
+              onMouseEnter={() => setOpenSubmenu('mes')}
+              onMouseLeave={() => setOpenSubmenu(null)}
+            >
+              <button
+                type="button"
+                onClick={() => handleFilterClickOrDoubleTap('mes', () => setPeriodo('mes'))}
+                onDoubleClick={() => setOpenSubmenu(prev => (prev === 'mes' ? null : 'mes'))}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1 ${
+                  periodo === 'mes' || periodo === 'mes_anterior' || periodo === 'ultimos_3_meses'
+                    ? 'bg-[#0B2A4A] text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <span>
+                  {periodo === 'mes_anterior' ? 'Mês Anterior' : periodo === 'ultimos_3_meses' ? '3 Meses' : 'Este Mês'}
+                </span>
+                <ChevronDown className="w-3 h-3 opacity-70 shrink-0" />
+              </button>
+
+              {openSubmenu === 'mes' && (
+                <div className="absolute top-full left-0 mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg p-1 min-w-[165px] animate-in fade-in duration-150">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPeriodo('mes');
+                      setOpenSubmenu(null);
+                    }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
+                      periodo === 'mes' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Este Mês
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPeriodo('mes_anterior');
+                      setOpenSubmenu(null);
+                    }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
+                      periodo === 'mes_anterior' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Mês Anterior
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPeriodo('ultimos_3_meses');
+                      setOpenSubmenu(null);
+                    }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
+                      periodo === 'ultimos_3_meses' ? 'bg-slate-100 text-slate-900 font-bold' : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    Últimos Três Meses
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* 4. Filtro de Ano (2026 padrão. Submenu: anos anteriores) */}
+            <div
+              className="relative"
+              onMouseEnter={() => setOpenSubmenu('ano')}
+              onMouseLeave={() => setOpenSubmenu(null)}
+            >
+              <button
+                type="button"
+                onClick={() => handleFilterClickOrDoubleTap('ano', () => {
+                  setPeriodo('ano');
+                  if (!anoSelecionado) setAnoSelecionado(2026);
+                })}
+                onDoubleClick={() => setOpenSubmenu(prev => (prev === 'ano' ? null : 'ano'))}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1 ${
+                  periodo === 'ano'
+                    ? 'bg-[#0B2A4A] text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <span>{periodo === 'ano' && anoSelecionado ? String(anoSelecionado) : '2026'}</span>
+                <ChevronDown className="w-3 h-3 opacity-70 shrink-0" />
+              </button>
+
+              {openSubmenu === 'ano' && (
+                <div className="absolute top-full left-0 mt-1 z-30 bg-white border border-slate-200 rounded-xl shadow-lg p-1 min-w-[130px] animate-in fade-in duration-150">
+                  {[2026, 2025, 2024, 2023, 2022].map((yr) => (
+                    <button
+                      key={yr}
+                      type="button"
+                      onClick={() => {
+                        setAnoSelecionado(yr);
+                        setPeriodo('ano');
+                        setOpenSubmenu(null);
+                      }}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium transition ${
+                        periodo === 'ano' && (anoSelecionado === yr || (!anoSelecionado && yr === 2026))
+                          ? 'bg-slate-100 text-slate-900 font-bold'
+                          : 'text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      {yr} {yr === 2026 ? '(Padrão)' : ''}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 5. Personalizado */}
+            <button
+              type="button"
+              onClick={() => {
+                setPeriodo('personalizado');
+                setOpenSubmenu(null);
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                periodo === 'personalizado'
+                  ? 'bg-[#0B2A4A] text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Personalizado</span>
+            </button>
+          </div>
+
+          {/* Inline Date Range Picker for "Personalizado" */}
+          {periodo === 'personalizado' && (
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 text-xs animate-in fade-in duration-150">
+              <span className="font-bold text-slate-700 flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5 text-[#0F5C63]" />
+                <span>Período:</span>
+              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-slate-500 font-semibold">De</span>
+                <input
+                  type="date"
+                  value={dataInicioPersonalizada}
+                  onChange={(e) => setDataInicioPersonalizada(e.target.value)}
+                  className="px-2 py-1 rounded-lg border border-slate-300 text-xs font-semibold text-slate-800 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-[11px] text-slate-500 font-semibold">Até</span>
+                <input
+                  type="date"
+                  value={dataFimPersonalizada}
+                  onChange={(e) => setDataFimPersonalizada(e.target.value)}
+                  className="px-2 py-1 rounded-lg border border-slate-300 text-xs font-semibold text-slate-800 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
+              <span className="text-[11px] text-slate-400 font-mono">
+                ({filteredPropostas.length} contratos localizados)
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -716,20 +1019,34 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               <div
                 key={vendedora.nome}
                 onClick={() => {
-                  const propsForSeller = filteredPropostas.filter(p => normalizeSellerName(p.vendedora) === vendedora.nome);
-                  setSelectedSellerName(vendedora.nome);
+                  const activeSellersSet = new Set(allUsers.filter(u => u.status === 'ativo').map(u => normalizeSellerName(u.name)));
+                  const propsForSeller = vendedora.nome === 'Outros'
+                    ? filteredPropostas.filter(p => !activeSellersSet.has(normalizeSellerName(p.vendedora)) && !normalizeSellerName(p.vendedora).includes('IGARASSU'))
+                    : filteredPropostas.filter(p => normalizeSellerName(p.vendedora) === vendedora.nome);
+                  setSelectedSellerName(vendedora.nome === 'Outros' ? 'Outros (Ex-Colaboradores)' : vendedora.nome);
                   setSelectedSellerProposals(propsForSeller);
                 }}
                 className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 cursor-pointer transition-all duration-150 hover:shadow-xs hover:scale-[1.005]"
               >
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] shrink-0 ${index < 3 ? medalColors[index] : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
-                      {index + 1}º
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] shrink-0 ${
+                      vendedora.nome === 'Outros'
+                        ? 'bg-amber-100 text-amber-800 font-bold'
+                        : index < 3
+                        ? medalColors[index]
+                        : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                    }`}>
+                      {vendedora.nome === 'Outros' ? '•' : `${index + 1}º`}
                     </span>
                     <div className="min-w-0">
-                      <p className="text-sm font-extrabold text-slate-900 dark:text-white truncate">
-                        {vendedora.nome}
+                      <p className="text-sm font-extrabold text-slate-900 dark:text-white truncate flex items-center gap-1.5">
+                        <span>{vendedora.nome === 'Outros' ? 'Outros (Ex-Colaboradores)' : vendedora.nome}</span>
+                        {vendedora.nome === 'Outros' && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-900 border border-amber-200">
+                            Histórico
+                          </span>
+                        )}
                       </p>
                       <p className="text-[10px] text-slate-400 font-medium">
                         {vendedora.count} contratos no período

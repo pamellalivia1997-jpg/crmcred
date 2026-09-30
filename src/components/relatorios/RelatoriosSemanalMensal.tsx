@@ -34,7 +34,7 @@ export const RelatoriosSemanalMensal: React.FC = () => {
 
   // Matrix: Operacao x Vendedora (Vendas e % de taxa)
   const matrixData = useMemo(() => {
-    return reps.map(repName => {
+    const list = reps.map(repName => {
       const repProps = currentMonthPaidPropostas.filter(p => p.vendedora === repName);
       const totalVendaRep = repProps.reduce((acc, p) => acc + p.valorEmprestimo, 0);
       const totalTaxaRep = repProps.reduce((acc, p) => acc + p.valorTaxa, 0);
@@ -65,6 +65,34 @@ export const RelatoriosSemanalMensal: React.FC = () => {
         opsBreakdown
       };
     });
+
+    // Check sales of ex-collaborators or unmapped reps
+    const outrosProps = currentMonthPaidPropostas.filter(p => !reps.includes(p.vendedora));
+    if (outrosProps.length > 0) {
+      const totalVendaRep = outrosProps.reduce((acc, p) => acc + p.valorEmprestimo, 0);
+      const totalTaxaRep = outrosProps.reduce((acc, p) => acc + p.valorTaxa, 0);
+      const percentTaxaGeral = totalVendaRep > 0 ? (totalTaxaRep / totalVendaRep) * 100 : 0;
+      const opsBreakdown: Record<string, { venda: number; taxa: number; percent: number }> = {};
+      operacoesDestaque.forEach(op => {
+        const ops = outrosProps.filter(p => p.operacao === op);
+        const venda = ops.reduce((acc, p) => acc + p.valorEmprestimo, 0);
+        const taxa = ops.reduce((acc, p) => acc + p.valorTaxa, 0);
+        const percent = venda > 0 ? (taxa / venda) * 100 : 0;
+        opsBreakdown[op] = { venda, taxa, percent };
+      });
+      list.push({
+        repName: 'Outros (Ex-Colaboradores)',
+        totalVendaRep,
+        totalTaxaRep,
+        percentTaxaGeral,
+        userMeta: 0,
+        atingimento: 100,
+        quantoFalta: 0,
+        opsBreakdown
+      });
+    }
+
+    return list;
   }, [currentMonthPaidPropostas, metas]);
 
   // Total sums of matrix
@@ -77,8 +105,9 @@ export const RelatoriosSemanalMensal: React.FC = () => {
   // Análise do Faturamento: Por vendedora (pagos, taxas, comissão por promotora, taxa + comissão, custo, rentabilidade)
   const faturamentoPorVendedora = useMemo(() => {
     return matrixData.map(rep => {
+      const isOutros = rep.repName.includes('Outros');
       const user = allUsers.find(u => u.name === rep.repName);
-      const custo = user?.baseSalaryCost || 2200;
+      const custo = isOutros ? 0 : (user?.baseSalaryCost || 2200);
       const comissaoPromotoraEst = Math.round(rep.totalVendaRep * 0.045);
       const taxaMaisComissao = rep.totalTaxaRep + comissaoPromotoraEst;
       const rentabilidade = taxaMaisComissao - custo;

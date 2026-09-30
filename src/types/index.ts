@@ -9,9 +9,9 @@ export interface User {
   avatarUrl?: string;
   phone: string;
   status: 'ativo' | 'inativo';
-  monthlySalesGoal: number; // Ex: 70000
-  monthlyTaxPercentGoal: number; // Ex: 10.0 (%)
-  baseSalaryCost: number; // Custo mensal da funcionária (salário + encargos)
+  monthlySalesGoal?: number; // Ex: 70000
+  monthlyTaxPercentGoal?: number; // Ex: 10.0 (%)
+  baseSalaryCost?: number; // Custo mensal da funcionária (salário + encargos)
 }
 
 export type Convenio = 
@@ -140,6 +140,7 @@ export interface MetaVendedora {
   mesAno: string; // Ex: '2026-09'
   metaVenda: number;
   metaPercentualTaxa: number;
+  isAtivoNoMes?: boolean;
 }
 
 export interface Feedback {

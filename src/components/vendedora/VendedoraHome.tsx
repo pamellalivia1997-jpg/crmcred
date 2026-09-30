@@ -146,17 +146,24 @@ export const VendedoraHome: React.FC<Props> = ({
     const allReps = ['Hellen Vasconcelos', 'Loja Igarassu (Balcão)', 'Taciana Silva', 'Lucélia Ramos', 'Pamella'];
     allReps.forEach(r => map.set(r, 0));
 
+    let outrosTotal = 0;
     propostas
       .filter(p => p.dataDigitacao.startsWith(currentMonthYear) && p.status === 'Paga')
       .forEach(p => {
         if (map.has(p.vendedora)) {
           map.set(p.vendedora, (map.get(p.vendedora) || 0) + p.valorEmprestimo);
+        } else {
+          outrosTotal += p.valorEmprestimo;
         }
       });
 
-    return Array.from(map.entries())
-      .map(([nome, vendas]) => ({ nome, vendas }))
-      .sort((a, b) => b.vendas - a.vendas);
+    const list = Array.from(map.entries())
+      .map(([nome, vendas]) => ({ nome, vendas }));
+    if (outrosTotal > 0) {
+      list.push({ nome: 'Outros (Ex-Colaboradores)', vendas: outrosTotal });
+    }
+
+    return list.sort((a, b) => b.vendas - a.vendas);
   }, [propostas, currentMonthYear]);
 
   const minhaPosicaoRanking = rankingSeguro.findIndex(r => r.nome === sellerName) + 1;
