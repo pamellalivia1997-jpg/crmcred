@@ -105,11 +105,8 @@ export const LoginScreen: React.FC<Props> = ({ onLoginSuccess }) => {
         {/* Brand Header */}
         <div className="text-center space-y-2">
           <div className="flex justify-center">
-            <BrandLogo size="lg" showSubtitle={true} />
+            <BrandLogo size="xl" showSubtitle={true} />
           </div>
-          <p className="text-xs text-slate-500 max-w-xs mx-auto">
-            Plataforma centralizada de crédito consignado para Lívia Cred Saúde.
-          </p>
         </div>
 
         {/* Main Login Card */}

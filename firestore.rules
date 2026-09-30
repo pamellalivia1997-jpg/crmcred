@@ -1,55 +1,81 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Default Deny
+
+    // Global Deny
     match /{document=**} {
       allow read, write: if false;
     }
 
-    // Helper functions
-    function isSignedIn() {
-      return request.auth != null;
-    }
+    // Helper Functions
+    function isSignedIn() { return request.auth != null; }
+    function isEmailVerified() { return request.auth.token.email_verified == true; }
+    
+    // Validate IDs
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
 
+    // Users
     match /users/{userId} {
-      allow read, write: if isSignedIn() || true;
+      allow read: if isSignedIn() && (request.auth.uid == userId || exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && (request.auth.uid == userId || exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
     }
 
+    // Standard Collections - Hardened
     match /clientes/{clienteId} {
-      allow read, write: if isSignedIn() || true;
+      allow list: if isSignedIn() && isEmailVerified();
+      allow get: if isSignedIn() && isEmailVerified();
+      allow create: if isSignedIn() && isEmailVerified();
+      allow update: if isSignedIn() && isEmailVerified();
     }
-
+    
     match /propostas/{propostaId} {
-      allow read, write: if isSignedIn() || true;
+      allow list: if isSignedIn() && isEmailVerified();
+      allow get: if isSignedIn() && isEmailVerified();
+      allow create: if isSignedIn() && isEmailVerified();
+      allow update: if isSignedIn() && isEmailVerified();
     }
 
     match /comissoesPromotoras/{comissaoId} {
-      allow read, write: if isSignedIn() || true;
+      allow list: if isSignedIn() && isEmailVerified();
+      allow get: if isSignedIn() && isEmailVerified();
+      allow create: if isSignedIn() && isEmailVerified();
+      allow update: if isSignedIn() && isEmailVerified();
     }
-
+    
     match /contasPagar/{contaId} {
-      allow read, write: if isSignedIn() || true;
+      allow list: if isSignedIn() && isEmailVerified();
+      allow get: if isSignedIn() && isEmailVerified();
+      allow create: if isSignedIn() && isEmailVerified();
+      allow update: if isSignedIn() && isEmailVerified();
     }
-
+    
     match /metas/{metaId} {
-      allow read, write: if isSignedIn() || true;
+      allow list: if isSignedIn() && isEmailVerified();
+      allow get: if isSignedIn() && isEmailVerified();
+      allow create: if isSignedIn() && isEmailVerified();
+      allow update: if isSignedIn() && isEmailVerified();
     }
-
+    
     match /feedbacks/{feedbackId} {
-      allow read, write: if isSignedIn() || true;
+      allow list: if isSignedIn() && isEmailVerified();
+      allow get: if isSignedIn() && isEmailVerified();
+      allow create: if isSignedIn() && isEmailVerified();
+      allow update: if isSignedIn() && isEmailVerified();
     }
-
+    
     match /alertas/{alertaId} {
-      allow read, write: if isSignedIn() || true;
+      allow list: if isSignedIn() && isEmailVerified();
+      allow get: if isSignedIn() && isEmailVerified();
+      allow create: if isSignedIn() && isEmailVerified();
+      allow update: if isSignedIn() && isEmailVerified();
     }
-
+    
     match /auditLogs/{logId} {
-      allow read, write: if isSignedIn() || true;
-    }
-
-    match /test/{docId} {
-      allow read, write: if true;
+      allow list: if isSignedIn() && isEmailVerified();
+      allow get: if isSignedIn() && isEmailVerified();
+      allow create: if isSignedIn() && isEmailVerified();
+      allow update: if isSignedIn() && isEmailVerified();
     }
   }
 }

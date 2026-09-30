@@ -75,7 +75,7 @@ export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavig
 
           <div
             onClick={() => onNavigate && onNavigate(currentUser?.role === 'vendedora' ? 'vendedora_home' : 'dashboard')}
-            className="cursor-pointer"
+            className="cursor-pointer shrink-0 flex items-center"
           >
             <BrandLogo size="sm" showSubtitle={false} className="sm:hidden" />
             <BrandLogo size="md" showSubtitle={true} className="hidden sm:flex" />
@@ -83,7 +83,7 @@ export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavig
         </div>
 
         {/* Right: Actions */}
-        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 ml-auto">
           
           {/* PWA Install Button */}
           <PWAInstallButton variant="subtle" className="hidden sm:flex" />
@@ -99,7 +99,7 @@ export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavig
                 {cleanPersonName(currentUser?.name).slice(0, 2).toUpperCase() || 'LV'}
               </div>
               <div className="hidden md:flex flex-col">
-                <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 leading-none truncate max-w-[120px]">
+                <span className="text-xs font-semibold text-slate-800 dark:text-slate-100 leading-none truncate max-w-[80px] sm:max-w-[120px]">
                   {cleanPersonName(currentUser?.name)}
                 </span>
                 <span className="text-[10px] text-slate-600 dark:text-slate-400 font-medium">
@@ -284,20 +284,20 @@ export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavig
             )}
           </button>
 
-          {/* Theme Toggle */}
+          {/* Theme Toggle - Hidden on Mobile */}
           <button
             onClick={toggleTheme}
-            className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            className="hidden sm:flex p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
             title={theme === 'dark' ? 'Modo Claro' : 'Modo Escuro'}
             aria-label="Alternar tema"
           >
             {theme === 'dark' ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-slate-700" />}
           </button>
 
-          {/* Direct Logout Button */}
+          {/* Direct Logout Button - Hidden on Mobile */}
           <button
             onClick={logout}
-            className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
+            className="hidden sm:flex p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors"
             title="Sair do Sistema"
             aria-label="Sair"
           >
