@@ -30,14 +30,11 @@ interface AuthContextType {
   isDigitador: boolean;
   acceptedLGPD: boolean;
   acceptLGPD: () => void;
-  theme: 'light' | 'dark';
-  toggleTheme: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const CURRENT_USER_KEY = 'livia_credsaude_current_user_id';
-const THEME_KEY = 'livia_credsaude_theme';
 
 function normalizeUser<T extends User | null>(user: T): T {
   if (!user) return user;
@@ -61,12 +58,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (found) return normalizeUser(found);
     }
     return null;
-  });
-
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    const saved = localStorage.getItem(THEME_KEY);
-    if (saved === 'dark' || saved === 'light') return saved;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
 
   useEffect(() => {
@@ -95,17 +86,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const root = document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
-    }
-    localStorage.setItem(THEME_KEY, theme);
-  }, [theme]);
-
-  const toggleTheme = () => {
-    setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
-  };
+    root.classList.remove('dark');
+  }, []);
 
   const isManager = Boolean(
     currentUser && (currentUser.role === 'proprietaria' || currentUser.role === 'adm' || currentUser.role === 'financeiro')
@@ -398,9 +380,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isManager,
         isDigitador,
         acceptedLGPD: true,
-        acceptLGPD,
-        theme,
-        toggleTheme
+        acceptLGPD
       }}
     >
       {children}

@@ -26,7 +26,7 @@ interface Props {
 }
 
 export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavigate }) => {
-  const { currentUser, allUsers, switchUser, logout, isManager, theme, toggleTheme } = useAuth();
+  const { currentUser, allUsers, switchUser, logout, isManager } = useAuth();
   const { alertas, resetAllData } = useCRM();
   const [showUserMenu, setShowUserMenu] = useState(false);
 
@@ -282,16 +282,6 @@ export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavig
                 {unreadAlertsCount}
               </span>
             )}
-          </button>
-
-          {/* Theme Toggle - Hidden on Mobile */}
-          <button
-            onClick={toggleTheme}
-            className="hidden sm:flex p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            title={theme === 'dark' ? 'Modo Claro' : 'Modo Escuro'}
-            aria-label="Alternar tema"
-          >
-            {theme === 'dark' ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-slate-700" />}
           </button>
 
           {/* Direct Logout Button - Hidden on Mobile */}

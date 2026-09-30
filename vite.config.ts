@@ -13,7 +13,7 @@ export default defineConfig(() => {
       react(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['icon.svg'],
+        includeAssets: ['logo.png'],
         manifest: {
           id: basePath,
           name: 'Lívia Cred Saúde CRM',
