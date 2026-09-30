@@ -4,6 +4,7 @@ import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
 import { Proposta, StatusProposta } from '../../types';
 import { formatCurrency, formatPercent, formatDate, formatCPF } from '../../utils/formatters';
+import { CPFValidationBadge } from '../common/CPFValidationBadge';
 
 interface Props {
   proposta: Proposta | null;
@@ -51,8 +52,9 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta, onClose }) => 
                 {proposta.status}
               </span>
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Cliente: {proposta.nomeCliente} · CPF: {formatCPF(proposta.cpf)}
+            <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1 flex-wrap">
+              <span>Cliente: {proposta.nomeCliente} · CPF: {formatCPF(proposta.cpf)}</span>
+              <CPFValidationBadge cpf={proposta.cpf} />
             </p>
           </div>
 

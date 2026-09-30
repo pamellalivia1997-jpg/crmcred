@@ -38,6 +38,7 @@ import {
   IndicationInfo,
   isSameSeller
 } from '../../utils/formatters';
+import { CPFValidationBadge } from '../common/CPFValidationBadge';
 import {
   getMessagingSettings,
   saveMessagingSettings,
@@ -594,8 +595,10 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
                       {proposta.nomeCliente}
                     </h3>
 
-                    <p className="text-xs text-slate-500">
-                      CPF: {formatCPF(proposta.cpf)} · {proposta.operacao} ({proposta.banco}) · Vendedora: <strong>{proposta.vendedora}</strong>
+                    <p className="text-xs text-slate-500 flex items-center gap-1 flex-wrap">
+                      <span>CPF: {formatCPF(proposta.cpf)}</span>
+                      <CPFValidationBadge cpf={proposta.cpf} />
+                      <span>· {proposta.operacao} ({proposta.banco}) · Vendedora: <strong>{proposta.vendedora}</strong></span>
                     </p>
                   </div>
 

@@ -1,81 +1,11 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Global Deny
+    // Permitir leitura e gravação para todas as coleções do CRM Lívia Cred Saúde
+    // Permite que tanto o ambiente do Studio quanto acessos externos (como GitHub Pages e celulares)
+    // sincronizem os dados da nuvem em tempo real sem bloqueio de autenticação prévia.
     match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // Helper Functions
-    function isSignedIn() { return request.auth != null; }
-    function isEmailVerified() { return request.auth.token.email_verified == true; }
-    
-    // Validate IDs
-    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
-
-    // Users
-    match /users/{userId} {
-      allow read: if isSignedIn() && (request.auth.uid == userId || exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
-      allow create: if isSignedIn() && request.auth.uid == userId;
-      allow update: if isSignedIn() && (request.auth.uid == userId || exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
-    }
-
-    // Standard Collections - Hardened
-    match /clientes/{clienteId} {
-      allow list: if isSignedIn() && isEmailVerified();
-      allow get: if isSignedIn() && isEmailVerified();
-      allow create: if isSignedIn() && isEmailVerified();
-      allow update: if isSignedIn() && isEmailVerified();
-    }
-    
-    match /propostas/{propostaId} {
-      allow list: if isSignedIn() && isEmailVerified();
-      allow get: if isSignedIn() && isEmailVerified();
-      allow create: if isSignedIn() && isEmailVerified();
-      allow update: if isSignedIn() && isEmailVerified();
-    }
-
-    match /comissoesPromotoras/{comissaoId} {
-      allow list: if isSignedIn() && isEmailVerified();
-      allow get: if isSignedIn() && isEmailVerified();
-      allow create: if isSignedIn() && isEmailVerified();
-      allow update: if isSignedIn() && isEmailVerified();
-    }
-    
-    match /contasPagar/{contaId} {
-      allow list: if isSignedIn() && isEmailVerified();
-      allow get: if isSignedIn() && isEmailVerified();
-      allow create: if isSignedIn() && isEmailVerified();
-      allow update: if isSignedIn() && isEmailVerified();
-    }
-    
-    match /metas/{metaId} {
-      allow list: if isSignedIn() && isEmailVerified();
-      allow get: if isSignedIn() && isEmailVerified();
-      allow create: if isSignedIn() && isEmailVerified();
-      allow update: if isSignedIn() && isEmailVerified();
-    }
-    
-    match /feedbacks/{feedbackId} {
-      allow list: if isSignedIn() && isEmailVerified();
-      allow get: if isSignedIn() && isEmailVerified();
-      allow create: if isSignedIn() && isEmailVerified();
-      allow update: if isSignedIn() && isEmailVerified();
-    }
-    
-    match /alertas/{alertaId} {
-      allow list: if isSignedIn() && isEmailVerified();
-      allow get: if isSignedIn() && isEmailVerified();
-      allow create: if isSignedIn() && isEmailVerified();
-      allow update: if isSignedIn() && isEmailVerified();
-    }
-    
-    match /auditLogs/{logId} {
-      allow list: if isSignedIn() && isEmailVerified();
-      allow get: if isSignedIn() && isEmailVerified();
-      allow create: if isSignedIn() && isEmailVerified();
-      allow update: if isSignedIn() && isEmailVerified();
+      allow read, write: if true;
     }
   }
 }

@@ -5,7 +5,7 @@ import {VitePWA} from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
   const isGithubPages = process.env.GITHUB_PAGES === 'true' || Boolean(process.env.CI);
-  const basePath = isGithubPages ? '/crmcred/' : './';
+  const basePath = isGithubPages ? '/crmcred/' : '/';
 
   return {
     base: basePath,
@@ -13,6 +13,7 @@ export default defineConfig(() => {
       react(),
       VitePWA({
         registerType: 'autoUpdate',
+        injectRegister: 'auto',
         includeAssets: ['logo.png'],
         manifest: {
           id: basePath,
@@ -22,18 +23,31 @@ export default defineConfig(() => {
           theme_color: '#0B2A4A',
           background_color: '#0B2A4A',
           display: 'standalone',
+          orientation: 'portrait',
           start_url: basePath,
           scope: basePath,
           icons: [
             {
               src: 'logo.png',
-              sizes: '192x192 512x512',
+              sizes: '192x192',
               type: 'image/png',
               purpose: 'any',
             },
             {
               src: 'logo.png',
-              sizes: '192x192 512x512',
+              sizes: '512x512',
+              type: 'image/png',
+              purpose: 'any',
+            },
+            {
+              src: 'logo.png',
+              sizes: '192x192',
+              type: 'image/png',
+              purpose: 'maskable',
+            },
+            {
+              src: 'logo.png',
+              sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable',
             },
@@ -41,6 +55,7 @@ export default defineConfig(() => {
         },
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,jpg}'],
+          cleanupOutdatedCaches: true,
         },
         devOptions: {
           enabled: true,

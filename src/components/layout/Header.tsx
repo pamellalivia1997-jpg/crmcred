@@ -86,7 +86,7 @@ export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavig
         <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 ml-auto">
           
           {/* PWA Install Button */}
-          <PWAInstallButton variant="subtle" className="hidden sm:flex" />
+          <PWAInstallButton variant="subtle" className="flex" />
 
           {/* Quick Profile Switcher (Primary tool for demonstration!) */}
           <div className="relative">

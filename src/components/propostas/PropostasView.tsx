@@ -20,6 +20,7 @@ import { Proposta, StatusProposta, Operacao, Banco, Promotora } from '../../type
 import { formatCurrency, formatPercent, formatDate, formatCPF } from '../../utils/formatters';
 import { NovaPropostaModal } from './NovaPropostaModal';
 import { DetalhePropostaModal } from './DetalhePropostaModal';
+import { CPFValidationBadge } from '../common/CPFValidationBadge';
 
 export const PropostasView: React.FC = () => {
   const { propostas, updateStatusProposta } = useCRM();
@@ -315,7 +316,10 @@ export const PropostasView: React.FC = () => {
                     <td className="py-2.5 px-3 tabular-nums text-slate-500">{formatDate(prop.dataDigitacao)}</td>
                     <td className="py-2.5 px-3">
                       <p className="font-bold text-slate-900 dark:text-white truncate max-w-[140px]">{prop.nomeCliente}</p>
-                      <p className="text-[10px] text-slate-400 tabular-nums">{formatCPF(prop.cpf)}</p>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-slate-400 tabular-nums">{formatCPF(prop.cpf)}</span>
+                        <CPFValidationBadge cpf={prop.cpf} />
+                      </div>
                     </td>
                     <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300">{prop.operacao}</td>
                     <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300">{prop.banco}</td>

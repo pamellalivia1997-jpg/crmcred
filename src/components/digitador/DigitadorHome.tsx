@@ -18,6 +18,7 @@ import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
 import { Proposta, AlertaOportunidade, Cliente } from '../../types';
 import { formatCurrency, formatCPF, formatDate, cleanPersonName } from '../../utils/formatters';
+import { CPFValidationBadge } from '../common/CPFValidationBadge';
 
 interface Props {
   onOpenNovaProposta: (preselectedCliente?: Cliente | null) => void;
@@ -409,7 +410,10 @@ export const DigitadorHome: React.FC<Props> = ({
                       </td>
                       <td className="py-3 px-3">
                         <p className="font-bold text-slate-900 dark:text-white">{p.nomeCliente}</p>
-                        <p className="text-[10px] text-slate-400 font-mono">{formatCPF(p.cpf)}</p>
+                        <div className="flex items-center gap-1">
+                          <span className="text-[10px] text-slate-400 font-mono">{formatCPF(p.cpf)}</span>
+                          <CPFValidationBadge cpf={p.cpf} />
+                        </div>
                       </td>
                       <td className="py-3 px-3">
                         <span className="font-semibold block text-slate-800 dark:text-slate-200">{p.operacao}</span>
