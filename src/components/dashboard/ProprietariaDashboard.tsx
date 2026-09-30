@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   TrendingUp,
   DollarSign,
@@ -70,24 +70,24 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   } = useCRM();
   const { allUsers } = useAuth();
 
-  // Submenu state for touch/mobile and desktop hover
+  // Submenu state for touch/mobile and desktop click
   const [openSubmenu, setOpenSubmenu] = useState<'semana' | 'mes' | 'ano' | null>(null);
-  const lastTapRef = React.useRef<{ key: string; time: number }>({ key: '', time: 0 });
+  const filterContainerRef = React.useRef<HTMLDivElement>(null);
 
-  const handleFilterClickOrDoubleTap = (
-    key: 'semana' | 'mes' | 'ano',
-    onSelectMain: () => void
-  ) => {
-    const now = Date.now();
-    // Detect double click/double tap (within 380ms)
-    if (lastTapRef.current.key === key && now - lastTapRef.current.time < 380) {
-      setOpenSubmenu(prev => (prev === key ? null : key));
-      lastTapRef.current = { key: '', time: 0 };
-    } else {
-      lastTapRef.current = { key, time: now };
-      onSelectMain();
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent | TouchEvent) {
+      if (filterContainerRef.current && !filterContainerRef.current.contains(event.target as Node)) {
+        setOpenSubmenu(null);
+      }
     }
-  };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, []);
 
   // State for detail modal when user taps an element if needed
   const [detailModalTitle, setDetailModalTitle] = useState<string | null>(null);
@@ -613,15 +613,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
         </div>
 
         {/* Period Filter Buttons */}
-        <div className="flex items-center gap-1.5 overflow-visible relative">
-          {/* Transparent backdrop for mobile/desktop click outside */}
-          {openSubmenu && (
-            <div
-              className="fixed inset-0 z-[50]"
-              onClick={() => setOpenSubmenu(null)}
-            />
-          )}
-
+        <div ref={filterContainerRef} className="flex items-center gap-1.5 overflow-visible relative">
           {/* 1. Hoje */}
           <button
             type="button"
@@ -639,16 +631,11 @@ export const ProprietariaDashboard: React.FC<Props> = ({
           </button>
 
           {/* 2. Semana */}
-          <div
-            className="relative"
-            onMouseEnter={() => setOpenSubmenu('semana')}
-            onMouseLeave={() => setOpenSubmenu(null)}
-          >
+          <div className="relative">
             <button
               type="button"
               onClick={() => {
-                setPeriodo('semana');
-                setOpenSubmenu(openSubmenu === 'semana' ? null : 'semana');
+                setOpenSubmenu(prev => (prev === 'semana' ? null : 'semana'));
               }}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
                 periodo === 'semana' || periodo === 'semana_anterior'
@@ -657,11 +644,11 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               }`}
             >
               <span>{periodo === 'semana_anterior' ? 'Semana Anterior' : 'Semana'}</span>
-              <ChevronDown className="w-3.5 h-3.5 opacity-80" />
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${openSubmenu === 'semana' ? 'rotate-180' : ''}`} />
             </button>
 
             {openSubmenu === 'semana' && (
-              <div className="absolute top-full left-0 mt-1 z-[60] min-w-[150px] bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute top-full left-0 mt-1.5 z-[70] min-w-[160px] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-100">
                 <button
                   type="button"
                   onClick={() => {
@@ -697,16 +684,11 @@ export const ProprietariaDashboard: React.FC<Props> = ({
           </div>
 
           {/* 3. Este Mês */}
-          <div
-            className="relative"
-            onMouseEnter={() => setOpenSubmenu('mes')}
-            onMouseLeave={() => setOpenSubmenu(null)}
-          >
+          <div className="relative">
             <button
               type="button"
               onClick={() => {
-                setPeriodo('mes');
-                setOpenSubmenu(openSubmenu === 'mes' ? null : 'mes');
+                setOpenSubmenu(prev => (prev === 'mes' ? null : 'mes'));
               }}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
                 periodo === 'mes' || periodo === 'mes_anterior' || periodo === 'ultimos_3_meses'
@@ -717,11 +699,11 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               <span>
                 {periodo === 'mes_anterior' ? 'Mês Anterior' : periodo === 'ultimos_3_meses' ? '3 Meses' : 'Este Mês'}
               </span>
-              <ChevronDown className="w-3.5 h-3.5 opacity-80" />
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${openSubmenu === 'mes' ? 'rotate-180' : ''}`} />
             </button>
 
             {openSubmenu === 'mes' && (
-              <div className="absolute top-full left-0 mt-1 z-[60] min-w-[160px] bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute top-full left-0 mt-1.5 z-[70] min-w-[170px] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-100">
                 <button
                   type="button"
                   onClick={() => {
@@ -772,16 +754,11 @@ export const ProprietariaDashboard: React.FC<Props> = ({
           </div>
 
           {/* 4. Filtro de Ano */}
-          <div
-            className="relative"
-            onMouseEnter={() => setOpenSubmenu('ano')}
-            onMouseLeave={() => setOpenSubmenu(null)}
-          >
+          <div className="relative">
             <button
               type="button"
               onClick={() => {
-                setPeriodo('ano');
-                setOpenSubmenu(openSubmenu === 'ano' ? null : 'ano');
+                setOpenSubmenu(prev => (prev === 'ano' ? null : 'ano'));
               }}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
                 periodo === 'ano'
@@ -790,11 +767,11 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               }`}
             >
               <span>{periodo === 'ano' && anoSelecionado ? String(anoSelecionado) : '2026'}</span>
-              <ChevronDown className="w-3.5 h-3.5 opacity-80" />
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${openSubmenu === 'ano' ? 'rotate-180' : ''}`} />
             </button>
 
             {openSubmenu === 'ano' && (
-              <div className="absolute top-full left-0 mt-1 z-[60] min-w-[120px] bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-100">
+              <div className="absolute top-full left-0 mt-1.5 z-[70] min-w-[130px] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-100">
                 {[2026, 2025, 2024, 2023, 2022].map((yr) => (
                   <button
                     key={yr}

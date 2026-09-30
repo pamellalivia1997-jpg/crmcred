@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Download, Smartphone, X, CheckCircle2, Monitor, Apple, Sparkles } from 'lucide-react';
+import { Download, Smartphone, X, CheckCircle2, Monitor, Apple, Sparkles, Share, PlusSquare, MoreVertical } from 'lucide-react';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
 
 interface Props {
@@ -8,10 +8,13 @@ interface Props {
   variant?: 'primary' | 'subtle' | 'compact';
 }
 
+type DeviceTab = 'android' | 'ios' | 'pc';
+
 export const PWAInstallButton: React.FC<Props> = ({ className = '', variant = 'subtle' }) => {
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const [showModal, setShowModal] = useState(false);
   const [justInstalled, setJustInstalled] = useState(false);
+  const [activeTab, setActiveTab] = useState<DeviceTab>(isIOS ? 'ios' : 'android');
 
   if (isInstalled) {
     return null;
@@ -26,7 +29,7 @@ export const PWAInstallButton: React.FC<Props> = ({ className = '', variant = 's
         return;
       }
     }
-    // If not directly installable via one-click or on iOS, open the modern guide modal
+    // If not directly installable via one-click prompt, open device guide modal
     setShowModal(true);
   };
 
@@ -58,26 +61,34 @@ export const PWAInstallButton: React.FC<Props> = ({ className = '', variant = 's
         <span className="xs:hidden sm:hidden">Instalar</span>
       </button>
 
-      {/* Modern Centered Install Modal rendered via Portal directly to body */}
+      {/* Modern, Compact, Clean Modal */}
       {showModal &&
         createPortal(
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto">
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+            onClick={() => setShowModal(false)}
+          >
             <div
-              className="w-full max-w-md my-auto rounded-3xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-4 animate-in zoom-in-95 duration-200 relative overflow-hidden"
+              className="w-full max-w-md rounded-3xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-800 p-5 sm:p-6 space-y-4 animate-in zoom-in-95 duration-200"
               onClick={(e) => e.stopPropagation()}
             >
               {/* Header */}
               <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#0B2A4A] to-[#0F5C63] text-white flex items-center justify-center font-black text-sm shadow-md shadow-teal-900/20">
+                  <div className="w-10 h-10 rounded-2xl bg-[#0F5C63] text-white flex items-center justify-center font-black text-sm shadow-md">
                     LC
                   </div>
                   <div>
-                    <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white">
-                      Instalar Lívia Cred CRM
-                    </h3>
+                    <div className="flex items-center gap-1.5">
+                      <h3 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white">
+                        Instalar Lívia Cred
+                      </h3>
+                      <span className="text-[10px] bg-teal-50 text-teal-700 dark:bg-teal-950/60 dark:text-teal-300 px-1.5 py-0.5 rounded-md font-bold">
+                        App
+                      </span>
+                    </div>
                     <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                      Acesso rápido, seguro e em tela cheia
+                      Acesso rápido na tela inicial sem barras do navegador
                     </p>
                   </div>
                 </div>
@@ -91,24 +102,23 @@ export const PWAInstallButton: React.FC<Props> = ({ className = '', variant = 's
                 </button>
               </div>
 
-              {/* Direct Install Button if supported */}
+              {/* Direct 1-Click Install Banner if browser supports */}
               {isInstallable && (
-                <div className="p-3.5 rounded-2xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800/80 flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-bold text-teal-950 dark:text-teal-200">
-                      Instalação Rápida Detectada
+                <div className="p-3 rounded-2xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800/80 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-bold text-teal-950 dark:text-teal-200 flex items-center gap-1">
+                      <Sparkles className="w-3.5 h-3.5 text-teal-600" />
+                      <span>Instalação Direta</span>
                     </p>
-                    <p className="text-[11px] text-teal-700 dark:text-teal-400">
-                      Seu navegador suporta instalação com 1 clique.
+                    <p className="text-[11px] text-teal-700 dark:text-teal-400 truncate">
+                      Pronto para instalar em 1 clique
                     </p>
                   </div>
                   <button
                     type="button"
                     onClick={async () => {
                       const ok = await install();
-                      if (ok) {
-                        setShowModal(false);
-                      }
+                      if (ok) setShowModal(false);
                     }}
                     className="px-3.5 py-2 rounded-xl bg-[#0F5C63] hover:bg-[#1B8A8F] active:scale-95 text-white font-bold text-xs shadow-xs shrink-0 transition"
                   >
@@ -117,48 +127,123 @@ export const PWAInstallButton: React.FC<Props> = ({ className = '', variant = 's
                 </div>
               )}
 
-              {/* Instructions Cards */}
-              <div className="space-y-2.5 text-xs">
-                {/* Android / Chrome */}
-                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800 space-y-1.5">
-                  <div className="flex items-center gap-2 font-extrabold text-slate-900 dark:text-white">
-                    <Smartphone className="w-4 h-4 text-teal-600 dark:text-teal-400" />
-                    <span>No Celular (Android / Chrome)</span>
-                  </div>
-                  <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed pl-6">
-                    Toque no menu <strong>(⋮)</strong> no canto superior direito do Chrome e escolha <strong className="text-teal-700 dark:text-teal-300">"Instalar aplicativo"</strong> ou <strong className="text-teal-700 dark:text-teal-300">"Adicionar à tela inicial"</strong>.
-                  </p>
-                </div>
+              {/* Device Tabs */}
+              <div className="flex rounded-xl bg-slate-100 dark:bg-slate-800 p-1 gap-1">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('android')}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                    activeTab === 'android'
+                      ? 'bg-white dark:bg-slate-700 text-teal-700 dark:text-teal-300 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <Smartphone className="w-3.5 h-3.5" />
+                  <span>Android</span>
+                </button>
 
-                {/* iPhone / iPad (Safari) */}
-                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800 space-y-1.5">
-                  <div className="flex items-center gap-2 font-extrabold text-slate-900 dark:text-white">
-                    <Apple className="w-4 h-4 text-slate-900 dark:text-white" />
-                    <span>No iPhone / iPad (Safari)</span>
-                  </div>
-                  <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed pl-6">
-                    Toque no botão <strong>Compartilhar</strong> (quadrado com seta para cima na barra inferior) e depois em <strong className="text-teal-700 dark:text-teal-300">"Adicionar à Tela de Início"</strong>.
-                  </p>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('ios')}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                    activeTab === 'ios'
+                      ? 'bg-white dark:bg-slate-700 text-teal-700 dark:text-teal-300 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <Apple className="w-3.5 h-3.5" />
+                  <span>iPhone / iPad</span>
+                </button>
 
-                {/* Computador */}
-                <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800 space-y-1.5">
-                  <div className="flex items-center gap-2 font-extrabold text-slate-900 dark:text-white">
-                    <Monitor className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                    <span>No Computador (Chrome / Edge)</span>
-                  </div>
-                  <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed pl-6">
-                    Clique no ícone de instalação <strong>(+)</strong> ou computador na barra de endereços (URL) no topo do navegador.
-                  </p>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('pc')}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                    activeTab === 'pc'
+                      ? 'bg-white dark:bg-slate-700 text-teal-700 dark:text-teal-300 shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                  }`}
+                >
+                  <Monitor className="w-3.5 h-3.5" />
+                  <span>Computador</span>
+                </button>
               </div>
 
-              {/* Close Button */}
-              <div className="pt-2">
+              {/* Device Instructions Content */}
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800 space-y-3">
+                {activeTab === 'android' && (
+                  <div className="space-y-2.5 text-xs">
+                    <div className="flex items-start gap-2.5">
+                      <div className="w-6 h-6 rounded-full bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
+                        1
+                      </div>
+                      <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
+                        Toque no menu <strong>três pontinhos (⋮)</strong> no canto superior do navegador Chrome.
+                      </p>
+                    </div>
+
+                    <div className="flex items-start gap-2.5">
+                      <div className="w-6 h-6 rounded-full bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
+                        2
+                      </div>
+                      <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
+                        Selecione <strong className="text-teal-700 dark:text-teal-300">"Instalar aplicativo"</strong> ou <strong className="text-teal-700 dark:text-teal-300">"Adicionar à tela inicial"</strong>.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'ios' && (
+                  <div className="space-y-2.5 text-xs">
+                    <div className="flex items-start gap-2.5">
+                      <div className="w-6 h-6 rounded-full bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
+                        1
+                      </div>
+                      <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
+                        Abra no <strong>Safari</strong> e toque no botão de <strong>Compartilhar</strong> (ícone com quadrado e seta para cima).
+                      </p>
+                    </div>
+
+                    <div className="flex items-start gap-2.5">
+                      <div className="w-6 h-6 rounded-full bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
+                        2
+                      </div>
+                      <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
+                        Role a lista para baixo e toque em <strong className="text-teal-700 dark:text-teal-300">"Adicionar à Tela de Início"</strong>.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'pc' && (
+                  <div className="space-y-2.5 text-xs">
+                    <div className="flex items-start gap-2.5">
+                      <div className="w-6 h-6 rounded-full bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
+                        1
+                      </div>
+                      <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
+                        No Chrome ou Edge, clique no ícone de <strong>Instalar (+)</strong> ao lado da barra de endereço no topo.
+                      </p>
+                    </div>
+
+                    <div className="flex items-start gap-2.5">
+                      <div className="w-6 h-6 rounded-full bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">
+                        2
+                      </div>
+                      <p className="text-slate-600 dark:text-slate-300 leading-relaxed">
+                        Confirme em <strong>"Instalar"</strong> para abrir o CRM como um programa dedicado na sua barra de tarefas.
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Close CTA */}
+              <div className="pt-1">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="w-full rounded-2xl bg-[#0F5C63] hover:bg-[#1B8A8F] active:scale-98 py-2.5 text-xs font-bold text-white shadow-md shadow-teal-900/10 transition-all text-center"
+                  className="w-full rounded-2xl bg-[#0F5C63] hover:bg-[#1B8A8F] active:scale-98 py-2.5 text-xs font-bold text-white shadow-md transition-all text-center"
                 >
                   Entendido
                 </button>

@@ -114,6 +114,9 @@ export interface Proposta {
   motivoCancelamento?: string;
   observacoes?: string;
   isSimulacao?: boolean;
+  origemSimulacao?: boolean;
+  simulacaoPor?: string;
+  dataSimulacao?: string;
   anexos?: string[];
   linkDocumento?: string;
   historicoStatus: HistoricoStatus[];

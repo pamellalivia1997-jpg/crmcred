@@ -230,6 +230,15 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
     const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 16);
     const actorName = currentUser?.name || 'Administrador';
 
+    // If was simulation and now has loan amount and complete info, convert to formal proposal
+    const wasSimulacao = Boolean(proposta.isSimulacao);
+    const isNowFinalProposal = formData.valorEmprestimo > 0 && formData.numeroContrato.trim().length > 0;
+    const shouldConvertToOfficialProposal = wasSimulacao && isNowFinalProposal;
+
+    if (shouldConvertToOfficialProposal) {
+      changes.unshift(`Transformada de Simulação para Proposta Oficial por ${actorName}`);
+    }
+
     const newHistoryItem = {
       status: formData.status,
       data: nowStr,
@@ -241,6 +250,10 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
 
     const updatedProposta: Proposta = {
       ...proposta,
+      isSimulacao: shouldConvertToOfficialProposal ? false : (formData.valorEmprestimo > 0 ? false : proposta.isSimulacao),
+      origemSimulacao: proposta.origemSimulacao ?? wasSimulacao,
+      simulacaoPor: proposta.simulacaoPor || (wasSimulacao ? (proposta.digitador || 'Ana Paula') : undefined),
+      dataSimulacao: proposta.dataSimulacao || (wasSimulacao ? (proposta.carimboDataHora || nowStr) : undefined),
       numeroContrato: formData.numeroContrato.trim(),
       status: formData.status,
       nomeCliente: formData.nomeCliente.trim(),
@@ -296,6 +309,16 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${statusColors[proposta.status]}`}>
                 {proposta.status}
               </span>
+              {proposta.isSimulacao && (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300 border border-cyan-300">
+                  Simulação
+                </span>
+              )}
+              {proposta.origemSimulacao && !proposta.isSimulacao && (
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                  ✨ Originada de Simulação ({proposta.simulacaoPor || 'Ana Paula'})
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
               <span className="font-semibold text-slate-700 dark:text-slate-300 truncate">{proposta.nomeCliente}</span>

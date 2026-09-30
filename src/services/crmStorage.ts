@@ -120,13 +120,52 @@ function saveLocalStore(data: CRMDataStore) {
 // Global store singleton in memory
 let currentStore: CRMDataStore = loadStore();
 
-// Firestore Sync Helpers
+// Firestore Sync Helpers with payload cleaning to save cloud bandwidth and quota
+function cleanPayloadForFirestore(data: any): any {
+  if (data === null || data === undefined) return null;
+  const json = JSON.parse(JSON.stringify(data));
+  const clean = (obj: any): any => {
+    if (Array.isArray(obj)) return obj.map(clean);
+    if (obj !== null && typeof obj === 'object') {
+      return Object.entries(obj).reduce((acc, [k, v]) => {
+        if (v !== undefined && v !== null && v !== '') {
+          acc[k] = clean(v);
+        } else if (v === 0 || v === false) {
+          acc[k] = v;
+        }
+        return acc;
+      }, {} as any);
+    }
+    return obj;
+  };
+  return clean(json);
+}
+
 async function syncItemToFirestore(collectionName: string, id: string, data: any) {
   try {
     const docRef = doc(db, collectionName, id);
-    await setDoc(docRef, JSON.parse(JSON.stringify(data)), { merge: true });
+    const cleaned = cleanPayloadForFirestore(data);
+    await setDoc(docRef, cleaned, { merge: true });
   } catch (err) {
     console.warn(`Firestore sync warning on ${collectionName}/${id}:`, err);
+  }
+}
+
+async function syncBatchToFirestore(collectionName: string, items: any[]) {
+  if (!items || items.length === 0) return;
+  try {
+    const batch = writeBatch(db);
+    // Limit to 400 operations per batch for Firestore safety
+    const chunk = items.slice(0, 400);
+    chunk.forEach(item => {
+      if (item && item.id) {
+        const ref = doc(db, collectionName, item.id);
+        batch.set(ref, cleanPayloadForFirestore(item), { merge: true });
+      }
+    });
+    await batch.commit();
+  } catch (err) {
+    console.warn(`Firestore batch sync warning on ${collectionName}:`, err);
   }
 }
 
@@ -139,7 +178,7 @@ async function deleteItemFromFirestore(collectionName: string, id: string) {
   }
 }
 
-// Listen to Firestore real-time snapshots
+// Listen to Firestore real-time snapshots with smart cache reconciliation
 export function initFirestoreRealtimeSync() {
   const collectionsToSync: Array<keyof CRMDataStore> = [
     'users',
@@ -167,14 +206,9 @@ export function initFirestoreRealtimeSync() {
           if (snapshot.empty) {
             const localItems = (currentStore as any)[coll];
             if (Array.isArray(localItems) && localItems.length > 0) {
-              // Firestore is empty, but we have local items (e.g. seed data). Upload them to Firestore!
-              localItems.forEach((item) => {
-                if (item && item.id) {
-                  syncItemToFirestore(coll, item.id, item);
-                }
-              });
+              // Upload in efficient batches instead of single concurrent requests
+              syncBatchToFirestore(coll, localItems);
             } else {
-              // Both are empty. Ensure local is cleared too.
               if (localItems && localItems.length > 0) {
                 (currentStore as any)[coll] = [];
                 saveLocalStore(currentStore);
