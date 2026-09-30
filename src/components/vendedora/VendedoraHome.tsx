@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
+import { openMessagingApp } from '../../utils/messaging';
 import { formatCurrency, formatPercent, formatDate, formatPhone, getBirthdayInfo, BirthdayInfo, formatBirthDateWithAge } from '../../utils/formatters';
 import { calcularComissaoVendedoraMes } from '../../utils/commissionRules';
 import { Cliente } from '../../types';
@@ -55,20 +56,43 @@ export const VendedoraHome: React.FC<Props> = ({
   }, [clientes, sellerName]);
 
   const handleMandarParabens = (cliente: Cliente, bInfo: BirthdayInfo) => {
-    const cleanPhone = cliente.telefone.replace(/\D/g, '');
     const primeiroNome = cliente.nome.split(' ')[0];
-    const mensagem = encodeURIComponent(
-      `Olá ${primeiroNome}, parabéns! 🎉 Toda a equipe da Lívia Cred Saúde e eu (${sellerName.split(' ')[0]}) desejamos muita saúde, paz e muitas felicidades pelo seu aniversário! Que seu novo ciclo seja abençoado e repleto de realizações. Um grande abraço carinhoso!`
-    );
-    window.open(`https://wa.me/55${cleanPhone}?text=${mensagem}`, '_blank');
+    const mensagem = `Olá ${primeiroNome}, parabéns! 🎉 Toda a equipe da Lívia Cred Saúde e eu (${sellerName.split(' ')[0]}) desejamos muita saúde, paz e muitas felicidades pelo seu aniversário! Que seu novo ciclo seja abençoado e repleto de realizações. Um grande abraço carinhoso!`;
+    openMessagingApp(cliente.telefone, mensagem);
   };
+
+  // Dynamically detect competence month-year based on proposals in the system
+  const currentMonthYear = useMemo(() => {
+    if (propostas.length === 0) return '2026-09';
+    let latest = '';
+    propostas.forEach(p => {
+      if (p.dataDigitacao && p.dataDigitacao > latest) {
+        latest = p.dataDigitacao;
+      }
+    });
+    if (latest && latest.length >= 7) {
+      return latest.slice(0, 7); // 'YYYY-MM'
+    }
+    return '2026-09';
+  }, [propostas]);
+
+  // Pretty print for competence label (e.g. '2026-03' -> 'Março de 2026')
+  const competenceLabel = useMemo(() => {
+    const [yr, mo] = currentMonthYear.split('-');
+    const monthsNames: Record<string, string> = {
+      '01': 'Janeiro', '02': 'Fevereiro', '03': 'Março', '04': 'Abril',
+      '05': 'Maio', '06': 'Junho', '07': 'Julho', '08': 'Agosto',
+      '09': 'Setembro', '10': 'Outubro', '11': 'Novembro', '12': 'Dezembro'
+    };
+    return `${monthsNames[mo] || 'Setembro'} de ${yr || '2026'}`;
+  }, [currentMonthYear]);
 
   // Seller's propostas this month
   const sellerPaidPropsThisMonth = useMemo(() => {
     return propostas.filter(
-      p => p.vendedora === sellerName && p.dataDigitacao.startsWith('2026-09') && p.status === 'Paga'
+      p => p.vendedora === sellerName && p.dataDigitacao.startsWith(currentMonthYear) && p.status === 'Paga'
     );
-  }, [propostas, sellerName]);
+  }, [propostas, sellerName, currentMonthYear]);
 
   // Seller's pending proposals
   const sellerPendingProps = useMemo(() => {
@@ -93,20 +117,28 @@ export const VendedoraHome: React.FC<Props> = ({
   const atingimentoMeta = metaVenda > 0 ? (totalVendas / metaVenda) * 100 : 0;
   const quantoFalta = Math.max(0, metaVenda - totalVendas);
 
-  // Remaining days in September
-  const diasRestantes = 3; // From Sept 28 to Sept 30
+  // Remaining days calculation
+  const diasRestantes = useMemo(() => {
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    if (todayStr.startsWith(currentMonthYear)) {
+      const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+      return Math.max(1, lastDay - today.getDate());
+    }
+    return 0; // Mês já encerrado se for histórico
+  }, [currentMonthYear]);
 
   // Seller's estimated commissions to receive
   const fechamentoComissao = useMemo(() => {
     return calcularComissaoVendedoraMes(
       currentUser?.id || 'vendedora',
       sellerName,
-      '2026-09',
+      currentMonthYear,
       propostas,
       sellerMeta,
       true
     );
-  }, [currentUser, sellerName, propostas, sellerMeta]);
+  }, [currentUser, sellerName, currentMonthYear, propostas, sellerMeta]);
 
   // Ranking (Safe: shows only sellers, rank position and sales total without exposing company net profit or company expenses!)
   const rankingSeguro = useMemo(() => {
@@ -115,7 +147,7 @@ export const VendedoraHome: React.FC<Props> = ({
     allReps.forEach(r => map.set(r, 0));
 
     propostas
-      .filter(p => p.dataDigitacao.startsWith('2026-09') && p.status === 'Paga')
+      .filter(p => p.dataDigitacao.startsWith(currentMonthYear) && p.status === 'Paga')
       .forEach(p => {
         if (map.has(p.vendedora)) {
           map.set(p.vendedora, (map.get(p.vendedora) || 0) + p.valorEmprestimo);
@@ -125,7 +157,7 @@ export const VendedoraHome: React.FC<Props> = ({
     return Array.from(map.entries())
       .map(([nome, vendas]) => ({ nome, vendas }))
       .sort((a, b) => b.vendas - a.vendas);
-  }, [propostas]);
+  }, [propostas, currentMonthYear]);
 
   const minhaPosicaoRanking = rankingSeguro.findIndex(r => r.nome === sellerName) + 1;
 
@@ -137,7 +169,7 @@ export const VendedoraHome: React.FC<Props> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <span className="text-[11px] font-bold uppercase tracking-wider text-amber-300">
-                Área da Vendedora • Competência Setembro/2026
+                Área da Vendedora • Competência {competenceLabel}
               </span>
               <h1 className="text-xl sm:text-2xl font-black tracking-tight mt-0.5">
                 Olá, {sellerName.split(' ')[0]}! 🚀
@@ -439,7 +471,7 @@ export const VendedoraHome: React.FC<Props> = ({
               <Award className="w-5 h-5 text-amber-500" />
               <span>Ranking Geral de Vendas</span>
             </h2>
-            <span className="text-xs text-slate-500">Setembro/2026</span>
+            <span className="text-xs text-slate-500">{competenceLabel}</span>
           </div>
 
           <div className="space-y-2.5">

@@ -115,6 +115,7 @@ export interface Proposta {
   observacoes?: string;
   isSimulacao?: boolean;
   anexos?: string[];
+  linkDocumento?: string;
   historicoStatus: HistoricoStatus[];
 }
 

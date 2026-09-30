@@ -53,6 +53,18 @@ export const INITIAL_USERS: User[] = [
     baseSalaryCost: 3200,
   },
   {
+    id: 'user-bianca',
+    name: 'Bianca',
+    email: 'bianca@liviacredsaude.com.br',
+    password: '123',
+    role: 'vendedora',
+    phone: '(81) 98444-5566',
+    status: 'ativo',
+    monthlySalesGoal: 85000,
+    monthlyTaxPercentGoal: 11.0,
+    baseSalaryCost: 2200,
+  },
+  {
     id: 'user-hellen',
     name: 'Hellen Vasconcelos',
     email: 'hellen@liviacredsaude.com.br',

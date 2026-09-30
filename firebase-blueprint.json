@@ -1,0 +1,190 @@
+{
+  "entities": {
+    "user": {
+      "title": "User",
+      "description": "App user profile and credentials",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["proprietaria", "adm", "financeiro", "vendedora", "digitador"] },
+        "phone": { "type": "string" },
+        "status": { "type": "string", "enum": ["ativo", "inativo"] },
+        "monthlySalesGoal": { "type": "number" },
+        "monthlyTaxPercentGoal": { "type": "number" },
+        "baseSalaryCost": { "type": "number" }
+      },
+      "required": ["id", "name", "email", "role", "status"]
+    },
+    "cliente": {
+      "title": "Cliente",
+      "description": "Customer record for credit operations",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "cpf": { "type": "string" },
+        "nome": { "type": "string" },
+        "dataNascimento": { "type": "string" },
+        "telefone": { "type": "string" },
+        "email": { "type": "string" },
+        "cidade": { "type": "string" },
+        "convenioPrincipal": { "type": "string" },
+        "observacoes": { "type": "string" },
+        "vendedoraResponsavel": { "type": "string" },
+        "dataCriacao": { "type": "string" }
+      },
+      "required": ["id", "cpf", "nome", "dataNascimento", "convenioPrincipal"]
+    },
+    "proposta": {
+      "title": "Proposta",
+      "description": "Credit proposal / loan transaction record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "carimboDataHora": { "type": "string" },
+        "cpf": { "type": "string" },
+        "nomeCliente": { "type": "string" },
+        "dataDigitacao": { "type": "string" },
+        "convenio": { "type": "string" },
+        "operacao": { "type": "string" },
+        "banco": { "type": "string" },
+        "promotora": { "type": "string" },
+        "valorEmprestimo": { "type": "number" },
+        "valorTaxa": { "type": "number" },
+        "percentualTaxa": { "type": "number" },
+        "vendedora": { "type": "string" },
+        "digitador": { "type": "string" },
+        "numeroContrato": { "type": "string" },
+        "status": { "type": "string", "enum": ["Em análise", "Pendente", "Aprovada", "Paga", "Cancelada", "Reprovada"] }
+      },
+      "required": ["id", "cpf", "nomeCliente", "convenio", "operacao", "banco", "valorEmprestimo", "status"]
+    },
+    "comissaoPromotora": {
+      "title": "ComissaoPromotora",
+      "description": "Promoter commission record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "propostaId": { "type": "string" },
+        "numeroContrato": { "type": "string" },
+        "clienteNome": { "type": "string" },
+        "promotora": { "type": "string" },
+        "valorRecebido": { "type": "number" },
+        "dataRecebimento": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "propostaId", "numeroContrato", "valorRecebido"]
+    },
+    "contaPagar": {
+      "title": "ContaPagar",
+      "description": "Accounts payable expense item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "descricao": { "type": "string" },
+        "categoria": { "type": "string" },
+        "valor": { "type": "number" },
+        "vencimento": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "descricao", "valor", "vencimento", "status"]
+    },
+    "metaVendedora": {
+      "title": "MetaVendedora",
+      "description": "Monthly sales goal per seller",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "vendedoraId": { "type": "string" },
+        "vendedoraNome": { "type": "string" },
+        "mesAno": { "type": "string" },
+        "metaVenda": { "type": "number" },
+        "metaPercentualTaxa": { "type": "number" }
+      },
+      "required": ["id", "vendedoraId", "mesAno", "metaVenda"]
+    },
+    "feedback": {
+      "title": "Feedback",
+      "description": "Internal team feedback record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "vendedoraId": { "type": "string" },
+        "vendedoraNome": { "type": "string" },
+        "autorNome": { "type": "string" },
+        "data": { "type": "string" },
+        "tipo": { "type": "string" },
+        "texto": { "type": "string" },
+        "planoAcao": { "type": "string" }
+      },
+      "required": ["id", "vendedoraId", "texto"]
+    },
+    "alertaOportunidade": {
+      "title": "AlertaOportunidade",
+      "description": "Opportunity lead alert",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "clienteCpf": { "type": "string" },
+        "clienteNome": { "type": "string" },
+        "tipo": { "type": "string" },
+        "motivo": { "type": "string" },
+        "vendedoraResponsavel": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "clienteCpf", "tipo", "motivo", "status"]
+    },
+    "auditLog": {
+      "title": "AuditLog",
+      "description": "LGPD access and operation audit trail",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "timestamp": { "type": "string" },
+        "usuarioNome": { "type": "string" },
+        "acao": { "type": "string" },
+        "detalhes": { "type": "string" }
+      },
+      "required": ["id", "timestamp", "usuarioNome", "acao", "detalhes"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/user" },
+      "description": "System users collection"
+    },
+    "/clientes/{clienteId}": {
+      "schema": { "$ref": "#/entities/cliente" },
+      "description": "Customers portfolio collection"
+    },
+    "/propostas/{propostaId}": {
+      "schema": { "$ref": "#/entities/proposta" },
+      "description": "Loan proposals collection"
+    },
+    "/comissoesPromotoras/{comissaoId}": {
+      "schema": { "$ref": "#/entities/comissaoPromotora" },
+      "description": "Promoter commissions collection"
+    },
+    "/contasPagar/{contaId}": {
+      "schema": { "$ref": "#/entities/contaPagar" },
+      "description": "Accounts payable collection"
+    },
+    "/metas/{metaId}": {
+      "schema": { "$ref": "#/entities/metaVendedora" },
+      "description": "Sellers goals collection"
+    },
+    "/feedbacks/{feedbackId}": {
+      "schema": { "$ref": "#/entities/feedback" },
+      "description": "Team feedbacks collection"
+    },
+    "/alertas/{alertaId}": {
+      "schema": { "$ref": "#/entities/alertaOportunidade" },
+      "description": "Opportunity alerts collection"
+    },
+    "/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/auditLog" },
+      "description": "LGPD Audit logs collection"
+    }
+  }
+}

@@ -54,53 +54,110 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   const { propostas, comissoesPromotoras, contasPagar, metas, alertas, periodo, setPeriodo } = useCRM();
   const { allUsers } = useAuth();
 
-  // State for detail modal when user taps a card
+  // State for detail modal when user taps an element if needed
   const [detailModalTitle, setDetailModalTitle] = useState<string | null>(null);
   const [detailModalContracts, setDetailModalContracts] = useState<Proposta[]>([]);
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [copiedShare, setCopiedShare] = useState(false);
+  const [selectedSellerName, setSelectedSellerName] = useState<string | null>(null);
+  const [selectedSellerProposals, setSelectedSellerProposals] = useState<Proposta[]>([]);
+
+  // Dynamically adapt baseDate based on the latest proposal date in the system (fallbacks to Sept 2026)
+  const baseDateInfo = useMemo(() => {
+    let latestDateStr = '2026-09-28';
+    if (propostas.length > 0) {
+      let maxDate = '';
+      propostas.forEach(p => {
+        if (p.dataDigitacao && p.dataDigitacao > maxDate) {
+          maxDate = p.dataDigitacao;
+        }
+      });
+      if (maxDate) {
+        latestDateStr = maxDate;
+      }
+    }
+
+    const [yr, mo, dy] = latestDateStr.split('-').map(Number);
+    const safeYr = isNaN(yr) ? 2026 : yr;
+    const safeMo = isNaN(mo) ? 9 : mo;
+    const safeDy = isNaN(dy) ? 28 : dy;
+
+    const baseDate = new Date(safeYr, safeMo - 1, safeDy);
+    
+    // Format helper for year-month strings
+    const getYearMonthStr = (year: number, month: number) => {
+      const m = String(month).padStart(2, '0');
+      return `${year}-${m}`;
+    };
+
+    const currentMonthStr = getYearMonthStr(safeYr, safeMo); // YYYY-MM
+    
+    // Previous month
+    let prevMo = safeMo - 1;
+    let prevYr = safeYr;
+    if (prevMo === 0) {
+      prevMo = 12;
+      prevYr -= 1;
+    }
+    const prevMonthStr = getYearMonthStr(prevYr, prevMo);
+
+    // Month before previous
+    let prev2Mo = prevMo - 1;
+    let prev2Yr = prevYr;
+    if (prev2Mo === 0) {
+      prev2Mo = 12;
+      prev2Yr -= 1;
+    }
+    const prev2MonthsStr = getYearMonthStr(prev2Yr, prev2Mo);
+
+    return {
+      baseDate,
+      latestDateStr,
+      currentMonthStr,
+      prevMonthStr,
+      prev2MonthsStr,
+      yearStr: String(safeYr)
+    };
+  }, [propostas]);
 
   // Filter propostas by period
   const filteredPropostas = useMemo(() => {
-    const now = new Date(2026, 8, 28); // 28 Sept 2026
+    const now = baseDateInfo.baseDate;
 
     return propostas.filter(p => {
       const pDate = new Date(p.dataDigitacao);
       if (isNaN(pDate.getTime())) return true;
 
       if (periodo === 'hoje') {
-        return p.dataDigitacao === '2026-09-28';
+        return p.dataDigitacao === baseDateInfo.latestDateStr;
       }
       if (periodo === 'semana') {
-        // Last 7 days
         const diffTime = Math.abs(now.getTime() - pDate.getTime());
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
         return diffDays <= 7 && pDate <= now;
       }
       if (periodo === 'mes') {
-        return p.dataDigitacao.startsWith('2026-09');
+        return p.dataDigitacao.startsWith(baseDateInfo.currentMonthStr);
       }
       if (periodo === 'mes_anterior') {
-        return p.dataDigitacao.startsWith('2026-08');
+        return p.dataDigitacao.startsWith(baseDateInfo.prevMonthStr);
       }
       if (periodo === 'ultimos_3_meses') {
         return (
-          p.dataDigitacao.startsWith('2026-09') ||
-          p.dataDigitacao.startsWith('2026-08') ||
-          p.dataDigitacao.startsWith('2026-07')
+          p.dataDigitacao.startsWith(baseDateInfo.currentMonthStr) ||
+          p.dataDigitacao.startsWith(baseDateInfo.prevMonthStr) ||
+          p.dataDigitacao.startsWith(baseDateInfo.prev2MonthsStr)
         );
       }
       if (periodo === 'ano') {
-        return p.dataDigitacao.startsWith('2026');
+        return p.dataDigitacao.startsWith(baseDateInfo.yearStr);
       }
       return true;
     });
-  }, [propostas, periodo]);
+  }, [propostas, periodo, baseDateInfo]);
 
   // Previous month for comparative deltas
   const prevMonthPropostas = useMemo(() => {
-    return propostas.filter(p => p.dataDigitacao.startsWith('2026-08') && p.status === 'Paga');
-  }, [propostas]);
+    return propostas.filter(p => p.dataDigitacao.startsWith(baseDateInfo.prevMonthStr) && p.status === 'Paga');
+  }, [propostas, baseDateInfo]);
 
   // Paid propostas in current filter
   const paidPropostas = useMemo(() => {
@@ -117,7 +174,6 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   }, [paidPropostas]);
 
   const totalComissoesPromotoras = useMemo(() => {
-    // Sum confirmed commissions from promotoras for these paid proposals
     const paidIds = new Set(paidPropostas.map(p => p.id));
     return comissoesPromotoras
       .filter(c => paidIds.has(c.propostaId) && c.status === 'confirmada')
@@ -128,25 +184,80 @@ export const ProprietariaDashboard: React.FC<Props> = ({
 
   // Expenses in current period
   const totalDespesas = useMemo(() => {
-    // Sum of paid/pending expenses in period
     const cp = contasPagar.filter(c => {
       if (periodo === 'hoje' || periodo === 'semana') return c.status === 'pendente';
-      if (periodo === 'mes_anterior') return c.vencimento.startsWith('2026-08');
-      return c.vencimento.startsWith('2026-09');
+      if (periodo === 'mes_anterior') return c.vencimento.startsWith(baseDateInfo.prevMonthStr);
+      return c.vencimento.startsWith(baseDateInfo.currentMonthStr);
     });
     const billsTotal = cp.reduce((acc, c) => acc + c.valor, 0);
-    // Base team salaries cost ~R$ 13.500
     const teamSalaries = periodo === 'semana' ? 3375 : 13500;
     return billsTotal + teamSalaries;
-  }, [contasPagar, periodo]);
+  }, [contasPagar, periodo, baseDateInfo]);
 
   const lucroLiquido = faturamentoBruto - totalDespesas;
   const margemLucro = faturamentoBruto > 0 ? (lucroLiquido / faturamentoBruto) * 100 : 0;
   const ticketMedio = paidPropostas.length > 0 ? totalVendas / paidPropostas.length : 0;
   const percentualMedioTaxa = totalVendas > 0 ? (totalTaxas / totalVendas) * 100 : 0;
 
-  // Global monthly target (Lívia Cred Saúde store target: R$ 380.000)
-  const metaLoja = 380000;
+  // Helper to normalize salesperson name
+  const normalizeSellerName = (name: string): string => {
+    const n = (name || '').trim().toUpperCase();
+    if (n.includes('HELLEN') || n.includes('HELON')) return 'Hellen Vasconcelos';
+    if (n.includes('BIANCA')) return 'Bianca';
+    if (n.includes('TACIANA') || n.includes('TACI')) return 'Taciana Silva';
+    if (n.includes('LUCELIA') || n.includes('LUCÉLIA')) return 'Lucélia Ramos';
+    if (n.includes('PAMELLA') || n.includes('PÂMELLA')) return 'Pamella';
+    if (n.includes('IGARASSU') || n.includes('BALCÃO') || n.includes('BALCAO')) return 'Loja Igarassu (Balcão)';
+    return name || 'Outros';
+  };
+
+  // Store meta sum calculation based on individual saleswomen targets
+  const storeMetaMonthly = useMemo(() => {
+    const activeSellers = allUsers.filter(u => u.role === 'vendedora' && u.status === 'ativo');
+    const reps = activeSellers.map(u => u.name);
+    if (!reps.includes('Loja Igarassu (Balcão)')) {
+      reps.push('Loja Igarassu (Balcão)');
+    }
+    
+    let sum = 0;
+    reps.forEach(nome => {
+      const foundMeta = metas.find(m => normalizeSellerName(m.vendedoraNome) === normalizeSellerName(nome) && m.mesAno === baseDateInfo.currentMonthStr);
+      if (foundMeta && foundMeta.metaVenda > 0) {
+        sum += foundMeta.metaVenda;
+      } else {
+        const foundUser = allUsers.find(u => normalizeSellerName(u.name) === normalizeSellerName(nome));
+        if (foundUser && foundUser.monthlySalesGoal && foundUser.monthlySalesGoal > 0) {
+          sum += foundUser.monthlySalesGoal;
+        } else {
+          // Fallbacks for known sellers, Balcão is 0
+          if (normalizeSellerName(nome).includes('IGARASSU') || normalizeSellerName(nome).includes('LOJA')) {
+            sum += 0;
+          } else {
+            const defaults: Record<string, number> = {
+              'Bianca': 85000,
+              'Hellen Vasconcelos': 95000,
+              'Taciana Silva': 80000,
+              'Lucélia Ramos': 75000,
+              'Pamella': 50000
+            };
+            sum += defaults[nome] || 80000;
+          }
+        }
+      }
+    });
+    return sum > 0 ? sum : 380000;
+  }, [metas, allUsers, baseDateInfo]);
+
+  const metaLoja = useMemo(() => {
+    let periodMultiplier = 1;
+    if (periodo === 'hoje') periodMultiplier = 1 / 30;
+    else if (periodo === 'semana') periodMultiplier = 7 / 30;
+    else if (periodo === 'mes' || periodo === 'mes_anterior') periodMultiplier = 1;
+    else if (periodo === 'ultimos_3_meses') periodMultiplier = 3;
+    else if (periodo === 'ano') periodMultiplier = 12;
+    return storeMetaMonthly * periodMultiplier;
+  }, [storeMetaMonthly, periodo]);
+
   const atingimentoMeta = metaLoja > 0 ? (totalVendas / metaLoja) * 100 : 0;
   const quantoFalta = Math.max(0, metaLoja - totalVendas);
 
@@ -158,24 +269,68 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   const rankingVendedoras = useMemo(() => {
     const sellersMap = new Map<string, { nome: string; vendas: number; taxa: number; count: number; meta: number }>();
 
-    // Initial sellers
-    const reps = ['Hellen Vasconcelos', 'Loja Igarassu (Balcão)', 'Taciana Silva', 'Lucélia Ramos', 'Pamella'];
+    // Dynamic list of active reps
+    const activeSellers = allUsers.filter(u => u.role === 'vendedora' && u.status === 'ativo');
+    const reps = activeSellers.map(u => u.name);
+    if (!reps.includes('Loja Igarassu (Balcão)')) {
+      reps.push('Loja Igarassu (Balcão)');
+    }
+    
+    // Period multiplier for scaling
+    let periodMultiplier = 1;
+    if (periodo === 'hoje') periodMultiplier = 1 / 30;
+    else if (periodo === 'semana') periodMultiplier = 7 / 30;
+    else if (periodo === 'mes' || periodo === 'mes_anterior') periodMultiplier = 1;
+    else if (periodo === 'ultimos_3_meses') periodMultiplier = 3;
+    else if (periodo === 'ano') periodMultiplier = 12;
+
+    const currentMonth = baseDateInfo.currentMonthStr;
+
+    const getUserBaseMonthlyGoal = (name: string): number => {
+      const foundMeta = metas.find(m => normalizeSellerName(m.vendedoraNome) === normalizeSellerName(name) && m.mesAno === currentMonth);
+      if (foundMeta && foundMeta.metaVenda > 0) return foundMeta.metaVenda;
+      
+      const foundUser = allUsers.find(u => normalizeSellerName(u.name) === normalizeSellerName(name));
+      if (foundUser && foundUser.monthlySalesGoal && foundUser.monthlySalesGoal > 0) return foundUser.monthlySalesGoal;
+      
+      if (normalizeSellerName(name).includes('IGARASSU') || normalizeSellerName(name).includes('LOJA')) return 0;
+      
+      const defaults: Record<string, number> = {
+        'Bianca': 85000,
+        'Hellen Vasconcelos': 95000,
+        'Taciana Silva': 80000,
+        'Lucélia Ramos': 75000,
+        'Pamella': 50000
+      };
+      return defaults[name] || 80000;
+    };
+
     reps.forEach(nome => {
-      const userMeta = metas.find(m => m.vendedoraNome === nome && m.mesAno === '2026-09')?.metaVenda || 75000;
-      sellersMap.set(nome, { nome, vendas: 0, taxa: 0, count: 0, meta: userMeta });
+      const baseMonthlyGoal = getUserBaseMonthlyGoal(nome);
+      const scaledMeta = baseMonthlyGoal * periodMultiplier;
+      sellersMap.set(nome, { nome, vendas: 0, taxa: 0, count: 0, meta: scaledMeta });
     });
 
+    const activeSellersSet = new Set(allUsers.filter(u => u.status === 'ativo').map(u => normalizeSellerName(u.name)));
+
     paidPropostas.forEach(p => {
-      const rep = sellersMap.get(p.vendedora);
-      if (rep) {
-        rep.vendas += p.valorEmprestimo;
-        rep.taxa += p.valorTaxa;
-        rep.count += 1;
+      const normName = normalizeSellerName(p.vendedora);
+      if (!activeSellersSet.has(normName)) return; // Skip inactive sellers
+
+      let rep = sellersMap.get(normName);
+      if (!rep) {
+        const baseMonthlyGoal = getUserBaseMonthlyGoal(normName);
+        const scaledMeta = baseMonthlyGoal * periodMultiplier;
+        rep = { nome: normName, vendas: 0, taxa: 0, count: 0, meta: scaledMeta };
+        sellersMap.set(normName, rep);
       }
+      rep.vendas += p.valorEmprestimo;
+      rep.taxa += p.valorTaxa;
+      rep.count += 1;
     });
 
     return Array.from(sellersMap.values()).sort((a, b) => b.vendas - a.vendas);
-  }, [paidPropostas, metas]);
+  }, [paidPropostas, metas, allUsers, periodo, baseDateInfo]);
 
   // Operations breakdown & profitability
   const operationsChartData = useMemo(() => {
@@ -312,48 +467,13 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     return { list, totalDigitadas, totalSimulacoesLoja };
   }, [filteredPropostas, allUsers]);
 
-  // Generate WhatsApp summary text
-  const generateWhatsAppSummary = () => {
-    const pLabel = periodo === 'hoje' ? 'Hoje' : periodo === 'semana' ? 'Esta Semana' : 'Mês Atual (Setembro/2026)';
-    return `*LÍVIA CRED SAÚDE • RESUMO GERENCIAL*
-📅 *Período:* ${pLabel}
-
-💰 *Vendas Totais:* ${formatCurrency(totalVendas)}
-🏷️ *Taxas Recebidas:* ${formatCurrency(totalTaxas)} (${formatPercent(percentualMedioTaxa)})
-🏦 *Comissões Promotoras:* ${formatCurrency(totalComissoesPromotoras)}
-📈 *Faturamento Bruto:* ${formatCurrency(faturamentoBruto)}
-📉 *Despesas Operacionais:* ${formatCurrency(totalDespesas)}
-💎 *Lucro Líquido:* ${formatCurrency(lucroLiquido)} (Margem ${formatPercent(margemLucro)})
-
-🎯 *Meta do Mês:* ${formatPercent(atingimentoMeta)} atingido
-⏳ *Falta para a Meta:* ${formatCurrency(quantoFalta)}
-📄 *Contratos Pagos:* ${paidPropostas.length}
-🤝 *Ticket Médio:* ${formatCurrency(ticketMedio)}
-
-🏆 *TOP 3 VENDEDORAS:*
-1º ${rankingVendedoras[0]?.nome || '-'}: ${formatCurrency(rankingVendedoras[0]?.vendas || 0)}
-2º ${rankingVendedoras[1]?.nome || '-'}: ${formatCurrency(rankingVendedoras[1]?.vendas || 0)}
-3º ${rankingVendedoras[2]?.nome || '-'}: ${formatCurrency(rankingVendedoras[2]?.vendas || 0)}
-
-_Gerado automaticamente via Lívia Cred Saúde CRM_`;
-  };
-
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(generateWhatsAppSummary());
-    setCopiedShare(true);
-    setTimeout(() => setCopiedShare(false), 2500);
-  };
-
   return (
     <div className="space-y-5 pb-20 md:pb-8">
       {/* Top Header Controls: Title & Period Filter */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
         <div>
-          <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-            <span>Painel Gerencial</span>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-950/80 dark:text-amber-300 border border-amber-300">
-              Diretoria Executiva
-            </span>
+          <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+            Painel Gerencial
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
             Acompanhamento em tempo real de faturamento, comissões, ranking e rentabilidade.
@@ -387,16 +507,6 @@ _Gerado automaticamente via Lívia Cred Saúde CRM_`;
               </button>
             );
           })}
-
-          {/* Share WhatsApp summary button */}
-          <button
-            onClick={() => setShowShareModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs ml-1 whitespace-nowrap"
-            title="Compartilhar Resumo no WhatsApp"
-          >
-            <Share2 className="w-3.5 h-3.5" />
-            <span>Compartilhar</span>
-          </button>
         </div>
       </div>
 
@@ -450,20 +560,17 @@ _Gerado automaticamente via Lívia Cred Saúde CRM_`;
         </div>
       </div>
 
-      {/* Primary KPI Cards Grid (Clickable to open contracts breakdown!) */}
+      {/* Primary KPI Cards Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {/* Card 1: Vendas Totais */}
-        <div
-          onClick={() => handleOpenDetailModal('Contratos Pagos (Vendas)', paidPropostas)}
-          className="group cursor-pointer bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 shadow-xs hover:border-teal-500/50 hover:shadow-md transition-all active:scale-[0.99]"
-        >
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 shadow-xs">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-xs font-semibold text-slate-500">Vendas Totais</span>
             <div className="w-8 h-8 rounded-xl bg-teal-50 dark:bg-teal-950/60 text-[#0F5C63] dark:text-[#28B0B7] flex items-center justify-center">
               <TrendingUp className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white tabular-nums group-hover:text-[#0F5C63] dark:group-hover:text-[#28B0B7] transition-colors">
+          <p className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white tabular-nums">
             {formatCurrency(totalVendas)}
           </p>
           <div className="flex items-center gap-1.5 mt-1 text-[11px]">
@@ -483,17 +590,14 @@ _Gerado automaticamente via Lívia Cred Saúde CRM_`;
         </div>
 
         {/* Card 2: Taxas Recebidas */}
-        <div
-          onClick={() => handleOpenDetailModal('Taxas de Assessoria Recebidas', paidPropostas.filter(p => p.valorTaxa > 0))}
-          className="group cursor-pointer bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 shadow-xs hover:border-amber-500/50 hover:shadow-md transition-all active:scale-[0.99]"
-        >
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 shadow-xs">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-xs font-semibold text-slate-500">Taxas Recebidas</span>
             <div className="w-8 h-8 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center">
               <Percent className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white tabular-nums group-hover:text-amber-600 transition-colors">
+          <p className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white tabular-nums">
             {formatCurrency(totalTaxas)}
           </p>
           <div className="flex items-center gap-1.5 mt-1 text-[11px] text-slate-400">
@@ -505,17 +609,14 @@ _Gerado automaticamente via Lívia Cred Saúde CRM_`;
         </div>
 
         {/* Card 3: Comissões Promotoras */}
-        <div
-          onClick={() => handleOpenDetailModal('Comissões Recebidas das Promotoras', paidPropostas)}
-          className="group cursor-pointer bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 shadow-xs hover:border-blue-500/50 hover:shadow-md transition-all active:scale-[0.99]"
-        >
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 shadow-xs">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-xs font-semibold text-slate-500">Comissões Promotoras</span>
             <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 flex items-center justify-center">
               <DollarSign className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white tabular-nums group-hover:text-blue-600 transition-colors">
+          <p className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white tabular-nums">
             {formatCurrency(totalComissoesPromotoras)}
           </p>
           <p className="text-[11px] text-slate-400 mt-1">
@@ -524,10 +625,7 @@ _Gerado automaticamente via Lívia Cred Saúde CRM_`;
         </div>
 
         {/* Card 4: Faturamento Bruto */}
-        <div
-          onClick={() => handleOpenDetailModal('Faturamento (Taxas + Promotoras)', paidPropostas)}
-          className="group cursor-pointer bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 shadow-xs hover:border-emerald-500/50 hover:shadow-md transition-all active:scale-[0.99]"
-        >
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 shadow-xs">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-xs font-semibold text-slate-500">Faturamento Bruto</span>
             <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
@@ -597,8 +695,16 @@ _Gerado automaticamente via Lívia Cred Saúde CRM_`;
 
         <div className="space-y-3">
           {rankingVendedoras.map((vendedora, index) => {
-            const percentualAtingido = vendedora.meta > 0 ? (vendedora.vendas / vendedora.meta) * 100 : 0;
-            const percentTaxa = vendedora.vendas > 0 ? (vendedora.taxa / vendedora.vendas) * 100 : 0;
+            const metaVenda = vendedora.meta > 0 ? vendedora.meta : 80000;
+            const metaTaxa = metaVenda * 0.20; // 20% of sales goal as requested
+
+            const percentualVenda = metaVenda > 0 ? (vendedora.vendas / metaVenda) * 100 : 0;
+            const percentualTaxaGoal = metaTaxa > 0 ? (vendedora.taxa / metaTaxa) * 100 : 0;
+
+            const formatCompactMeta = (val: number) => {
+              if (val === 0) return '0';
+              return val >= 1000 ? `${(val / 1000).toFixed(0)}k` : formatCurrency(val);
+            };
 
             const medalColors = [
               'bg-amber-400 text-slate-950 font-black', // Ouro
@@ -609,45 +715,69 @@ _Gerado automaticamente via Lívia Cred Saúde CRM_`;
             return (
               <div
                 key={vendedora.nome}
-                className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 hover:border-slate-300 transition-colors"
+                onClick={() => {
+                  const propsForSeller = filteredPropostas.filter(p => normalizeSellerName(p.vendedora) === vendedora.nome);
+                  setSelectedSellerName(vendedora.nome);
+                  setSelectedSellerProposals(propsForSeller);
+                }}
+                className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 cursor-pointer transition-all duration-150 hover:shadow-xs hover:scale-[1.005]"
               >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs shrink-0 ${index < 3 ? medalColors[index] : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] shrink-0 ${index < 3 ? medalColors[index] : 'bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
                       {index + 1}º
                     </span>
                     <div className="min-w-0">
-                      <p className="text-sm font-bold text-slate-900 dark:text-white truncate">
+                      <p className="text-sm font-extrabold text-slate-900 dark:text-white truncate">
                         {vendedora.nome}
                       </p>
-                      <p className="text-xs text-slate-500">
-                        {vendedora.count} contratos · Taxa: {formatCurrency(vendedora.taxa)} ({formatPercent(percentTaxa)})
+                      <p className="text-[10px] text-slate-400 font-medium">
+                        {vendedora.count} contratos no período
                       </p>
                     </div>
                   </div>
 
-                  <div className="text-right shrink-0">
-                    <p className="text-sm font-extrabold text-slate-900 dark:text-white tabular-nums">
-                      {formatCurrency(vendedora.vendas)}
+                  <div className="text-left sm:text-right shrink-0 text-xs leading-normal">
+                    <p className="text-slate-500 font-semibold flex items-center gap-1.5 sm:justify-end">
+                      <span>Pagos - meta {formatCompactMeta(metaVenda)} :</span>
+                      <span className="font-black text-[#0F5C63] dark:text-[#28B0B7]">{formatCurrency(vendedora.vendas)}</span>
                     </p>
-                    <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 tabular-nums">
-                      {formatPercent(percentualAtingido)} da meta
+                    <p className="text-slate-500 font-semibold mt-1 flex items-center gap-1.5 sm:justify-end">
+                      <span>Taxa - meta {formatCompactMeta(metaTaxa)} :</span>
+                      <span className="font-black text-amber-600 dark:text-amber-400">{formatCurrency(vendedora.taxa)}</span>
                     </p>
                   </div>
                 </div>
 
-                {/* Progress bar */}
-                <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 mt-2.5 overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all duration-500 ${
-                      percentualAtingido >= 100
-                        ? 'bg-emerald-500'
-                        : percentualAtingido >= 70
-                        ? 'bg-teal-600'
-                        : 'bg-amber-500'
-                    }`}
-                    style={{ width: `${Math.min(100, percentualAtingido)}%` }}
-                  />
+                {/* TWO COMPACT PROGRESS BARS - Clean zero-pill style */}
+                <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/60">
+                  {/* Bar 1: Total Liberado */}
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <span className="text-[10px] font-bold text-teal-700 dark:text-teal-400 w-12 sm:w-16 shrink-0">Vendas</span>
+                    <div className="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden relative">
+                      <div
+                        className="h-full rounded-full bg-[#0F5C63] transition-all duration-500"
+                        style={{ width: `${Math.min(100, percentualVenda)}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] font-black text-teal-700 dark:text-teal-400 w-10 text-right tabular-nums">
+                      {percentualVenda.toFixed(0)}%
+                    </span>
+                  </div>
+
+                  {/* Bar 2: Taxa Arrecadada */}
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 w-12 sm:w-16 shrink-0">Taxa</span>
+                    <div className="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden relative">
+                      <div
+                        className="h-full rounded-full bg-amber-500 transition-all duration-500"
+                        style={{ width: `${Math.min(100, percentualTaxaGoal)}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] font-black text-amber-600 dark:text-amber-400 w-10 text-right tabular-nums">
+                      {percentualTaxaGoal.toFixed(0)}%
+                    </span>
+                  </div>
                 </div>
               </div>
             );
@@ -1090,53 +1220,82 @@ _Gerado automaticamente via Lívia Cred Saúde CRM_`;
         </div>
       )}
 
-      {/* Share Resumo Modal */}
-      {showShareModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-lg rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-5">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800">
-              <div className="flex items-center gap-2">
-                <Share2 className="w-5 h-5 text-emerald-600" />
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  Compartilhar Resumo no WhatsApp
+      {/* Detail Modal (When user clicks a salesperson in the ranking list) */}
+      {selectedSellerName && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="w-full max-w-4xl max-h-[85vh] rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div>
+                <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
+                  Produção de {selectedSellerName}
                 </h3>
+                <p className="text-xs text-slate-500">
+                  {selectedSellerProposals.length} contratos formalizados e pagos no período selecionado
+                </p>
               </div>
               <button
-                onClick={() => setShowShareModal(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
+                onClick={() => setSelectedSellerName(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="mt-4">
-              <p className="text-xs text-slate-500 mb-2">
-                Texto formatado pronto para enviar à Lívia ou no grupo da diretoria:
-              </p>
-              <textarea
-                readOnly
-                value={generateWhatsAppSummary()}
-                rows={11}
-                className="w-full p-3 text-xs font-mono bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl resize-none text-slate-800 dark:text-slate-200 focus:outline-none"
-              />
+            {/* Modal Table Body */}
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5">
+              <table className="w-full text-xs text-left">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase text-[10px]">
+                    <th className="py-2 px-2">Data</th>
+                    <th className="py-2 px-2">Cliente</th>
+                    <th className="py-2 px-2">Operação</th>
+                    <th className="py-2 px-2">Banco</th>
+                    <th className="py-2 px-2 text-right">Liberado (R$)</th>
+                    <th className="py-2 px-2 text-right">Taxa (R$)</th>
+                    <th className="py-2 px-2 text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {selectedSellerProposals.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-4 text-center text-slate-400">Nenhum contrato encontrado para esta vendedora no período.</td>
+                    </tr>
+                  ) : (
+                    selectedSellerProposals.map((prop) => (
+                      <tr key={prop.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                        <td className="py-2 px-2 tabular-nums text-slate-500">{formatDate(prop.dataDigitacao)}</td>
+                        <td className="py-2 px-2 font-bold text-slate-900 dark:text-white truncate max-w-[140px]">
+                          {prop.nomeCliente}
+                        </td>
+                        <td className="py-2 px-2 text-slate-600 dark:text-slate-300">{prop.operacao}</td>
+                        <td className="py-2 px-2 text-slate-600 dark:text-slate-300">{prop.banco}</td>
+                        <td className="py-2 px-2 text-right font-bold tabular-nums text-teal-600">{formatCurrency(prop.valorEmprestimo)}</td>
+                        <td className="py-2 px-2 text-right font-bold text-amber-600 tabular-nums">{formatCurrency(prop.valorTaxa)}</td>
+                        <td className="py-2 px-2 text-center">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            prop.status === 'Paga' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
+                            prop.status === 'Aprovada' ? 'bg-blue-100 text-blue-800' :
+                            prop.status === 'Pendente' ? 'bg-amber-100 text-amber-800' :
+                            'bg-slate-100 text-slate-700'
+                          }`}>
+                            {prop.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
 
-            <div className="mt-4 flex items-center justify-end gap-2">
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-200 dark:border-slate-800 flex justify-end">
               <button
-                onClick={copyToClipboard}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0F5C63] hover:bg-[#1B8A8F] text-white font-bold text-xs shadow-sm transition-all"
+                onClick={() => setSelectedSellerName(null)}
+                className="px-4 py-2 rounded-xl bg-slate-900 dark:bg-teal-600 text-white font-bold text-xs"
               >
-                {copiedShare ? (
-                  <>
-                    <Check className="w-4 h-4 stroke-[3]" />
-                    <span>Copiado com sucesso!</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="w-4 h-4" />
-                    <span>Copiar Texto</span>
-                  </>
-                )}
+                Fechar
               </button>
             </div>
           </div>

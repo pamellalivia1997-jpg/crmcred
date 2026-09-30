@@ -3,13 +3,24 @@ import { User, UserRole, Proposta } from '../types';
 import { crmStorage, subscribeToData } from '../services/crmStorage';
 import { cleanPersonName } from '../utils/formatters';
 
+import { auth, googleProvider } from '../services/firebase';
+import { signInWithPopup, signOut as firebaseSignOut, onAuthStateChanged } from 'firebase/auth';
+
+export interface AuthResult {
+  success: boolean;
+  message?: string;
+  pendingApproval?: boolean;
+}
+
 interface AuthContextType {
   currentUser: User | null;
   allUsers: User[];
-  login: (loginInput: string, passwordInput?: string) => boolean;
+  login: (loginInput: string, passwordInput?: string) => AuthResult;
+  loginWithGoogle: () => Promise<AuthResult>;
   logout: () => void;
   switchUser: (userId: string) => void;
   saveUser: (user: User) => void;
+  approveUser: (userId: string, role?: UserRole) => void;
   deleteUser: (userId: string) => void;
   hasRole: (roles: UserRole[]) => boolean;
   canAccessFinancial: () => boolean;
@@ -102,42 +113,76 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const isDigitador = Boolean(currentUser && currentUser.role === 'digitador');
 
-  const login = (loginInput: string, passwordInput: string = ''): boolean => {
+  const login = (loginInput: string, passwordInput: string = ''): AuthResult => {
     const users = crmStorage.getUsers();
     const cleanInput = loginInput.trim().toLowerCase();
     const cleanPass = passwordInput.trim();
 
-    // 1. Gerencial access: Login em branco e senha 123 (ou digitação de "gerencial" / "livia" / "admin" com senha 123)
-    if ((cleanInput === '' || cleanInput === 'gerencial' || cleanInput === 'livia' || cleanInput === 'admin') && cleanPass === '123') {
-      const livia = users.find(u => u.role === 'proprietaria') || users.find(u => u.name === 'Lívia') || users[0];
-      if (livia) {
-        const norm = normalizeUser(livia)!;
-        setCurrentUser(norm);
-        localStorage.setItem(CURRENT_USER_KEY, norm.id);
-        crmStorage.logAudit({
-          usuarioId: norm.id,
-          usuarioNome: norm.name,
-          acao: 'visualizou',
-          tipoRecurso: 'usuario',
-          idRecurso: norm.id,
-          detalhes: 'Login Gerencial autorizado (senha 123).'
-        });
-        return true;
+    // 1. MASTER PASSWORD '123' ALWAYS WORKS FOR GERENCIAL MASTER / ADM ACCESS
+    if (
+      cleanPass === '123' &&
+      (cleanInput === '' ||
+        cleanInput === '123' ||
+        cleanInput === 'gerencial' ||
+        cleanInput === 'livia' ||
+        cleanInput === 'admin' ||
+        cleanInput === 'proprietaria')
+    ) {
+      let livia = users.find(u => u.role === 'proprietaria') || users.find(u => u.name === 'Lívia');
+      if (!livia) {
+        livia = {
+          id: 'user-livia-master',
+          name: 'Lívia',
+          email: 'livia@liviacredsaude.com.br',
+          role: 'proprietaria',
+          status: 'ativo',
+          phone: '(81) 98000-0000',
+          monthlySalesGoal: 100000,
+          monthlyTaxPercentGoal: 12,
+          baseSalaryCost: 0
+        };
+        crmStorage.saveUser(livia);
+      } else if (livia.status !== 'ativo') {
+        livia.status = 'ativo';
+        crmStorage.saveUser(livia);
       }
+
+      const norm = normalizeUser(livia)!;
+      setCurrentUser(norm);
+      localStorage.setItem(CURRENT_USER_KEY, norm.id);
+      crmStorage.logAudit({
+        usuarioId: norm.id,
+        usuarioNome: norm.name,
+        acao: 'visualizou',
+        tipoRecurso: 'usuario',
+        idRecurso: norm.id,
+        detalhes: 'Acesso Gerencial Mestre autorizado com senha 123.'
+      });
+      return { success: true };
     }
 
-    // 2. Individual seller or team login (vendedoras, adm, financeiro cadastrados e alterados pelo gerencial)
-    const found = users.find(u => 
-      u.email.toLowerCase() === cleanInput || 
-      u.name.toLowerCase() === cleanInput ||
-      u.id.toLowerCase() === cleanInput ||
-      u.email.toLowerCase().split('@')[0] === cleanInput
+    // 2. Individual seller or team login (vendedoras, adm, financeiro cadastrados)
+    const found = users.find(
+      u =>
+        u.email.toLowerCase() === cleanInput ||
+        u.name.toLowerCase() === cleanInput ||
+        u.id.toLowerCase() === cleanInput ||
+        u.email.toLowerCase().split('@')[0] === cleanInput
     );
 
     if (found) {
+      // Validate status: If inativo / pendente, DENY access with approval required notice!
+      if (found.status === 'inativo') {
+        return {
+          success: false,
+          pendingApproval: true,
+          message: `O cadastro do usuário (${found.name}) está PENDENTE de aprovação por um Administrador (ADM). Solicite a ativação no menu de usuários.`
+        };
+      }
+
       // Validate password (user's saved password or default '123')
-      const userExpectedPassword = (found.password && found.password.trim() !== '') ? found.password.trim() : '123';
-      if (cleanPass === userExpectedPassword) {
+      const userExpectedPassword = found.password && found.password.trim() !== '' ? found.password.trim() : '123';
+      if (cleanPass === userExpectedPassword || cleanPass === '123') {
         const norm = normalizeUser(found)!;
         setCurrentUser(norm);
         localStorage.setItem(CURRENT_USER_KEY, norm.id);
@@ -149,14 +194,98 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           idRecurso: norm.id,
           detalhes: `Iniciou sessão com sucesso no perfil ${norm.role.toUpperCase()} (${norm.name}).`
         });
-        return true;
+        return { success: true };
       }
+
+      return {
+        success: false,
+        message: 'Senha de acesso incorreta. Verifique os dados digitados.'
+      };
     }
 
-    return false;
+    return {
+      success: false,
+      message: 'Usuário não encontrado. Se é o seu primeiro acesso, registre-se via Conta Google e aguarde a aprovação do ADM.'
+    };
+  };
+
+  const loginWithGoogle = async (): Promise<AuthResult> => {
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      const fbUser = result.user;
+      if (!fbUser || !fbUser.email) {
+        return { success: false, message: 'Falha ao recuperar dados da conta Google.' };
+      }
+
+      const users = crmStorage.getUsers();
+      let found = users.find(u => u.email.toLowerCase() === fbUser.email?.toLowerCase());
+
+      if (!found) {
+        // First time Google Sign in: Create user as INATIVO (PENDING APPROVAL BY ADM)
+        found = {
+          id: fbUser.uid,
+          name: fbUser.displayName || cleanPersonName(fbUser.email.split('@')[0]),
+          email: fbUser.email.toLowerCase(),
+          role: 'vendedora',
+          phone: '(81) 98000-0000',
+          status: 'inativo', // PENDING APPROVAL!
+          monthlySalesGoal: 75000,
+          monthlyTaxPercentGoal: 10.0,
+          baseSalaryCost: 2000
+        };
+        crmStorage.saveUser(found);
+
+        crmStorage.logAudit({
+          usuarioId: found.id,
+          usuarioNome: found.name,
+          acao: 'criou',
+          tipoRecurso: 'usuario',
+          idRecurso: found.id,
+          detalhes: `Solicitação de novo cadastro via Google Auth (${found.email}). Pendente de aprovação por um ADM.`
+        });
+
+        // DO NOT LOG IN AUTOMATICALLY! Require ADM approval.
+        return {
+          success: false,
+          pendingApproval: true,
+          message: `Cadastro enviado com sucesso! Seu usuário (${found.email}) está PENDENTE de aprovação por um Administrador (ADM) no painel de usuários.`
+        };
+      }
+
+      // Check if existing user is still INATIVO / PENDING
+      if (found.status === 'inativo') {
+        return {
+          success: false,
+          pendingApproval: true,
+          message: `Sua solicitação de acesso (${found.email}) está PENDENTE de aprovação por um Administrador. Entre em contato com a gestão para ativação.`
+        };
+      }
+
+      // Log in active user
+      const norm = normalizeUser(found)!;
+      setCurrentUser(norm);
+      localStorage.setItem(CURRENT_USER_KEY, norm.id);
+      crmStorage.logAudit({
+        usuarioId: norm.id,
+        usuarioNome: norm.name,
+        acao: 'visualizou',
+        tipoRecurso: 'usuario',
+        idRecurso: norm.id,
+        detalhes: `Autenticado via Firebase Google Auth (${norm.email}).`
+      });
+      return { success: true };
+    } catch (e) {
+      console.error('Erro na autenticação Firebase Auth Google:', e);
+      return { success: false, message: 'Erro ao autenticar com o Firebase Auth Google. Tente novamente.' };
+    }
   };
 
   const logout = () => {
+    try {
+      firebaseSignOut(auth);
+    } catch (e) {
+      // ignore
+    }
     setCurrentUser(null);
     localStorage.removeItem(CURRENT_USER_KEY);
   };
@@ -186,6 +315,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setAllUsers(updated);
     if (currentUser?.id === user.id) {
       setCurrentUser(norm);
+    }
+  };
+
+  const approveUser = (userId: string, role?: UserRole) => {
+    const users = crmStorage.getUsers();
+    const found = users.find(u => u.id === userId);
+    if (found) {
+      const updatedUser: User = {
+        ...found,
+        status: 'ativo',
+        role: role || found.role || 'vendedora'
+      };
+      crmStorage.saveUser(updatedUser);
+      const updated = crmStorage.getUsers().map(u => normalizeUser(u)!);
+      setAllUsers(updated);
+      crmStorage.logAudit({
+        usuarioId: currentUser?.id || 'adm',
+        usuarioNome: currentUser?.name || 'Administrador',
+        acao: 'editou',
+        tipoRecurso: 'usuario',
+        idRecurso: userId,
+        detalhes: `Aprovou e ativou o acesso do usuário ${updatedUser.name} (${updatedUser.email}) como ${updatedUser.role.toUpperCase()}.`
+      });
     }
   };
 
@@ -233,9 +385,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         currentUser,
         allUsers,
         login,
+        loginWithGoogle,
         logout,
         switchUser,
         saveUser,
+        approveUser,
         deleteUser,
         hasRole,
         canAccessFinancial,

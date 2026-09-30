@@ -17,10 +17,17 @@ import {
   FileText,
   Edit3,
   Cake,
-  UserPlus
+  UserPlus,
+  UploadCloud,
+  Trash2,
+  RotateCcw,
+  Check,
+  Sparkles,
+  Database
 } from 'lucide-react';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
+import { openMessagingApp } from '../../utils/messaging';
 import { Cliente, Proposta, Convenio } from '../../types';
 import {
   formatCPF,
@@ -39,8 +46,16 @@ interface Props {
 }
 
 export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => {
-  const { clientes, propostas, logCpfAccess, saveCliente } = useCRM();
-  const { currentUser } = useAuth();
+  const {
+    clientes,
+    propostas,
+    logCpfAccess,
+    saveCliente,
+    importClientPortfolio,
+    importFullSpreadsheetRows,
+    clearAllTestData
+  } = useCRM();
+  const { currentUser, isManager } = useAuth();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
@@ -50,6 +65,15 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<Partial<Cliente> | null>(null);
   const [modalError, setModalError] = useState('');
+
+  // Modal State for Importing Portfolio
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importNotice, setImportNotice] = useState<string | null>(null);
+
+  // Modal State for Clearing Test Data
+  const [isClearModalOpen, setIsClearModalOpen] = useState(false);
+  const [clearNotice, setClearNotice] = useState<string | null>(null);
 
   // Digitador cannot access general client portfolio
   if (currentUser?.role === 'digitador') {
@@ -107,13 +131,10 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
     logCpfAccess(cliente.cpf, cliente.nome);
   };
 
-  // Open WhatsApp link
+  // Open WhatsApp / DigiSac link
   const openWhatsApp = (cliente: Cliente) => {
-    const cleanPhone = cliente.telefone.replace(/\D/g, '');
-    const msg = encodeURIComponent(
-      `Olá ${cliente.nome.split(' ')[0]}, tudo bem? Aqui é ${currentUser?.name} da Lívia Cred Saúde. Temos ótimas condições de crédito e portabilidade consignada disponíveis para seu convênio. Gostaria de uma simulação sem compromisso?`
-    );
-    window.open(`https://wa.me/55${cleanPhone}?text=${msg}`, '_blank');
+    const msg = `Olá ${cliente.nome.split(' ')[0]}, tudo bem? Aqui é ${currentUser?.name} da Lívia Cred Saúde. Temos ótimas condições de crédito e portabilidade consignada disponíveis para seu convênio. Gostaria de uma simulação sem compromisso?`;
+    openMessagingApp(cliente.telefone, msg);
   };
 
   // Helper tags
@@ -156,7 +177,7 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => {
                 setEditingClient({
@@ -177,6 +198,34 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
               <UserPlus className="w-3.5 h-3.5" />
               <span>Novo Cliente</span>
             </button>
+
+            <button
+              onClick={() => {
+                setImportText('');
+                setImportNotice(null);
+                setIsImportModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 text-teal-800 dark:text-teal-300 font-bold text-xs border border-teal-200 dark:border-teal-800 shadow-xs transition-all active:scale-95"
+              title="Importar carteira de clientes para o Firebase"
+            >
+              <UploadCloud className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+              <span>Importar Carteira</span>
+            </button>
+
+            {/* Only Gerencial / ADM can clear test data. Vendedoras do NOT have permission! */}
+            {(isManager || currentUser?.role === 'proprietaria' || currentUser?.role === 'adm') && (
+              <button
+                onClick={() => {
+                  setClearNotice(null);
+                  setIsClearModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-700 dark:text-rose-300 font-bold text-xs border border-rose-200 dark:border-rose-800 shadow-xs transition-all active:scale-95"
+                title="Zerar todos os dados de teste no Firebase"
+              >
+                <RotateCcw className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                <span>Zerar Dados de Teste</span>
+              </button>
+            )}
 
             <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 w-fit">
               {filteredClientes.length} Clientes Cadastrados
@@ -427,9 +476,20 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
                           </div>
                         </div>
 
-                        <div className="mt-2 pt-2 border-t border-slate-200/60 dark:border-slate-700/60 flex items-center justify-between text-[11px] text-slate-400">
+                        <div className="mt-2 pt-2 border-t border-slate-200/60 dark:border-slate-700/60 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
                           <span>Digitado em: {formatDate(prop.dataDigitacao)}</span>
                           <span>Vendedora: <strong>{prop.vendedora}</strong></span>
+                          {prop.linkDocumento && (
+                            <a
+                              href={prop.linkDocumento}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-teal-50 hover:bg-teal-100 dark:bg-teal-950/60 dark:hover:bg-teal-900 border border-teal-200 dark:border-teal-800 text-teal-800 dark:text-teal-300 font-bold transition-all shrink-0"
+                            >
+                              <FileSpreadsheet className="w-3 h-3 text-teal-600" />
+                              <span>Contrato (Drive)</span>
+                            </a>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -647,6 +707,352 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 1: IMPORTAR CARTEIRA DE CLIENTES (LOTE / CSV / FIREBASE) */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-2xl w-full p-5 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-teal-100 dark:bg-teal-950 text-teal-700 dark:text-teal-300 flex items-center justify-center font-bold">
+                  <UploadCloud className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                    Importar Carteira de Clientes
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Sincronização em lote direta para o banco de dados na nuvem do Firebase
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsImportModalOpen(false)}
+                className="p-1 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {importNotice && (
+              <div className="p-3 rounded-2xl bg-teal-50 dark:bg-teal-950/60 border border-teal-200 dark:border-teal-800 text-teal-800 dark:text-teal-200 text-xs flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-teal-600 shrink-0" />
+                <span>{importNotice}</span>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  Cole suas Linhas de Planilha (Excel / Google Sheets / CSV)
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setImportText(
+                      `Carimbo de data/hora\tCPF DO CLIENTE\tNOME DO CLIENTE\tDATA DA DIGITAÇÃO\tDATA DO PAGAMENTO AO CLIENTE\tCONVÊNIO\tOPERAÇÃO\tBANCO\tPROMOTORA\tVALOR DO EMPRÉSTIMO LIBERADO PARA O CLIENTE\tVALOR DA TAXA DA ASSESSORIA\tCLIENTE PAGOU A TAXA DE ASSESSORIA\tTaxa do Cartão\tVENDEDOR\tDIGITADOR\tNº DO CONTRATO (SEM ESPAÇAMENTO)\tSTATUS DO CONTRATO\tCOMISSÃO J2\tCOMISSÃO SEMPRE\tCOMISSÃO dg\tCOMISSÃO  gft\tFATURADO\n12/03/2026 18:04:11\t298.046.474-00\tMARCIA VIEIRA DA SILVA\t12/03/2026\t12/03/2026\tINSS\tASSESSORIA\tASSESSORIA\tASSESSORIA\t0,00\t200,00\tSIM\t\tHELLEN\tHELLEN\t0\tPAGO\t\t\t\t\t0\n12/03/2026 18:00:07\t428.687.424-91\tSAMUEL HENRIQUE PEREIRA\t12/03/2026\t12/03/2026\tINSS\tREFIN\tC6\tJ2 PROMOTORA\t2.957,02\t\t\t\tHELLEN\tHELLEN\t977526573\tPAGO\t177,42\t\t\t\t177,42\n12/03/2026 17:55:28\t428.687.424-91\tSAMUEL HENRIQUE PEREIRA\t12/03/2026\t12/03/2026\tINSS\tMARGEM\tDAYCOVAL\tJ2 PROMOTORA\t1.029,73\t\t\t\tHELLEN\tHELLEN\t830381469\tPAGO\t66,97\t\t\t\t66,97\n12/03/2026 17:51:53\t428.687.424-91\tSAMUEL HENRIQUE PEREIRA\t12/03/2026\t12/03/2026\tINSS\tMARGEM\tC6\tJ2 PROMOTORA\t4.464,13\t\t\t\tHELLEN\tHELLEN\t977526682\tPAGO\t292,4\t\t\t\t292,4`
+                    );
+                  }}
+                  className="text-[11px] text-teal-600 dark:text-teal-400 font-bold hover:underline"
+                >
+                  Carregar Exemplo da Minha Planilha
+                </button>
+              </div>
+
+              <textarea
+                rows={7}
+                value={importText}
+                onChange={(e) => setImportText(e.target.value)}
+                placeholder="Cole aqui as linhas copiadas da sua planilha do Google Sheets / Excel..."
+                className="w-full p-3 font-mono text-xs rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none"
+              />
+
+              <div className="bg-slate-50 dark:bg-slate-800/60 p-3 rounded-2xl border border-slate-200 dark:border-slate-700/60 text-[11px] text-slate-600 dark:text-slate-300 space-y-1">
+                <p className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-1">
+                  <Database className="w-3.5 h-3.5 text-teal-600" />
+                  Inteligência de Importação em Nuvem Firebase:
+                </p>
+                <ul className="list-disc list-inside space-y-0.5 text-slate-500 dark:text-slate-400">
+                  <li>Detecta automaticamente as colunas pelo título (CPF, Nome, Data, Operação, Banco, Promotora, Vendedor, Digitador, Contrato, Status, Comissões).</li>
+                  <li>Padroniza e corrige erros de digitação de CPF (remover caracteres, preencher zeros à esquerda).</li>
+                  <li>Suporta o mesmo cliente repetido em várias linhas com operações e datas diferentes.</li>
+                  <li>Sincroniza todos os clientes, propostas e comissões diretamente para o banco em nuvem Firebase.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsImportModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (!importText.trim()) return;
+
+                  // Robust CSV/TSV parser that handles quoted cells with newlines
+                  const parseCSVOrTSV = (text: string): string[][] => {
+                    const result: string[][] = [];
+                    let row: string[] = [];
+                    let currentCell = '';
+                    let inQuotes = false;
+                    
+                    // Auto-detect delimiter
+                    const sample = text.slice(0, 500);
+                    let delimiter = '\t';
+                    if (sample.includes('\t')) delimiter = '\t';
+                    else if (sample.includes(';')) delimiter = ';';
+                    else if (sample.includes('|')) delimiter = '|';
+                    else if (sample.includes(',')) delimiter = ',';
+
+                    for (let i = 0; i < text.length; i++) {
+                      const char = text[i];
+                      const nextChar = text[i + 1];
+
+                      if (char === '"') {
+                        if (inQuotes && nextChar === '"') {
+                          currentCell += '"';
+                          i++;
+                        } else {
+                          inQuotes = !inQuotes;
+                        }
+                      } else if (char === delimiter && !inQuotes) {
+                        row.push(currentCell.trim());
+                        currentCell = '';
+                      } else if ((char === '\r' || char === '\n') && !inQuotes) {
+                        if (char === '\r' && nextChar === '\n') {
+                          i++;
+                        }
+                        row.push(currentCell.trim());
+                        if (row.length > 0 || currentCell !== '') {
+                          result.push(row);
+                        }
+                        row = [];
+                        currentCell = '';
+                      } else {
+                        currentCell += char;
+                      }
+                    }
+
+                    if (currentCell !== '' || row.length > 0) {
+                      row.push(currentCell.trim());
+                      result.push(row);
+                    }
+
+                    return result;
+                  };
+
+                  const parsedGrid = parseCSVOrTSV(importText);
+                  if (parsedGrid.length === 0) return;
+
+                  const firstRow = parsedGrid[0];
+                  let isHeader = false;
+                  
+                  // Check if first row is a header
+                  const headerString = firstRow.join(' ').toUpperCase();
+                  if (/CPF|NOME|CLIENTE|DATA|CONV|OPER|BANCO|PROMOTORA|VALOR|VENDEDOR|CONTRATO|STATUS|COMIS/i.test(headerString)) {
+                    isHeader = true;
+                  }
+
+                  let headerCells: string[] = [];
+                  let startIndex = 0;
+
+                  if (isHeader) {
+                    headerCells = firstRow.map(c => c.trim().toUpperCase().replace(/\s+/g, ' '));
+                    startIndex = 1;
+                  }
+
+                  let cpfIdx = headerCells.findIndex(c => c.includes('CPF'));
+                  let nomeIdx = headerCells.findIndex(c => c.includes('NOME') || (c.includes('CLIENTE') && !c.includes('CPF') && !c.includes('PAGOU')));
+                  
+                  let telefoneIdx = headerCells.findIndex(c => c.includes('TELEFONE') || c.includes('CELULAR') || c.includes('TELEF'));
+                  if (telefoneIdx < 0) {
+                    telefoneIdx = headerCells.findIndex(c => c.includes('TEL') || c.includes('FONE') || c.includes('CEL'));
+                  }
+                  
+                  let carimboIdx = headerCells.findIndex(c => c.includes('CARIMBO') || c.includes('HORA') || c.includes('TIMESTAMP'));
+                  let dataDigitaIdx = headerCells.findIndex(c => c.includes('DIGITAÇ') || c.includes('DIGITAC'));
+                  let dataPagtoIdx = headerCells.findIndex(c => c.includes('PAGAMENTO') || c.includes('PAGO AO CLIENTE'));
+                  let convenioIdx = headerCells.findIndex(c => c.includes('CONV'));
+                  let operacaoIdx = headerCells.findIndex(c => c.includes('OPERAÇ') || c.includes('OPERAC'));
+                  let bancoIdx = headerCells.findIndex(c => c.includes('BANCO'));
+                  let promotoraIdx = headerCells.findIndex(c => c.includes('PROMOTORA'));
+                  let valorEmpIdx = headerCells.findIndex(c => c.includes('EMPRÉSTIMO') || c.includes('EMPRESTIMO') || c.includes('LIBERADO'));
+                  let valorTaxaIdx = headerCells.findIndex(c => c.includes('TAXA DA ASSESSORIA') || c.includes('VALOR DA TAXA') || (c.includes('TAXA') && !c.includes('CARTÃO') && !c.includes('PERCENTUAL')));
+                  let clientePagouIdx = headerCells.findIndex(c => c.includes('PAGOU A TAXA') || c.includes('CLIENTE PAGOU'));
+                  let vendedoraIdx = headerCells.findIndex(c => c.includes('VENDEDOR') || c.includes('VENDEDORA'));
+                  let digitadorIdx = headerCells.findIndex(c => c.includes('DIGITADOR'));
+                  
+                  let contratoIdx = headerCells.findIndex(c => c.includes('CONTRATO') && !c.includes('ANEXAR') && !c.includes('CAPA') && !c.includes('STATUS'));
+                  if (contratoIdx < 0) {
+                    contratoIdx = headerCells.findIndex(c => (c.includes('CONTRATO') || c.includes('CONTRAT') || c.includes('Nº') || c.includes('NUM') || c.includes('NUMERO')) && !c.includes('ANEXAR') && !c.includes('CAPA') && !c.includes('STATUS') && !c.includes('TELEFONE') && !c.includes('CPF') && !c.includes('VALOR'));
+                  }
+                  
+                  let statusIdx = headerCells.findIndex(c => c.includes('STATUS'));
+                  let comissaoJ2Idx = headerCells.findIndex(c => c.includes('J2'));
+                  let comissaoSempreIdx = headerCells.findIndex(c => c.includes('SEMPRE'));
+                  let comissaoDGIdx = headerCells.findIndex(c => c.includes('DG'));
+                  let comissaoGFTIdx = headerCells.findIndex(c => c.includes('GFT'));
+                  let faturadoIdx = headerCells.findIndex(c => c.includes('FATURADO'));
+                  let linkDocIdx = headerCells.findIndex(c => c.includes('ANEXAR') || c.includes('CAPA') || c.includes('PRINT') || c.includes('DRIVE') || c.includes('TELA'));
+
+                  if (!isHeader) {
+                    cpfIdx = 0;
+                    nomeIdx = 1;
+                  }
+
+                  const parsedRows: any[] = [];
+
+                  for (let i = startIndex; i < parsedGrid.length; i++) {
+                    const parts = parsedGrid[i];
+                    if (parts.length < 2) continue;
+
+                    const rawCpf = cpfIdx >= 0 && parts[cpfIdx] ? parts[cpfIdx] : (parts[0] || '');
+                    const rawNome = nomeIdx >= 0 && parts[nomeIdx] ? parts[nomeIdx] : (parts[1] || '');
+
+                    if (!rawCpf && !rawNome) continue;
+
+                    parsedRows.push({
+                      carimboDataHora: carimboIdx >= 0 ? parts[carimboIdx] : undefined,
+                      cpf: rawCpf,
+                      nomeCliente: rawNome || 'Cliente Importado',
+                      telefone: telefoneIdx >= 0 ? parts[telefoneIdx] : undefined,
+                      dataDigitacao: dataDigitaIdx >= 0 ? parts[dataDigitaIdx] : undefined,
+                      dataPagamentoCliente: dataPagtoIdx >= 0 ? parts[dataPagtoIdx] : undefined,
+                      convenio: convenioIdx >= 0 ? parts[convenioIdx] : undefined,
+                      operacao: operacaoIdx >= 0 ? parts[operacaoIdx] : undefined,
+                      banco: bancoIdx >= 0 ? parts[bancoIdx] : undefined,
+                      promotora: promotoraIdx >= 0 ? parts[promotoraIdx] : undefined,
+                      valorEmprestimo: valorEmpIdx >= 0 ? parts[valorEmpIdx] : undefined,
+                      valorTaxa: valorTaxaIdx >= 0 ? parts[valorTaxaIdx] : undefined,
+                      clientePagou: clientePagouIdx >= 0 ? parts[clientePagouIdx] : undefined,
+                      vendedora: vendedoraIdx >= 0 ? parts[vendedoraIdx] : undefined,
+                      digitador: digitadorIdx >= 0 ? parts[digitadorIdx] : undefined,
+                      numeroContrato: contratoIdx >= 0 ? parts[contratoIdx] : undefined,
+                      status: statusIdx >= 0 ? parts[statusIdx] : undefined,
+                      comissaoJ2: comissaoJ2Idx >= 0 ? parts[comissaoJ2Idx] : undefined,
+                      comissaoSempre: comissaoSempreIdx >= 0 ? parts[comissaoSempreIdx] : undefined,
+                      comissaoDG: comissaoDGIdx >= 0 ? parts[comissaoDGIdx] : undefined,
+                      comissaoGFT: comissaoGFTIdx >= 0 ? parts[comissaoGFTIdx] : undefined,
+                      faturado: faturadoIdx >= 0 ? parts[faturadoIdx] : undefined,
+                      linkDocumento: linkDocIdx >= 0 ? parts[linkDocIdx] : undefined,
+                    });
+                  }
+
+                  if (parsedRows.length === 0) {
+                    alert('Nenhum dado válido pôde ser extraído da planilha. Verifique o formato inserido.');
+                    return;
+                  }
+
+                  const res = importFullSpreadsheetRows(parsedRows);
+
+                  setImportNotice(
+                    `Sucesso no Firebase! Processadas ${res.totalRows} linhas da planilha: ${res.clientsCreated} novos clientes, ${res.clientsUpdated} atualizados, ${res.proposalsCreated} contratos/operações salvos, ${res.commissionsCreated} comissões geradas, e ${res.cpfsCorrectedCount} CPFs padronizados.`
+                  );
+
+                  setTimeout(() => {
+                    setIsImportModalOpen(false);
+                    setImportNotice(null);
+                  }, 3000);
+                }}
+                className="px-5 py-2 rounded-xl bg-[#0F5C63] hover:bg-[#1B8A8F] text-white font-bold text-xs shadow-md transition-all active:scale-95 flex items-center gap-1.5"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>Processar & Importar no Firebase</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: ZERAR DADOS DE TESTE (LIMPEZA FIREBASE) */}
+      {isClearModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-md w-full p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400 flex items-center justify-center font-bold">
+                  <RotateCcw className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                    Zerar Dados de Teste
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Limpeza total das propostas, comissões e alertas
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsClearModalOpen(false)}
+                className="p-1 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {clearNotice ? (
+              <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 text-xs flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{clearNotice}</span>
+              </div>
+            ) : (
+              <div className="space-y-3 text-xs text-slate-600 dark:text-slate-300">
+                <p className="leading-relaxed font-medium">
+                  Tem certeza de que deseja <strong>zerar todos os dados fictícios de teste</strong>?
+                </p>
+                <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 space-y-1">
+                  <p className="font-bold flex items-center gap-1">
+                    <AlertCircle className="w-4 h-4 text-amber-600" />
+                    O que será apagado do Firebase:
+                  </p>
+                  <ul className="list-disc list-inside text-[11px] text-amber-800 dark:text-amber-300 space-y-0.5">
+                    <li>Todas as propostas de teste (analisadas, pagas ou pendentes)</li>
+                    <li>Lançamentos de comissões de promotoras e contas a pagar</li>
+                    <li>Alertas e histórico de simulações e auditoria</li>
+                  </ul>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  A sua carteira de clientes será mantida limpa e pronta para novos cadastros e importações reais.
+                </p>
+              </div>
+            )}
+
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsClearModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+              >
+                Cancelar
+              </button>
+
+              {!clearNotice && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    clearAllTestData();
+                    setClearNotice('Todos os dados de teste foram apagados do banco de dados na nuvem com sucesso!');
+                    setTimeout(() => {
+                      setIsClearModalOpen(false);
+                      setClearNotice(null);
+                    }, 2000);
+                  }}
+                  className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md transition-all active:scale-95 flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Confirmar e Zerar Agora</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

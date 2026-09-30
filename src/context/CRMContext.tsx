@@ -10,7 +10,7 @@ import {
   AuditLog,
   StatusProposta
 } from '../types';
-import { crmStorage, subscribeToData } from '../services/crmStorage';
+import { crmStorage, subscribeToData, SpreadsheetRowInput } from '../services/crmStorage';
 import { useAuth } from './AuthContext';
 
 export type PeriodoFiltro = 'hoje' | 'semana' | 'mes' | 'mes_anterior' | 'ultimos_3_meses' | 'ano' | 'tudo';
@@ -43,6 +43,16 @@ interface CRMContextType {
   updateAlertaStatus: (id: string, status: 'nova' | 'em_contato' | 'convertida' | 'descartada') => void;
   toggleLiberacaoLeadDigitador: (alertaId: string, liberado: boolean) => void;
   resetAllData: () => void;
+  clearAllTestData: () => void;
+  importClientPortfolio: (clientesList: Cliente[]) => { importedCount: number; updatedCount: number };
+  importFullSpreadsheetRows: (rows: SpreadsheetRowInput[]) => {
+    totalRows: number;
+    clientsCreated: number;
+    clientsUpdated: number;
+    proposalsCreated: number;
+    commissionsCreated: number;
+    cpfsCorrectedCount: number;
+  };
   logCpfAccess: (cpf: string, nomeCliente: string) => void;
 }
 
@@ -113,6 +123,18 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     crmStorage.reset();
   };
 
+  const clearAllTestData = () => {
+    crmStorage.clearAllTestData();
+  };
+
+  const importClientPortfolio = (clientesList: Cliente[]) => {
+    return crmStorage.importClientPortfolio(clientesList, currentActor);
+  };
+
+  const importFullSpreadsheetRows = (rows: SpreadsheetRowInput[]) => {
+    return crmStorage.importFullSpreadsheetRows(rows, currentActor);
+  };
+
   const logCpfAccess = (cpf: string, nomeCliente: string) => {
     crmStorage.logAudit({
       usuarioId: currentActor.id,
@@ -151,6 +173,9 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateAlertaStatus,
         toggleLiberacaoLeadDigitador,
         resetAllData,
+        clearAllTestData,
+        importClientPortfolio,
+        importFullSpreadsheetRows,
         logCpfAccess
       }}
     >

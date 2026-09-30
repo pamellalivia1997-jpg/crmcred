@@ -27,6 +27,24 @@ export function cleanPersonName(name?: string | null): string {
   return cleaned.trim();
 }
 
+export function normalizeSellerName(name?: string | null): string {
+  if (!name) return '';
+  const n = name.trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (n === 'HELLEN' || n === 'HELEN' || n === 'HELLEN VASCONCELOS' || n.includes('HELLEN')) return 'Hellen Vasconcelos';
+  if (n === 'TACY' || n === 'TACIANA' || n === 'TACIANA SILVA' || n.includes('TACIANA') || n.includes('TACY')) return 'Taciana Silva';
+  if (n === 'LUCELIA' || n === 'LUCELIA RAMOS' || n.includes('LUCELIA')) return 'Lucélia Ramos';
+  if (n === 'BIANCA' || n.includes('BIANCA')) return 'Bianca';
+  if (n === 'PAMELLA' || n.includes('PAMELLA')) return 'Pamella';
+  if (n === 'LIVIA' || n.includes('LIVIA')) return 'Lívia';
+  if (n === 'LOJA IGARASSU' || n === 'LOJA_IGARASSU' || n === 'IGARASSU' || n.includes('IGARASSU')) return 'Loja Igarassu (Balcão)';
+  return name.trim();
+}
+
+export function isSameSeller(name1?: string | null, name2?: string | null): boolean {
+  if (!name1 || !name2) return false;
+  return normalizeSellerName(name1) === normalizeSellerName(name2);
+}
+
 export function formatPercent(value: number | undefined | null, decimals = 1): string {
   if (value === undefined || value === null || isNaN(value)) return '0,0%';
   return new Intl.NumberFormat('pt-BR', {
@@ -237,6 +255,43 @@ export function getBirthdayInfo(dateStr: string | undefined | null, now = new Da
       turningAge,
       dayMonth,
       dayOfWeekLabel: dayOfWeek,
+      badgeLabel
+    };
+  } catch {
+    return null;
+  }
+}
+
+export interface IndicationInfo {
+  isPostSale3to7Days: boolean;
+  daysSincePayment: number;
+  badgeLabel: string;
+}
+
+export function getPostSaleIndicationInfo(dateStr: string | undefined | null, now = new Date()): IndicationInfo | null {
+  if (!dateStr) return null;
+  try {
+    const pDate = new Date(dateStr.split('T')[0]);
+    if (isNaN(pDate.getTime())) return null;
+    const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const pMidnight = new Date(pDate.getFullYear(), pDate.getMonth(), pDate.getDate());
+    
+    const diffMs = todayMidnight.getTime() - pMidnight.getTime();
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+    const isPostSale3to7Days = diffDays >= 3 && diffDays <= 7;
+    let badgeLabel = '';
+    if (diffDays === 3) badgeLabel = 'Pago há 3 dias (Janela Ideal para Indicação)';
+    else if (diffDays === 4) badgeLabel = 'Pago há 4 dias';
+    else if (diffDays === 5) badgeLabel = 'Pago há 5 dias';
+    else if (diffDays === 6) badgeLabel = 'Pago há 6 dias';
+    else if (diffDays === 7) badgeLabel = 'Pago há 7 dias (Fim da janela pós-venda)';
+    else if (diffDays < 3 && diffDays >= 0) badgeLabel = `Pago há ${diffDays} dia(s) (Pós-Venda Recente)`;
+    else badgeLabel = `Pago há ${diffDays} dias`;
+
+    return {
+      isPostSale3to7Days,
+      daysSincePayment: diffDays,
       badgeLabel
     };
   } catch {

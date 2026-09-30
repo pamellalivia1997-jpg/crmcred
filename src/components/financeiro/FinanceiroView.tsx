@@ -60,42 +60,68 @@ export const FinanceiroView: React.FC = () => {
     return paidPropostas.filter(p => !launchedIds.has(p.id));
   }, [paidPropostas, comissoesPromotoras]);
 
+  // Dynamically detect competence month-year based on proposals in the system
+  const currentMonthYear = useMemo(() => {
+    if (propostas.length === 0) return '2026-09';
+    let latest = '';
+    propostas.forEach(p => {
+      if (p.dataDigitacao && p.dataDigitacao > latest) {
+        latest = p.dataDigitacao;
+      }
+    });
+    if (latest && latest.length >= 7) {
+      return latest.slice(0, 7); // 'YYYY-MM'
+    }
+    return '2026-09';
+  }, [propostas]);
+
+  // Pretty print for competence label (e.g. '2026-03' -> 'Março de 2026')
+  const competenceLabel = useMemo(() => {
+    const [yr, mo] = currentMonthYear.split('-');
+    const monthsNames: Record<string, string> = {
+      '01': 'Janeiro', '02': 'Fevereiro', '03': 'Março', '04': 'Abril',
+      '05': 'Maio', '06': 'Junho', '07': 'Julho', '08': 'Agosto',
+      '09': 'Setembro', '10': 'Outubro', '11': 'Novembro', '12': 'Dezembro'
+    };
+    return `${monthsNames[mo] || 'Setembro'} de ${yr || '2026'}`;
+  }, [currentMonthYear]);
+
   // Fechamento das comissões das vendedoras
   const sellers = useMemo(() => allUsers.filter(u => u.role === 'vendedora'), [allUsers]);
   const fechamentoVendedoras = useMemo(() => {
     return sellers.map(seller => {
-      const sellerMeta = metas.find(m => m.vendedoraId === seller.id && m.mesAno === '2026-09');
+      const sellerMeta = metas.find(m => m.vendedoraId === seller.id && m.mesAno === currentMonthYear);
       return calcularComissaoVendedoraMes(
         seller.id,
         seller.name,
-        '2026-09',
+        currentMonthYear,
         propostas,
         sellerMeta,
         true // atingiu meta coletiva
       );
     });
-  }, [sellers, metas, propostas]);
+  }, [sellers, metas, propostas, currentMonthYear]);
 
   // DRE figures
   const totalTaxas = useMemo(() => {
     return paidPropostas
-      .filter(p => p.dataDigitacao.startsWith('2026-09'))
+      .filter(p => p.dataDigitacao.startsWith(currentMonthYear))
       .reduce((acc, p) => acc + p.valorTaxa, 0);
-  }, [paidPropostas]);
+  }, [paidPropostas, currentMonthYear]);
 
   const totalComissoesPromotorasConfirmadas = useMemo(() => {
     return comissoesPromotoras
-      .filter(c => c.dataRecebimento.startsWith('2026-09') && c.status === 'confirmada')
+      .filter(c => c.dataRecebimento.startsWith(currentMonthYear) && c.status === 'confirmada')
       .reduce((acc, c) => acc + c.valorRecebido, 0);
-  }, [comissoesPromotoras]);
+  }, [comissoesPromotoras, currentMonthYear]);
 
   const faturamentoTotal = totalTaxas + totalComissoesPromotorasConfirmadas;
 
   const totalContasPagarMes = useMemo(() => {
     return contasPagar
-      .filter(c => c.vencimento.startsWith('2026-09'))
+      .filter(c => c.vencimento.startsWith(currentMonthYear))
       .reduce((acc, c) => acc + c.valor, 0);
-  }, [contasPagar]);
+  }, [contasPagar, currentMonthYear]);
 
   const totalComissoesEquipe = fechamentoVendedoras.reduce((acc, f) => acc + f.totalAPagar, 0);
   const totalSalariosFixos = sellers.reduce((acc, s) => acc + s.baseSalaryCost, 0) + 3500; // ADM + sellers
@@ -578,7 +604,7 @@ export const FinanceiroView: React.FC = () => {
               Demonstrativo de Resultado do Exercício (DRE Sintético)
             </h2>
             <p className="text-xs text-slate-500">
-              Lívia Cred Saúde • Competência Setembro/2026
+              Lívia Cred Saúde • Competência {competenceLabel}
             </p>
           </div>
 
