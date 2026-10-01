@@ -50,13 +50,15 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
 
   // Kanban Columns
   const kanbanColumns: { status: StatusProposta; title: string; color: string; badgeColor: string }[] = [
-    { status: 'Em análise', title: 'Em Análise', color: 'border-blue-400 bg-blue-50/30 dark:bg-blue-950/20', badgeColor: 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' },
-    { status: 'Pendente', title: 'Pendente', color: 'border-amber-400 bg-amber-50/30 dark:bg-amber-950/20', badgeColor: 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300' },
-    { status: 'Aprovada', title: 'Aprovada', color: 'border-purple-400 bg-purple-50/30 dark:bg-purple-950/20', badgeColor: 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' },
+    { status: 'Simuladas', title: 'Simuladas', color: 'border-slate-400 bg-slate-50/30 dark:bg-slate-950/20', badgeColor: 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300' },
+    { status: 'Em análise', title: 'Em análise', color: 'border-cyan-400 bg-cyan-50/30 dark:bg-cyan-950/20', badgeColor: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300' },
     { status: 'Paga', title: 'Paga', color: 'border-emerald-400 bg-emerald-50/30 dark:bg-emerald-950/20', badgeColor: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' },
     { status: 'Cancelada', title: 'Cancelada', color: 'border-rose-400 bg-rose-50/30 dark:bg-rose-950/20', badgeColor: 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300' },
-    { status: 'Reprovada', title: 'Reprovada', color: 'border-red-400 bg-red-50/30 dark:bg-red-950/20', badgeColor: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300' },
   ];
+
+  const handleMoveProposta = React.useCallback((id: string, newStatus: StatusProposta) => {
+    updateStatusProposta(id, newStatus, `Movida via arrastar e soltar (Kanban) para o funil ${newStatus}`);
+  }, [updateStatusProposta]);
 
   const isDigitador = currentUser?.role === 'digitador';
 
@@ -135,15 +137,6 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
               <span>Lista / Planilha</span>
             </button>
           </div>
-
-          {/* New Proposal CTA */}
-          <button
-            onClick={() => setIsNovaModalOpen(true)}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-xs transition-all active:scale-95"
-          >
-            <PlusCircle className="w-4 h-4 text-slate-950" />
-            <span>Nova Proposta</span>
-          </button>
         </div>
       </div>
 
@@ -203,6 +196,19 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
               <option key={b} value={b}>{b}</option>
             ))}
           </select>
+
+          {/* Status Filter */}
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            className="px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200"
+          >
+            <option value="todos">Todos os Status</option>
+            <option value="Simuladas">Simuladas</option>
+            <option value="Em análise">Em análise</option>
+            <option value="Paga">Paga</option>
+            <option value="Cancelada">Cancelada</option>
+          </select>
         </div>
 
         {/* Aggregate Stats */}
@@ -217,7 +223,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
 
       {/* VIEW 1: KANBAN BOARD */}
       {viewMode === 'kanban' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3 items-start overflow-x-auto pb-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 items-start overflow-x-auto pb-4">
           {kanbanColumns.map((col) => {
             const colPropostas = filteredPropostas.filter(p => p.status === col.status);
             const colVolume = colPropostas.reduce((acc, p) => acc + p.valorEmprestimo, 0);
@@ -225,6 +231,13 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
             return (
               <div
                 key={col.status}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  const propId = e.dataTransfer.getData('text/plain');
+                  if (propId) {
+                    handleMoveProposta(propId, col.status);
+                  }
+                }}
                 className={`flex flex-col rounded-2xl border-t-4 p-3 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 shadow-xs min-h-[450px] ${col.color}`}
               >
                 {/* Column Header */}
@@ -243,7 +256,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                 </div>
 
                 {/* Cards List */}
-                <div className="space-y-2 flex-1 overflow-y-auto max-h-[68vh] pr-0.5">
+                <div className="space-y-2 flex-1 overflow-y-auto overflow-x-hidden max-h-[68vh] pr-0.5 scrollbar-none">
                   {colPropostas.length === 0 ? (
                     <p className="text-[11px] text-slate-400 text-center py-8">
                       Nenhuma proposta
@@ -252,8 +265,12 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                     colPropostas.map((prop) => (
                       <div
                         key={prop.id}
+                        draggable="true"
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData('text/plain', prop.id);
+                        }}
                         onClick={() => setSelectedProposta(prop)}
-                        className="group p-3 rounded-xl bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 hover:border-teal-500 hover:shadow-xs transition-all cursor-pointer space-y-1.5"
+                        className="group p-3 rounded-xl bg-slate-50/80 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 hover:border-teal-500 hover:shadow-xs transition-all cursor-pointer space-y-1.5 active:cursor-grabbing"
                       >
                         <div className="flex items-start justify-between gap-1">
                           <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
@@ -344,9 +361,8 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                     <td className="py-2.5 px-3 text-center">
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                         prop.status === 'Paga' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
-                        prop.status === 'Aprovada' ? 'bg-purple-100 text-purple-800' :
-                        prop.status === 'Pendente' ? 'bg-amber-100 text-amber-800' :
-                        prop.status === 'Em análise' ? 'bg-blue-100 text-blue-800' :
+                        prop.status === 'Em análise' ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300' :
+                        prop.status === 'Simuladas' ? 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300' :
                         'bg-rose-100 text-rose-800'
                       }`}>
                         {prop.status}

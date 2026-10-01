@@ -20,7 +20,7 @@ import {
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
 import { Cliente, Proposta, StatusProposta, Operacao, Banco, Promotora, Convenio } from '../../types';
-import { formatCurrency, formatCPF, cleanDigits, formatDate } from '../../utils/formatters';
+import { formatCurrency, formatCPF, cleanDigits, formatDate, getLocalDateString } from '../../utils/formatters';
 
 export const VanguardIntegration: React.FC = () => {
   const { clientes, propostas, saveCliente, saveProposta } = useCRM();
@@ -47,9 +47,9 @@ export const VanguardIntegration: React.FC = () => {
 
   // Funil / Stage mapping configuration
   const [stageMapping, setStageMapping] = useState<Record<string, StatusProposta>>({
-    'Triagem / Novo Lead': 'Em análise',
-    'Formalização Pendente / Link': 'Pendente',
-    'Em Análise CIP / Banco': 'Aprovada',
+    'Triagem / Novo Lead': 'Simuladas',
+    'Formalização Pendente / Link': 'Em análise',
+    'Em Análise CIP / Banco': 'Em análise',
     'Pago / Comissão Liberada': 'Paga',
     'Recusado / Cancelado': 'Cancelada'
   });
@@ -60,7 +60,7 @@ export const VanguardIntegration: React.FC = () => {
     'vanguard_taciana': 'Taciana Silva',
     'vanguard_lucelia': 'Lucélia Ramos',
     'vanguard_pamella': 'Pamella',
-    'vanguard_balcao': 'Loja Igarassu (Balcão)'
+    'vanguard_balcao': 'Loja Igarassu'
   });
 
   // Test Connection Action
@@ -141,7 +141,7 @@ export const VanguardIntegration: React.FC = () => {
           convenioPrincipal: (convenio as Convenio) || 'INSS',
           observacoes: `Importado da esteira Coban Vanguard (${etapaVanguard}).`,
           vendedoraResponsavel: vendedoraMapped,
-          dataCriacao: new Date().toISOString().split('T')[0]
+          dataCriacao: getLocalDateString()
         };
 
         saveCliente(newClient);
@@ -151,7 +151,7 @@ export const VanguardIntegration: React.FC = () => {
         const valorEmprestimo = parseFloat(valorEmpStr) || 0;
         const valorTaxa = parseFloat(valorTaxaStr) || 0;
         const percentualTaxa = valorEmprestimo > 0 ? Number(((valorTaxa / valorEmprestimo) * 100).toFixed(1)) : 0;
-        const nowIso = new Date().toISOString().split('T')[0];
+        const nowIso = getLocalDateString();
 
         const newProp: Proposta = {
           id: `prop-vg-${contrato || Date.now()}-${i}`,
@@ -225,7 +225,7 @@ export const VanguardIntegration: React.FC = () => {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `vanguard_export_liviacred_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `vanguard_export_liviacred_${getLocalDateString()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -519,7 +519,7 @@ export const VanguardIntegration: React.FC = () => {
                       <option value="Hellen Vasconcelos">Hellen Vasconcelos</option>
                       <option value="Taciana Silva">Taciana Silva</option>
                       <option value="Lucélia Ramos">Lucélia Ramos</option>
-                      <option value="Loja Igarassu (Balcão)">Loja Igarassu (Balcão)</option>
+                      <option value="Loja Igarassu">Loja Igarassu</option>
                       <option value="Pamella">Pamella</option>
                     </select>
                   </div>

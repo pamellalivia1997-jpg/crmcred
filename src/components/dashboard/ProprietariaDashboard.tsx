@@ -39,7 +39,7 @@ import {
 import { useCRM, PeriodoFiltro } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
 import { Proposta, Operacao, Promotora } from '../../types';
-import { formatCurrency, formatPercent, formatDate, normalizeSellerName } from '../../utils/formatters';
+import { formatCurrency, formatPercent, formatDate, normalizeSellerName, getMonthYearLabel } from '../../utils/formatters';
 import { DetalhePropostaModal } from '../propostas/DetalhePropostaModal';
 
 interface Props {
@@ -61,6 +61,8 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     alertas,
     periodo,
     setPeriodo,
+    filtroMesAno,
+    setFiltroMesAno,
     anoSelecionado,
     setAnoSelecionado,
     dataInicioPersonalizada,
@@ -187,7 +189,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
         );
       }
       if (periodo === 'mes') {
-        return d.startsWith(baseDateInfo.currentMonthStr);
+        return d.startsWith(filtroMesAno || baseDateInfo.currentMonthStr);
       }
       if (periodo === 'mes_anterior') {
         return d.startsWith(baseDateInfo.prevMonthStr);
@@ -317,48 +319,79 @@ export const ProprietariaDashboard: React.FC<Props> = ({
 
   const deltaVendas = prevPeriodVendas > 0 ? ((totalVendas - prevPeriodVendas) / prevPeriodVendas) * 100 : 0;
 
+  // Determine active competence month for goals lookup based on active period filter
+  const activeCompetenceMonth = useMemo(() => {
+    if (periodo === 'mes_anterior') {
+      return baseDateInfo.prevMonthStr;
+    }
+    if (periodo === 'mes') {
+      return filtroMesAno || baseDateInfo.currentMonthStr;
+    }
+    return baseDateInfo.currentMonthStr;
+  }, [periodo, baseDateInfo, filtroMesAno]);
+
+  // Map of normalized name/salesName to User for easy lookup
+  const userMap = useMemo(() => {
+    const map = new Map<string, any>();
+    allUsers.forEach(u => {
+      const normName = normalizeSellerName(u.name);
+      const normSalesName = u.salesName ? normalizeSellerName(u.salesName) : null;
+      map.set(normName, u);
+      if (normSalesName) map.set(normSalesName, u);
+    });
+    return map;
+  }, [allUsers]);
+
   // Active saleswomen list (only role === 'vendedora', active status, and not inactivated in month)
   const activeSellers = useMemo(() => {
     return allUsers.filter(u => {
       if (u.role !== 'vendedora') return false;
       if (u.status !== 'ativo') return false;
-      const foundMeta = metas.find(m => (m.vendedoraId === u.id || normalizeSellerName(m.vendedoraNome) === normalizeSellerName(u.name)) && m.mesAno === baseDateInfo.currentMonthStr);
+      
+      // Check if specifically deactivated for this month in metas
+      const foundMeta = metas.find(m => 
+        (m.vendedoraId === u.id || 
+         normalizeSellerName(m.vendedoraNome) === normalizeSellerName(u.name) ||
+         (u.salesName && normalizeSellerName(m.vendedoraNome) === normalizeSellerName(u.salesName))) && 
+        m.mesAno === activeCompetenceMonth
+      );
+      
       if (foundMeta && foundMeta.isAtivoNoMes === false) return false;
       return true;
     });
-  }, [allUsers, metas, baseDateInfo]);
+  }, [allUsers, metas, activeCompetenceMonth]);
 
-  // Store meta sum calculation based on individual saleswomen targets (ONLY users with role === 'vendedora')
+  // Store meta sum calculation based on individual saleswomen targets
   const storeMetaMonthly = useMemo(() => {
-    const reps = activeSellers.map(u => normalizeSellerName(u.name)).filter(n => n && n !== 'Outros');
+    // 1. Filter metas for the active competence month
+    const savedMetasForMonth = metas.filter(m => m.mesAno === activeCompetenceMonth);
     
-    let sum = 0;
-    reps.forEach(nome => {
-      const foundMeta = metas.find(m => normalizeSellerName(m.vendedoraNome) === normalizeSellerName(nome) && m.mesAno === baseDateInfo.currentMonthStr);
-      if (foundMeta && foundMeta.metaVenda > 0) {
-        sum += foundMeta.metaVenda;
-      } else {
-        const foundUser = allUsers.find(u => normalizeSellerName(u.name) === normalizeSellerName(nome));
-        if (foundUser && foundUser.monthlySalesGoal && foundUser.monthlySalesGoal > 0) {
-          sum += foundUser.monthlySalesGoal;
-        } else {
-          // Fallbacks for known sellers, Balcão is 0
-          if (normalizeSellerName(nome).includes('IGARASSU') || normalizeSellerName(nome).includes('LOJA')) {
-            sum += 0;
-          } else {
-            const defaults: Record<string, number> = {
-              'Bianca': 85000,
-              'Hellen Vasconcelos': 95000,
-              'Taciana Silva': 80000,
-              'Lucélia Ramos': 75000
-            };
-            sum += defaults[nome] || 80000;
-          }
-        }
+    // 2. Check if there's a master "loja" meta defined (priority)
+    const masterLojaMeta = savedMetasForMonth.find(m => m.vendedoraId === 'loja');
+    if (masterLojaMeta && masterLojaMeta.metaVenda > 0) {
+      return masterLojaMeta.metaVenda;
+    }
+
+    // 3. Otherwise, sum individual metas saved by the user
+    // CRITICAL: Only sum metas for sellers that are currently active in allUsers to avoid "ghost" values from old names/IDs
+    const activeSellerIds = new Set(allUsers.filter(u => u.role === 'vendedora').map(u => u.id));
+    const uniqueMetasMap = new Map<string, number>();
+    
+    savedMetasForMonth.forEach(m => {
+      if (m.vendedoraId !== 'loja' && m.isAtivoNoMes !== false && activeSellerIds.has(m.vendedoraId)) {
+        uniqueMetasMap.set(m.vendedoraId, m.metaVenda || 0);
       }
     });
-    return sum > 0 ? sum : 335000;
-  }, [activeSellers, metas, allUsers, baseDateInfo]);
+
+    const sum = Array.from(uniqueMetasMap.values()).reduce((acc, val) => acc + val, 0);
+    
+    if (sum > 0) {
+      return sum;
+    }
+
+    // 4. Final fallback only if absolutely NO metas are defined in the database
+    return 320000;
+  }, [metas, activeCompetenceMonth, allUsers]);
 
   const metaLoja = useMemo(() => {
     let periodMultiplier = 1;
@@ -384,7 +417,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     const sellersMap = new Map<string, { nome: string; vendas: number; taxa: number; count: number; meta: number }>();
 
     // Dynamic list of active registered vendedoras ONLY
-    const reps = activeSellers.map(u => normalizeSellerName(u.name)).filter(n => n && n !== 'Outros');
+    const reps = activeSellers.map(u => u.name);
     
     // Period multiplier for scaling
     let periodMultiplier = 1;
@@ -400,33 +433,27 @@ export const ProprietariaDashboard: React.FC<Props> = ({
       periodMultiplier = diffDays / 30;
     }
 
-    const currentMonth = baseDateInfo.currentMonthStr;
-
-    const getUserBaseMonthlyGoal = (name: string): number => {
-      const foundMeta = metas.find(m => normalizeSellerName(m.vendedoraNome) === normalizeSellerName(name) && m.mesAno === currentMonth);
-      if (foundMeta && foundMeta.metaVenda > 0) return foundMeta.metaVenda;
+    const getSellerPeriodMeta = (user: any): number => {
+      const foundMeta = metas.find(m => 
+        (m.vendedoraId === user.id || normalizeSellerName(m.vendedoraNome) === normalizeSellerName(user.name)) && 
+        m.mesAno === activeCompetenceMonth
+      );
       
-      const foundUser = allUsers.find(u => normalizeSellerName(u.name) === normalizeSellerName(name));
-      if (foundUser && foundUser.monthlySalesGoal && foundUser.monthlySalesGoal > 0) return foundUser.monthlySalesGoal;
-      
-      if (normalizeSellerName(name).includes('IGARASSU') || normalizeSellerName(name).includes('LOJA')) return 0;
-      
-      const defaults: Record<string, number> = {
-        'Bianca': 85000,
-        'Hellen Vasconcelos': 95000,
-        'Taciana Silva': 80000,
-        'Lucélia Ramos': 75000
-      };
-      return defaults[name] || 80000;
+      // Sovereign rule: if found in metas menu, use it. Otherwise, meta is 0.
+      return (foundMeta && foundMeta.metaVenda > 0) 
+        ? foundMeta.metaVenda * periodMultiplier
+        : 0;
     };
 
-    reps.forEach(nome => {
-      const baseMonthlyGoal = getUserBaseMonthlyGoal(nome);
-      const scaledMeta = baseMonthlyGoal * periodMultiplier;
-      sellersMap.set(nome, { nome, vendas: 0, taxa: 0, count: 0, meta: scaledMeta });
+    activeSellers.forEach(u => {
+      sellersMap.set(u.name, { 
+        nome: u.name, 
+        vendas: 0, 
+        taxa: 0, 
+        count: 0, 
+        meta: getSellerPeriodMeta(u) 
+      });
     });
-
-    const recognizedRepsSet = new Set(reps);
 
     let outrosVendas = 0;
     let outrosTaxa = 0;
@@ -434,20 +461,22 @@ export const ProprietariaDashboard: React.FC<Props> = ({
 
     paidPropostas.forEach(p => {
       const normName = normalizeSellerName(p.vendedora);
-      if (!normName || normName === 'Outros' || !recognizedRepsSet.has(normName)) {
-        // Collect into generic "Outros" for non-vendedoras/unassigned
-        outrosVendas += p.valorEmprestimo;
-        outrosTaxa += p.valorTaxa;
-        outrosCount += 1;
-        return;
+      const user = userMap.get(normName);
+      
+      if (user && activeSellers.some(au => au.id === user.id)) {
+        const rep = sellersMap.get(user.name);
+        if (rep) {
+          rep.vendas += p.valorEmprestimo;
+          rep.taxa += p.valorTaxa;
+          rep.count += 1;
+          return;
+        }
       }
 
-      const rep = sellersMap.get(normName);
-      if (rep) {
-        rep.vendas += p.valorEmprestimo;
-        rep.taxa += p.valorTaxa;
-        rep.count += 1;
-      }
+      // Collect into generic "Outros" for non-vendedoras/unassigned
+      outrosVendas += p.valorEmprestimo;
+      outrosTaxa += p.valorTaxa;
+      outrosCount += 1;
     });
 
     if (outrosCount > 0) {
@@ -461,7 +490,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     }
 
     return Array.from(sellersMap.values()).sort((a, b) => b.vendas - a.vendas);
-  }, [paidPropostas, activeSellers, metas, allUsers, periodo, baseDateInfo, dataInicioPersonalizada, dataFimPersonalizada]);
+  }, [paidPropostas, activeSellers, metas, allUsers, periodo, baseDateInfo, dataInicioPersonalizada, dataFimPersonalizada, userMap]);
 
   // Operations breakdown & profitability
   const operationsChartData = useMemo(() => {
@@ -495,8 +524,8 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     return Array.from(map.values()).sort((a, b) => b.vendas - a.vendas);
   }, [paidPropostas]);
 
-  // 12-Month evolution data for AreaChart
-  const evolution12Months = useMemo(() => {
+  // 12-Month evolution data for Chart 1: Vendas e Taxas
+  const evolutionVendasTaxas = useMemo(() => {
     const months = [
       { key: '2025-10', label: 'Out/25' },
       { key: '2025-11', label: 'Nov/25' },
@@ -516,19 +545,61 @@ export const ProprietariaDashboard: React.FC<Props> = ({
       const mProps = propostas.filter(p => p.dataDigitacao.startsWith(m.key) && p.status === 'Paga');
       const vendas = mProps.reduce((acc, p) => acc + p.valorEmprestimo, 0);
       const taxas = mProps.reduce((acc, p) => acc + p.valorTaxa, 0);
-      const comissoes = Math.round(vendas * 0.045);
-      const faturamento = taxas + comissoes;
-      const despesas = 19500 + (m.key === '2025-12' ? 5000 : 0); // Dec 13th salary
-      const lucro = faturamento - despesas;
 
       return {
         mes: m.label,
         vendas,
-        faturamento,
-        lucro
+        taxas
       };
     });
   }, [propostas]);
+
+  // 12-Month evolution data for Chart 2: Receita, Despesa e Lucro Líquido
+  const evolutionFinanceiraReceitaDespesa = useMemo(() => {
+    const months = [
+      { key: '2025-10', label: 'Out/25' },
+      { key: '2025-11', label: 'Nov/25' },
+      { key: '2025-12', label: 'Dez/25' },
+      { key: '2026-01', label: 'Jan/26' },
+      { key: '2026-02', label: 'Fev/26' },
+      { key: '2026-03', label: 'Mar/26' },
+      { key: '2026-04', label: 'Abr/26' },
+      { key: '2026-05', label: 'Mai/26' },
+      { key: '2026-06', label: 'Jun/26' },
+      { key: '2026-07', label: 'Jul/26' },
+      { key: '2026-08', label: 'Ago/26' },
+      { key: '2026-09', label: 'Set/26' },
+    ];
+
+    return months.map(m => {
+      const mProps = propostas.filter(p => p.dataDigitacao.startsWith(m.key) && p.status === 'Paga');
+      const vendas = mProps.reduce((acc, p) => acc + p.valorEmprestimo, 0);
+      const taxas = mProps.reduce((acc, p) => acc + p.valorTaxa, 0);
+
+      const paidIds = new Set(mProps.map(p => p.id));
+      const comissoesPromotorasNoMes = comissoesPromotoras
+        .filter(c => paidIds.has(c.propostaId) && c.status === 'confirmada')
+        .reduce((acc, c) => acc + c.valorRecebido, 0);
+
+      const comissaoPromotoraEst = comissoesPromotorasNoMes > 0 ? comissoesPromotorasNoMes : Math.round(vendas * 0.045);
+      const receita = taxas + comissaoPromotoraEst;
+
+      const billsTotal = contasPagar
+        .filter(c => c.vencimento.startsWith(m.key))
+        .reduce((acc, c) => acc + c.valor, 0);
+      const teamSalaries = 13500 + (m.key === '2025-12' ? 5000 : 0);
+      const despesas = billsTotal > 0 ? (billsTotal + teamSalaries) : (19500 + (m.key === '2025-12' ? 5000 : 0));
+
+      const lucro = receita - despesas;
+
+      return {
+        mes: m.label,
+        receita,
+        despesas,
+        lucro
+      };
+    });
+  }, [propostas, comissoesPromotoras, contasPagar]);
 
   // Employee profitability calculation (Taxa + Comissão - Custo)
   const employeeProfitability = useMemo(() => {
@@ -554,7 +625,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
 
   // Cancellations & Rejections
   const canceladasOuReprovadas = useMemo(() => {
-    return filteredPropostas.filter(p => p.status === 'Cancelada' || p.status === 'Reprovada');
+    return filteredPropostas.filter(p => p.status === 'Cancelada');
   }, [filteredPropostas]);
 
   const totalCancelado = canceladasOuReprovadas.reduce((acc, p) => acc + p.valorEmprestimo, 0);
@@ -570,19 +641,33 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     const counts: Record<string, { propostas: number; volume: number; simulacoes: number }> = {};
 
     filteredPropostas.forEach(p => {
-      const dig = p.digitador || p.vendedora || 'Não informado';
+      const rawDig = p.digitador || p.vendedora || 'Não informado';
+      const normDig = normalizeSellerName(rawDig);
+      const user = userMap.get(normDig);
+      const dig = user ? user.name : rawDig;
+
       if (!counts[dig]) {
         counts[dig] = { propostas: 0, volume: 0, simulacoes: 0 };
       }
-      counts[dig].propostas += 1;
-      counts[dig].volume += p.valorEmprestimo;
-      if (p.isSimulacao || dig === 'Ana Paula') {
+      
+      // 1. Simulações: Conta se é simulação ou originou de simulação
+      const isSim = p.isSimulacao === true || p.status === 'Simuladas' || p.origemSimulacao === true;
+      if (isSim) {
         counts[dig].simulacoes += 1;
+      }
+
+      // 2. Propostas Digitadas / Volume: SÓ conta se NÃO for mais simulação (ou seja, formalizada)
+      const isPropostaOficial = p.status !== 'Simuladas' && p.isSimulacao !== true;
+      if (isPropostaOficial) {
+        counts[dig].propostas += 1;
+        counts[dig].volume += (p.valorEmprestimo || 0);
       }
     });
 
-    const totalDigitadas = filteredPropostas.length;
-    const totalSimulacoesLoja = filteredPropostas.filter(p => p.isSimulacao || p.digitador === 'Ana Paula').length;
+    const totalDigitadas = filteredPropostas.filter(p => p.status !== 'Simuladas' && p.isSimulacao !== true).length;
+    const totalSimulacoesLoja = filteredPropostas.filter(p => 
+      p.isSimulacao === true || p.status === 'Simuladas' || p.origemSimulacao === true
+    ).length;
 
     const list = Object.entries(counts).map(([nome, data]) => {
       const isDigitadoraDedicada = (nome || '').toLowerCase().includes('ana') || 
@@ -597,7 +682,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     }).sort((a, b) => b.propostas - a.propostas);
 
     return { list, totalDigitadas, totalSimulacoesLoja };
-  }, [filteredPropostas, allUsers]);
+  }, [filteredPropostas, allUsers, userMap]);
 
   return (
     <div className="space-y-5 pb-20 md:pb-8">
@@ -851,14 +936,19 @@ export const ProprietariaDashboard: React.FC<Props> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
             <div>
               <span className="text-[11px] font-bold tracking-wider uppercase text-amber-300">
-                Meta Global da Loja • Competência Setembro/2026
+                Meta Global da Loja • Competência {getMonthYearLabel(activeCompetenceMonth)}
               </span>
-              <div className="flex items-baseline gap-2 mt-0.5">
-                <span className="text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums">
-                  {formatCurrency(totalVendas)}
-                </span>
-                <span className="text-xs text-teal-100">
-                  de {formatCurrency(metaLoja)}
+              <div className="flex flex-col mt-0.5">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl sm:text-3xl font-extrabold tracking-tight tabular-nums">
+                    {formatCurrency(totalVendas)}
+                  </span>
+                  <span className="text-xs text-teal-100">
+                    de {formatCurrency(metaLoja)}
+                  </span>
+                </div>
+                <span className="text-[10px] sm:text-xs text-amber-300 font-bold opacity-90">
+                  Taxa arrecadada: {formatCurrency(totalTaxas)}
                 </span>
               </div>
             </div>
@@ -1030,8 +1120,14 @@ export const ProprietariaDashboard: React.FC<Props> = ({
 
         <div className="space-y-3">
           {rankingVendedoras.map((vendedora, index) => {
-            const metaVenda = vendedora.meta > 0 ? vendedora.meta : 80000;
-            const metaTaxa = metaVenda * 0.20; // 20% of sales goal as requested
+            const metaVenda = vendedora.meta > 0 ? vendedora.meta : 0;
+            const userObj = allUsers.find(u => normalizeSellerName(u.name) === normalizeSellerName(vendedora.nome));
+            const foundMeta = metas.find(m => 
+              (m.vendedoraId === userObj?.id || normalizeSellerName(m.vendedoraNome) === normalizeSellerName(vendedora.nome)) && 
+              m.mesAno === activeCompetenceMonth
+            );
+            const metaPercentualTaxa = foundMeta?.metaPercentualTaxa ?? userObj?.monthlyTaxPercentGoal ?? 20;
+            const metaTaxa = metaVenda * (metaPercentualTaxa / 100);
 
             const percentualVenda = metaVenda > 0 ? (vendedora.vendas / metaVenda) * 100 : 0;
             const percentualTaxaGoal = metaTaxa > 0 ? (vendedora.taxa / metaTaxa) * 100 : 0;
@@ -1103,14 +1199,18 @@ export const ProprietariaDashboard: React.FC<Props> = ({
                       </>
                     ) : (
                       <>
-                        <p className="text-slate-500 font-semibold flex items-center gap-1.5 sm:justify-end">
-                          <span>Pagos:</span>
-                          <span className="font-black text-[#0F5C63] dark:text-[#28B0B7]">{formatCurrency(vendedora.vendas)}</span>
-                        </p>
-                        <p className="text-slate-500 font-semibold mt-1 flex items-center gap-1.5 sm:justify-end">
-                          <span>Taxa:</span>
-                          <span className="font-black text-amber-600 dark:text-amber-400">{formatCurrency(vendedora.taxa)}</span>
-                        </p>
+                        <div className="flex flex-col items-start sm:items-end gap-0.5">
+                          <p className="text-slate-500 font-semibold flex items-center gap-1.5">
+                            <span>Vendas:</span>
+                            <span className="font-black text-[#0F5C63] dark:text-[#28B0B7]">{formatCurrency(vendedora.vendas)}</span>
+                            <span className="text-[10px] text-slate-400 font-normal ml-0.5">/ {formatCurrency(metaVenda)}</span>
+                          </p>
+                          <p className="text-slate-500 font-semibold flex items-center gap-1.5">
+                            <span>Taxa:</span>
+                            <span className="font-black text-amber-600 dark:text-amber-400">{formatCurrency(vendedora.taxa)}</span>
+                            <span className="text-[10px] text-slate-400 font-normal ml-0.5">/ {formatCurrency(metaTaxa)}</span>
+                          </p>
+                        </div>
                       </>
                     )}
                   </div>
@@ -1262,54 +1362,110 @@ export const ProprietariaDashboard: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* 12-Month Financial Evolution Line Chart */}
-      <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-4">
-          <div>
-            <h2 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white">
-              Evolução Histórica (Últimos 12 Meses)
-            </h2>
-            <p className="text-xs text-slate-500">
-              Trajetória consolidada de Vendas Totais, Faturamento e Lucro Líquido
-            </p>
+      {/* 12-Month Financial Evolution Charts - Stacked Rectangular Layout */}
+      <div className="flex flex-col gap-5">
+        {/* Chart 1: Vendas e Taxas */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-4">
+            <div>
+              <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white">
+                Evolução Histórica de Vendas (Últimos 12 Meses)
+              </h2>
+              <p className="text-[11px] text-slate-500">
+                Volume consolidado de Vendas e Taxas arrecadadas
+              </p>
+            </div>
+            <div className="flex items-center gap-3 text-xs font-semibold">
+              <span className="flex items-center gap-1.5 text-teal-600">
+                <span className="w-2.5 h-2.5 rounded-full bg-teal-600" /> Vendas
+              </span>
+              <span className="flex items-center gap-1.5 text-amber-500">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Taxas
+              </span>
+            </div>
           </div>
-          <div className="flex items-center gap-3 text-xs font-semibold">
-            <span className="flex items-center gap-1.5 text-teal-600">
-              <span className="w-2.5 h-2.5 rounded-full bg-teal-600" /> Vendas
-            </span>
-            <span className="flex items-center gap-1.5 text-amber-500">
-              <span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Faturamento
-            </span>
-            <span className="flex items-center gap-1.5 text-emerald-500">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Lucro
-            </span>
+
+          <div className="h-96 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={evolutionVendasTaxas} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="vendasGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stop-color="#0F5C63" stopOpacity={0.4} />
+                    <stop offset="95%" stop-color="#0F5C63" stopOpacity={0.0} />
+                  </linearGradient>
+                  <linearGradient id="taxasGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stop-color="#F5B700" stopOpacity={0.4} />
+                    <stop offset="95%" stop-color="#F5B700" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148, 163, 184, 0.2)" />
+                <XAxis dataKey="mes" tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                <YAxis tick={{ fontSize: 10 }} tickFormatter={(val) => `R$${(val / 1000).toFixed(0)}k`} stroke="#94a3b8" />
+                <Tooltip
+                  formatter={(value: any) => [formatCurrency(Number(value)), '']}
+                  contentStyle={{ borderRadius: '12px', fontSize: '12px' }}
+                />
+                <Area type="monotone" dataKey="vendas" name="Vendas" stroke="#0F5C63" strokeWidth={2.5} fillOpacity={1} fill="url(#vendasGrad)" />
+                <Area type="monotone" dataKey="taxas" name="Taxas" stroke="#F5B700" strokeWidth={2} fillOpacity={1} fill="url(#taxasGrad)" />
+              </AreaChart>
+            </ResponsiveContainer>
           </div>
         </div>
 
-        <div className="h-64 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={evolution12Months} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-              <defs>
-                <linearGradient id="vendasGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stop-color="#0F5C63" stopOpacity={0.4} />
-                  <stop offset="95%" stop-color="#0F5C63" stopOpacity={0.0} />
-                </linearGradient>
-                <linearGradient id="fatGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stop-color="#F5B700" stopOpacity={0.4} />
-                  <stop offset="95%" stop-color="#F5B700" stopOpacity={0.0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148, 163, 184, 0.2)" />
-              <XAxis dataKey="mes" tick={{ fontSize: 11 }} stroke="#94a3b8" />
-              <YAxis tick={{ fontSize: 10 }} tickFormatter={(val) => `R$${(val / 1000).toFixed(0)}k`} stroke="#94a3b8" />
-              <Tooltip
-                formatter={(value: any) => [formatCurrency(Number(value)), '']}
-                contentStyle={{ borderRadius: '12px', fontSize: '12px' }}
-              />
-              <Area type="monotone" dataKey="vendas" name="Vendas" stroke="#0F5C63" strokeWidth={2.5} fillOpacity={1} fill="url(#vendasGrad)" />
-              <Area type="monotone" dataKey="faturamento" name="Faturamento" stroke="#F5B700" strokeWidth={2} fillOpacity={1} fill="url(#fatGrad)" />
-            </AreaChart>
-          </ResponsiveContainer>
+        {/* Chart 2: Receita, Despesa e Lucro Líquido */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-4">
+            <div>
+              <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white">
+                Evolução de Receitas, Despesas e Lucro
+              </h2>
+              <p className="text-[11px] text-slate-500">
+                Comparativo de Receita (Taxas + Comissões) x Despesas e Resultado Líquido
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2.5 text-[10px] sm:text-xs font-semibold">
+              <span className="flex items-center gap-1.5 text-blue-600">
+                <span className="w-2.5 h-2.5 rounded-full bg-blue-600" /> Receita
+              </span>
+              <span className="flex items-center gap-1.5 text-rose-500">
+                <span className="w-2.5 h-2.5 rounded-full bg-rose-500" /> Despesa
+              </span>
+              <span className="flex items-center gap-1.5 text-emerald-500">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Lucro Líquido
+              </span>
+            </div>
+          </div>
+
+          <div className="h-96 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={evolutionFinanceiraReceitaDespesa} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="receitaGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stop-color="#3b82f6" stopOpacity={0.4} />
+                    <stop offset="95%" stop-color="#3b82f6" stopOpacity={0.0} />
+                  </linearGradient>
+                  <linearGradient id="despesasGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stop-color="#f43f5e" stopOpacity={0.4} />
+                    <stop offset="95%" stop-color="#f43f5e" stopOpacity={0.0} />
+                  </linearGradient>
+                  <linearGradient id="lucroGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stop-color="#10b981" stopOpacity={0.4} />
+                    <stop offset="95%" stop-color="#10b981" stopOpacity={0.0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148, 163, 184, 0.2)" />
+                <XAxis dataKey="mes" tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                <YAxis tick={{ fontSize: 10 }} tickFormatter={(val) => `R$${(val / 1000).toFixed(0)}k`} stroke="#94a3b8" />
+                <Tooltip
+                  formatter={(value: any) => [formatCurrency(Number(value)), '']}
+                  contentStyle={{ borderRadius: '12px', fontSize: '12px' }}
+                />
+                <Area type="monotone" dataKey="receita" name="Receita" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#receitaGrad)" />
+                <Area type="monotone" dataKey="despesas" name="Despesa" stroke="#f43f5e" strokeWidth={1.5} fillOpacity={1} fill="url(#despesasGrad)" />
+                <Area type="monotone" dataKey="lucro" name="Lucro Líquido" stroke="#10b981" strokeWidth={2.5} fillOpacity={1} fill="url(#lucroGrad)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       </div>
 
@@ -1434,46 +1590,8 @@ export const ProprietariaDashboard: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Bottom Row: Cancelamentos/Reprovações + Oportunidades de Portabilidade Teaser */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Cancelamentos */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <XCircle className="w-5 h-5 text-rose-500" />
-              <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-                Cancelamentos e Reprovações
-              </h3>
-            </div>
-            <span className="text-xs font-bold text-rose-600">
-              {canceladasOuReprovadas.length} contratos ({formatCurrency(totalCancelado)})
-            </span>
-          </div>
-
-          <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-            {canceladasOuReprovadas.length === 0 ? (
-              <p className="text-xs text-slate-400 py-4 text-center">Nenhum contrato cancelado no período selecionado.</p>
-            ) : (
-              canceladasOuReprovadas.map((c) => (
-                <div key={c.id} className="p-2.5 rounded-xl bg-rose-50/50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/40 text-xs">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-800 dark:text-white">{c.nomeCliente}</span>
-                    <span className="text-rose-600 font-bold tabular-nums">{formatCurrency(c.valorEmprestimo)}</span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 mt-0.5">
-                    {c.banco} · {c.operacao} · Vendedora: {c.vendedora}
-                  </p>
-                  {c.motivoCancelamento && (
-                    <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-1 italic">
-                      Motivo: {c.motivoCancelamento}
-                    </p>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
+      {/* Bottom Row: Oportunidades de Portabilidade */}
+      <div className="grid grid-cols-1 gap-4">
         {/* Oportunidades de Portabilidade Teaser */}
         <div className="bg-gradient-to-br from-teal-50 to-emerald-50 dark:from-slate-900 dark:to-slate-800 rounded-3xl p-5 border border-teal-200/80 dark:border-slate-700 shadow-xs flex flex-col justify-between">
           <div>
@@ -1575,8 +1693,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
                       <td className="py-2.5 px-2 text-center">
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                           prop.status === 'Paga' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
-                          prop.status === 'Aprovada' ? 'bg-blue-100 text-blue-800' :
-                          prop.status === 'Pendente' ? 'bg-amber-100 text-amber-800' :
+                          prop.status === 'Cancelada' ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300' :
                           'bg-slate-100 text-slate-700'
                         }`}>
                           {prop.status}
@@ -1665,8 +1782,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
                         <td className="py-2.5 px-2 text-center">
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                             prop.status === 'Paga' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
-                            prop.status === 'Aprovada' ? 'bg-blue-100 text-blue-800' :
-                            prop.status === 'Pendente' ? 'bg-amber-100 text-amber-800' :
+                            prop.status === 'Cancelada' ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300' :
                             'bg-slate-100 text-slate-700'
                           }`}>
                             {prop.status}

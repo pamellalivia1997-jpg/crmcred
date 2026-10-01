@@ -17,7 +17,8 @@ import {
   Phone,
   UserCog,
   Filter,
-  Check
+  Check,
+  Info
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { User, UserRole } from '../../types';
@@ -34,6 +35,7 @@ export const UsuariosView: React.FC = () => {
   const [formShowPassword, setFormShowPassword] = useState(false);
   const [formRole, setFormRole] = useState<UserRole>('vendedora');
   const [formPhone, setFormPhone] = useState('');
+  const [formSalesName, setFormSalesName] = useState('');
   const [formStatus, setFormStatus] = useState<'ativo' | 'inativo'>('ativo');
 
   const [showPasswordMap, setShowPasswordMap] = useState<Record<string, boolean>>({});
@@ -51,6 +53,7 @@ export const UsuariosView: React.FC = () => {
     setFormShowPassword(false);
     setFormRole('vendedora');
     setFormPhone('');
+    setFormSalesName('');
     setFormStatus('ativo');
     setIsUserModalOpen(true);
   };
@@ -63,6 +66,7 @@ export const UsuariosView: React.FC = () => {
     setFormShowPassword(false);
     setFormRole(user.role);
     setFormPhone(user.phone || '');
+    setFormSalesName(user.salesName || '');
     setFormStatus(user.status);
     setIsUserModalOpen(true);
   };
@@ -81,6 +85,7 @@ export const UsuariosView: React.FC = () => {
       password: finalPassword,
       role: formRole,
       phone: formPhone.trim(),
+      salesName: formSalesName.trim(),
       status: formStatus
     };
 
@@ -441,6 +446,22 @@ export const UsuariosView: React.FC = () => {
                   className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 font-medium"
                 />
               </div>
+
+              {formRole === 'vendedora' && (
+                <div>
+                  <label className="block font-bold text-teal-700 dark:text-teal-400 mb-1 flex items-center gap-1.5">
+                    Nome de Venda (Como aparece nos formulários/planilhas)
+                    <Info className="w-3 h-3" />
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Hellen"
+                    value={formSalesName}
+                    onChange={(e) => setFormSalesName(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl bg-teal-50/30 dark:bg-teal-950/20 border border-teal-200 dark:border-teal-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 font-bold"
+                  />
+                </div>
+              )}
 
               <div>
                 <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">

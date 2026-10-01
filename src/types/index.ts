@@ -9,6 +9,7 @@ export interface User {
   avatarUrl?: string;
   phone: string;
   status: 'ativo' | 'inativo';
+  salesName?: string; // Nome que aparece nos formulários e planilhas (Ex: "Hellen")
   monthlySalesGoal?: number; // Ex: 70000
   monthlyTaxPercentGoal?: number; // Ex: 10.0 (%)
   baseSalaryCost?: number; // Custo mensal da funcionária (salário + encargos)
@@ -61,12 +62,10 @@ export type Promotora =
   | 'Outra';
 
 export type StatusProposta = 
+  | 'Simuladas'
   | 'Em análise'
-  | 'Pendente'
-  | 'Aprovada'
   | 'Paga'
-  | 'Cancelada'
-  | 'Reprovada';
+  | 'Cancelada';
 
 export interface Cliente {
   id: string; // or CPF

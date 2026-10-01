@@ -17,7 +17,7 @@ import {
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
 import { Proposta, AlertaOportunidade, Cliente } from '../../types';
-import { formatCurrency, formatCPF, formatDate, cleanPersonName } from '../../utils/formatters';
+import { formatCurrency, formatCPF, formatDate, cleanPersonName, getLocalDateString } from '../../utils/formatters';
 import { CPFValidationBadge } from '../common/CPFValidationBadge';
 
 interface Props {
@@ -62,7 +62,7 @@ export const DigitadorHome: React.FC<Props> = ({
 
   // Proposals approved or paid from digitador
   const aprovadasPagas = useMemo(() => {
-    return minhasPropostas.filter(p => p.status === 'Aprovada' || p.status === 'Paga');
+    return minhasPropostas.filter(p => p.status === 'Paga');
   }, [minhasPropostas]);
 
   // Filtered proposals list for display
@@ -93,7 +93,7 @@ export const DigitadorHome: React.FC<Props> = ({
       convenioPrincipal: 'INSS',
       observacoes: `Lead de Portabilidade autorizado por ${alerta.liberadoPor || 'ADM'}: ${alerta.motivo}`,
       vendedoraResponsavel: alerta.vendedoraResponsavel || 'Digitadora',
-      dataCriacao: new Date().toISOString().split('T')[0]
+      dataCriacao: getLocalDateString()
     };
     onOpenNovaProposta(mockCliente);
   };
@@ -361,7 +361,7 @@ export const DigitadorHome: React.FC<Props> = ({
             </div>
 
             <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
-              {['todos', 'Em análise', 'Pendente', 'Aprovada', 'Paga', 'Cancelada'].map((st) => (
+              {['todos', 'Simuladas', 'Paga', 'Cancelada'].map((st) => (
                 <button
                   key={st}
                   onClick={() => setStatusFilter(st)}
@@ -426,12 +426,8 @@ export const DigitadorHome: React.FC<Props> = ({
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                           p.status === 'Paga'
                             ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                            : p.status === 'Aprovada'
-                            ? 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300'
-                            : p.status === 'Em análise'
-                            ? 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300'
-                            : p.status === 'Pendente'
-                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                            : p.status === 'Simuladas'
+                            ? 'bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-300'
                             : 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
                         }`}>
                           {p.status}

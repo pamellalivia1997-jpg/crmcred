@@ -12,7 +12,9 @@ import {
   Calendar,
   User,
   CreditCard,
-  DollarSign
+  DollarSign,
+  ExternalLink,
+  Trash2
 } from 'lucide-react';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
@@ -84,7 +86,7 @@ const PROMOTORAS_LIST: Promotora[] = [
 ];
 
 export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialProposta, onClose, onProposalUpdated }) => {
-  const { saveProposta, propostas } = useCRM();
+  const { saveProposta, deleteProposta, propostas } = useCRM();
   const { currentUser, canEditProposal, allUsers } = useAuth();
 
   // Keep proposta up-to-date from context if it changes
@@ -92,6 +94,7 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
 
   const [isEditing, setIsEditing] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -111,7 +114,8 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
     dataDigitacao: '',
     dataPagamentoCliente: '',
     motivoCancelamento: '',
-    observacoes: ''
+    observacoes: '',
+    linkDocumento: ''
   });
 
   // Sync state when proposta changes or when opening edit mode
@@ -134,7 +138,8 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
         dataDigitacao: proposta.dataDigitacao || '',
         dataPagamentoCliente: proposta.dataPagamentoCliente || '',
         motivoCancelamento: proposta.motivoCancelamento || '',
-        observacoes: proposta.observacoes || ''
+        observacoes: proposta.observacoes || '',
+        linkDocumento: proposta.linkDocumento || ''
       });
       setIsEditing(false);
       setSaveSuccessNotice(false);
@@ -273,6 +278,7 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
       dataPagamentoCliente: isPaid ? (formData.dataPagamentoCliente || nowStr.split(' ')[0]) : formData.dataPagamentoCliente,
       motivoCancelamento: formData.motivoCancelamento.trim(),
       observacoes: formData.observacoes.trim(),
+      linkDocumento: formData.linkDocumento.trim(),
       historicoStatus: [newHistoryItem, ...(proposta.historicoStatus || [])]
     };
 
@@ -288,12 +294,10 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
   };
 
   const statusColors = {
+    'Simuladas': 'bg-slate-100 text-slate-700 border-slate-300',
     'Em análise': 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300 border-blue-300',
-    'Pendente': 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border-amber-300',
-    'Aprovada': 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300 border-purple-300',
     'Paga': 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300 border-emerald-300',
     'Cancelada': 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border-rose-300',
-    'Reprovada': 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300 border-red-300',
   };
 
   return (
@@ -306,7 +310,7 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
               <h2 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white truncate">
                 Contrato #{proposta.numeroContrato || 'Sem número'}
               </h2>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${statusColors[proposta.status]}`}>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${statusColors[proposta.status as keyof typeof statusColors] || 'bg-slate-100'}`}>
                 {proposta.status}
               </span>
               {proposta.isSimulacao && (
@@ -410,21 +414,19 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                     onChange={e => setFormData({ ...formData, status: e.target.value as StatusProposta })}
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white font-semibold text-xs focus:ring-2 focus:ring-teal-500"
                   >
+                    <option value="Simuladas">Simuladas</option>
                     <option value="Em análise">Em análise</option>
-                    <option value="Pendente">Pendente</option>
-                    <option value="Aprovada">Aprovada</option>
                     <option value="Paga">Paga</option>
                     <option value="Cancelada">Cancelada</option>
-                    <option value="Reprovada">Reprovada</option>
                   </select>
                 </div>
               </div>
 
               {/* Reason if cancelled/rejected */}
-              {(formData.status === 'Cancelada' || formData.status === 'Reprovada') && (
+              {(formData.status === 'Cancelada') && (
                 <div>
                   <label className="block text-[11px] font-bold text-rose-700 dark:text-rose-400 mb-1">
-                    Motivo de Cancelamento / Reprovação
+                    Motivo de Cancelamento
                   </label>
                   <input
                     type="text"
@@ -553,32 +555,46 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Vendedora Responsável
+                    Vendedora Responsável *
                   </label>
                   <select
                     value={formData.vendedora}
                     onChange={e => setFormData({ ...formData, vendedora: e.target.value })}
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-semibold"
                   >
+                    <option value="">Selecione a Vendedora...</option>
                     {allUsers
-                      .filter(u => u.role === 'vendedora' || u.name === formData.vendedora)
+                      .filter(u => u.role === 'vendedora' && u.status === 'ativo')
                       .map(u => (
                         <option key={u.id} value={u.name}>{u.name}</option>
                       ))}
+                    <option value="Loja Igarassu">Loja Igarassu (Balcão)</option>
                     <option value="Outros">Outros</option>
+                    {formData.vendedora && !allUsers.some(u => u.name === formData.vendedora) && formData.vendedora !== 'Loja Igarassu' && formData.vendedora !== 'Outros' && (
+                      <option value={formData.vendedora}>{formData.vendedora}</option>
+                    )}
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Digitador
+                    Digitador(a) do Atendimento *
                   </label>
-                  <input
-                    type="text"
+                  <select
                     value={formData.digitador}
                     onChange={e => setFormData({ ...formData, digitador: e.target.value })}
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-semibold"
-                  />
+                  >
+                    <option value="">Selecione o Digitador...</option>
+                    {allUsers
+                      .filter(u => u.status === 'ativo' && (u.role === 'digitador' || u.role === 'vendedora'))
+                      .map(u => (
+                        <option key={u.id} value={u.name}>{u.name} ({u.role})</option>
+                      ))}
+                    {formData.digitador && !allUsers.some(u => u.name === formData.digitador) && (
+                      <option value={formData.digitador}>{formData.digitador}</option>
+                    )}
+                  </select>
                 </div>
               </div>
 
@@ -636,6 +652,20 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-semibold"
                   />
                 </div>
+              </div>
+
+              {/* Link do Documento no Drive */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Link do Documento no Drive
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://drive.google.com/..."
+                  value={formData.linkDocumento}
+                  onChange={e => setFormData({ ...formData, linkDocumento: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-semibold focus:ring-2 focus:ring-teal-500"
+                />
               </div>
 
               {/* Observacoes */}
@@ -734,6 +764,26 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                       {proposta.taxaPaga ? 'Sim (Quitada)' : 'Pendente'}
                     </p>
                   </div>
+                  {proposta.linkDocumento && (
+                    <div className="col-span-2 sm:col-span-3">
+                      <span className="text-slate-400 text-[11px] block">Documento no Drive:</span>
+                      <a
+                        href={proposta.linkDocumento.startsWith('http') ? proposta.linkDocumento : `https://${proposta.linkDocumento}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 font-bold text-teal-600 dark:text-teal-400 hover:underline mt-1 text-xs bg-teal-50 dark:bg-teal-950/40 px-2.5 py-1 rounded-lg border border-teal-200 dark:border-teal-900/60"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                        <span>Abrir Documento no Drive</span>
+                      </a>
+                    </div>
+                  )}
+                  {!proposta.linkDocumento && (
+                    <div className="col-span-2 sm:col-span-3">
+                      <span className="text-slate-400 text-[11px] block">Documento no Drive:</span>
+                      <span className="text-slate-400 italic text-xs">Nenhum link adicionado. Clique em "Editar Tudo" para anexar o link.</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -802,15 +852,38 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
           </div>
 
           <div className="flex items-center gap-2">
-            {isEditable && !isEditing && (
-              <button
-                type="button"
-                onClick={() => setIsEditing(true)}
-                className="px-3.5 py-2 rounded-xl bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-white font-bold text-xs flex items-center gap-1.5"
-              >
-                <Pencil className="w-3.5 h-3.5" />
-                <span>Editar Tudo</span>
-              </button>
+            {!isEditing && (
+              showDeleteConfirm ? (
+                <div className="flex items-center gap-1.5 bg-rose-50 dark:bg-rose-950/80 p-1.5 rounded-xl border border-rose-200 dark:border-rose-800">
+                  <span className="text-[11px] font-bold text-rose-700 dark:text-rose-300 px-1">Excluir permanentemente?</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      deleteProposta(proposta.id);
+                      onClose();
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs"
+                  >
+                    Sim
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="px-2.5 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold text-xs"
+                  >
+                    Não
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:hover:bg-rose-900/60 dark:text-rose-300 font-bold text-xs flex items-center gap-1.5 border border-rose-200 dark:border-rose-800 transition"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Excluir Proposta</span>
+                </button>
+              )
             )}
 
             <button

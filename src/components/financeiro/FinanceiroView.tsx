@@ -15,7 +15,7 @@ import {
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
 import { ComissaoPromotora, ContaPagar, Proposta, Promotora } from '../../types';
-import { formatCurrency, formatPercent, formatDate } from '../../utils/formatters';
+import { formatCurrency, formatPercent, formatDate, getLocalDateString } from '../../utils/formatters';
 import { calcularComissaoVendedoraMes } from '../../utils/commissionRules';
 
 export const FinanceiroView: React.FC = () => {
@@ -156,7 +156,7 @@ export const FinanceiroView: React.FC = () => {
       clienteNome: propostaSelecionada.nomeCliente,
       promotora: promotoraLancamento,
       valorRecebido: valor,
-      dataRecebimento: new Date().toISOString().split('T')[0],
+      dataRecebimento: getLocalDateString(),
       tipo: 'percentual',
       status: 'confirmada',
       observacao: 'Lançado no painel financeiro.'

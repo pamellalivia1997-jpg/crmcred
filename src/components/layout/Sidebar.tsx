@@ -79,8 +79,61 @@ export const Sidebar: React.FC<Props> = ({
           <span>{isDigitador ? 'Nova Digitação / Simulação' : 'Nova Proposta'}</span>
         </button>
 
+        {/* Section: Gestão & Relatórios (Proprietária / ADM) */}
+        {!isVendedora && !isDigitador && (
+          <div className="space-y-1">
+            <p className="px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              Gestão e Relatórios
+            </p>
+
+            <button
+              onClick={() => handleNavClick('dashboard')}
+              className={navItemClass(currentTab === 'dashboard')}
+            >
+              <div className="flex items-center gap-2.5">
+                <LayoutDashboard className="w-4 h-4" />
+                <span>Painel de Gestão</span>
+              </div>
+            </button>
+
+            <button
+              onClick={() => handleNavClick('relatorios')}
+              className={navItemClass(currentTab === 'relatorios')}
+            >
+              <div className="flex items-center gap-2.5">
+                <FileText className="w-4 h-4" />
+                <span>Acompanhamento Semanal</span>
+              </div>
+            </button>
+
+            {canManageTeam() && (
+              <>
+                <button
+                  onClick={() => handleNavClick('adm')}
+                  className={navItemClass(currentTab === 'adm')}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Target className="w-4 h-4" />
+                    <span>Metas do Mês</span>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => handleNavClick('adm_usuarios')}
+                  className={navItemClass(currentTab === 'adm_usuarios')}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Users className="w-4 h-4" />
+                    <span>Cadastro de Usuários</span>
+                  </div>
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Section: Operacional */}
-        <div className="space-y-1">
+        <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-slate-800">
           <p className="px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
             {isDigitador ? 'Área da Digitadora' : 'Operacional'}
           </p>
@@ -105,17 +158,7 @@ export const Sidebar: React.FC<Props> = ({
                 <span>Minha Meta & Home</span>
               </div>
             </button>
-          ) : (
-            <button
-              onClick={() => handleNavClick('dashboard')}
-              className={navItemClass(currentTab === 'dashboard')}
-            >
-              <div className="flex items-center gap-2.5">
-                <LayoutDashboard className="w-4 h-4" />
-                <span>Painel Gerencial</span>
-              </div>
-            </button>
-          )}
+          ) : null}
 
           <button
             onClick={() => handleNavClick('propostas')}
@@ -123,7 +166,7 @@ export const Sidebar: React.FC<Props> = ({
           >
             <div className="flex items-center gap-2.5">
               <FileSpreadsheet className="w-4 h-4" />
-              <span>{isDigitador ? 'Minhas Propostas Digitadas' : 'Funil de Propostas'}</span>
+              <span>Funil de Propostas</span>
             </div>
           </button>
 
@@ -145,7 +188,7 @@ export const Sidebar: React.FC<Props> = ({
           >
             <div className="flex items-center gap-2.5">
               <BellRing className="w-4 h-4" />
-              <span>{isDigitador ? 'Leads Portabilidade (ADM)' : 'Oportunidades & Alertas'}</span>
+              <span>Oportunidades & Alertas</span>
             </div>
             {unreadAlerts > 0 && (
               <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-[10px] font-extrabold text-slate-950">
@@ -154,49 +197,6 @@ export const Sidebar: React.FC<Props> = ({
             )}
           </button>
         </div>
-
-        {/* Section: Gestão & Relatórios (Proprietária / ADM) */}
-        {!isVendedora && !isDigitador && (
-          <div className="space-y-1 pt-2 border-t border-slate-100 dark:border-slate-800">
-            <p className="px-2 text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-              Gestão & Relatórios
-            </p>
-
-            <button
-              onClick={() => handleNavClick('relatorios')}
-              className={navItemClass(currentTab === 'relatorios')}
-            >
-              <div className="flex items-center gap-2.5">
-                <FileText className="w-4 h-4" />
-                <span>Acompanhamento Semanal</span>
-              </div>
-            </button>
-
-            {canManageTeam() && (
-              <>
-                <button
-                  onClick={() => handleNavClick('adm_usuarios')}
-                  className={navItemClass(currentTab === 'adm_usuarios')}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Users className="w-4 h-4" />
-                    <span>Cadastro de Usuários</span>
-                  </div>
-                </button>
-
-                <button
-                  onClick={() => handleNavClick('adm')}
-                  className={navItemClass(currentTab === 'adm')}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <Target className="w-4 h-4" />
-                    <span>Metas do Mês</span>
-                  </div>
-                </button>
-              </>
-            )}
-          </div>
-        )}
 
         {/* Section: Financeiro & Controladoria (Proprietária / Financeiro) */}
         {canAccessFinancial() && (

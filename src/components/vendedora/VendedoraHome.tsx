@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Target,
   PlusCircle,
@@ -14,14 +14,26 @@ import {
   Sparkles,
   Cake,
   MessageCircle,
-  PartyPopper
+  PartyPopper,
+  ChevronDown,
+  Calendar
 } from 'lucide-react';
-import { useCRM } from '../../context/CRMContext';
+import { useCRM, PeriodoFiltro } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
 import { openMessagingApp } from '../../utils/messaging';
-import { formatCurrency, formatPercent, formatDate, formatPhone, getBirthdayInfo, BirthdayInfo, formatBirthDateWithAge } from '../../utils/formatters';
+import {
+  formatCurrency,
+  formatPercent,
+  formatDate,
+  formatPhone,
+  getBirthdayInfo,
+  BirthdayInfo,
+  normalizeSellerName,
+  isSameSeller,
+  getLocalDateString
+} from '../../utils/formatters';
 import { calcularComissaoVendedoraMes } from '../../utils/commissionRules';
-import { Cliente } from '../../types';
+import { Cliente, Proposta } from '../../types';
 
 interface Props {
   onOpenNovaProposta: () => void;
@@ -36,14 +48,44 @@ export const VendedoraHome: React.FC<Props> = ({
   onNavigateToAlertas,
   onNavigateToPropostas,
 }) => {
-  const { propostas, metas, alertas, clientes } = useCRM();
-  const { currentUser } = useAuth();
+  const {
+    propostas,
+    metas,
+    alertas,
+    clientes,
+    periodo,
+    setPeriodo,
+    anoSelecionado,
+    setAnoSelecionado,
+    dataInicioPersonalizada,
+    setDataInicioPersonalizada,
+    dataFimPersonalizada,
+    setDataFimPersonalizada
+  } = useCRM();
+  const { currentUser, allUsers } = useAuth();
 
   const sellerName = currentUser?.name || 'Hellen Vasconcelos';
+  const [openSubmenu, setOpenSubmenu] = useState<'semana' | 'mes' | 'ano' | null>(null);
+  const filterContainerRef = React.useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent | TouchEvent) {
+      if (filterContainerRef.current && !filterContainerRef.current.contains(event.target as Node)) {
+        setOpenSubmenu(null);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, []);
 
   // Aniversariantes da semana na carteira da vendedora (ou da loja inteira se vazia)
   const aniversariantesSemana = useMemo(() => {
-    const listSeller = (clientes || []).filter(c => c.vendedoraResponsavel === sellerName);
+    const listSeller = (clientes || []).filter(c => isSameSeller(c.vendedoraResponsavel, sellerName));
     const pool = listSeller.length > 0 ? listSeller : (clientes || []);
 
     return pool
@@ -61,115 +103,436 @@ export const VendedoraHome: React.FC<Props> = ({
     openMessagingApp(cliente.telefone, mensagem);
   };
 
-  // Dynamically detect competence month-year based on proposals in the system
-  const currentMonthYear = useMemo(() => {
-    if (propostas.length === 0) return '2026-09';
-    let latest = '';
-    propostas.forEach(p => {
-      if (p.dataDigitacao && p.dataDigitacao > latest) {
-        latest = p.dataDigitacao;
-      }
-    });
-    if (latest && latest.length >= 7) {
-      return latest.slice(0, 7); // 'YYYY-MM'
-    }
-    return '2026-09';
-  }, [propostas]);
+  // Base dates memo
+  const baseDateInfo = useMemo(() => {
+    const now = new Date();
+    const safeYr = now.getFullYear();
+    const safeMo = now.getMonth() + 1;
+    const safeDay = now.getDate();
 
-  // Pretty print for competence label (e.g. '2026-03' -> 'Março de 2026')
+    const getYearMonthStr = (y: number, m: number) => `${y}-${String(m).padStart(2, '0')}`;
+    const todayStr = `${safeYr}-${String(safeMo).padStart(2, '0')}-${String(safeDay).padStart(2, '0')}`;
+    const currentMonthStr = getYearMonthStr(safeYr, safeMo);
+
+    let prevMo = safeMo - 1;
+    let prevYr = safeYr;
+    if (prevMo === 0) {
+      prevMo = 12;
+      prevYr -= 1;
+    }
+    const prevMonthStr = getYearMonthStr(prevYr, prevMo);
+
+    let prev2Mo = prevMo - 1;
+    let prev2Yr = prevYr;
+    if (prev2Mo === 0) {
+      prev2Mo = 12;
+      prev2Yr -= 1;
+    }
+    const prev2MonthsStr = getYearMonthStr(prev2Yr, prev2Mo);
+
+    // Sunday of current week
+    const dayOfWeek = now.getDay();
+    const sundayCurrent = new Date(now);
+    sundayCurrent.setDate(now.getDate() - dayOfWeek);
+    const sundayCurrentStr = `${sundayCurrent.getFullYear()}-${String(sundayCurrent.getMonth() + 1).padStart(2, '0')}-${String(sundayCurrent.getDate()).padStart(2, '0')}`;
+
+    // Last Friday
+    const lastFriday = new Date(sundayCurrent);
+    lastFriday.setDate(sundayCurrent.getDate() - 2);
+    const lastFridayStr = `${lastFriday.getFullYear()}-${String(lastFriday.getMonth() + 1).padStart(2, '0')}-${String(lastFriday.getDate()).padStart(2, '0')}`;
+
+    // Previous Sunday
+    const prevSunday = new Date(sundayCurrent);
+    prevSunday.setDate(sundayCurrent.getDate() - 7);
+    const prevSundayStr = `${prevSunday.getFullYear()}-${String(prevSunday.getMonth() + 1).padStart(2, '0')}-${String(prevSunday.getDate()).padStart(2, '0')}`;
+
+    // Previous Friday
+    const prevFriday = new Date(sundayCurrent);
+    prevFriday.setDate(sundayCurrent.getDate() - 9);
+    const prevFridayStr = `${prevFriday.getFullYear()}-${String(prevFriday.getMonth() + 1).padStart(2, '0')}-${String(prevFriday.getDate()).padStart(2, '0')}`;
+
+    return {
+      todayStr,
+      sundayCurrentStr,
+      lastFridayStr,
+      prevSundayStr,
+      prevFridayStr,
+      currentMonthStr,
+      prevMonthStr,
+      prev2MonthsStr,
+      yearStr: String(safeYr)
+    };
+  }, []);
+
+  // Determine active competence month for metas lookup based on filter
+  const activeCompetenceMonth = useMemo(() => {
+    if (periodo === 'mes_anterior') {
+      return baseDateInfo.prevMonthStr;
+    }
+    return baseDateInfo.currentMonthStr;
+  }, [periodo, baseDateInfo]);
+
+  // Pretty print for competence label
   const competenceLabel = useMemo(() => {
-    const [yr, mo] = currentMonthYear.split('-');
+    const [yr, mo] = activeCompetenceMonth.split('-');
     const monthsNames: Record<string, string> = {
       '01': 'Janeiro', '02': 'Fevereiro', '03': 'Março', '04': 'Abril',
       '05': 'Maio', '06': 'Junho', '07': 'Julho', '08': 'Agosto',
       '09': 'Setembro', '10': 'Outubro', '11': 'Novembro', '12': 'Dezembro'
     };
     return `${monthsNames[mo] || 'Setembro'} de ${yr || '2026'}`;
-  }, [currentMonthYear]);
+  }, [activeCompetenceMonth]);
 
-  // Seller's propostas this month
-  const sellerPaidPropsThisMonth = useMemo(() => {
-    return propostas.filter(
-      p => p.vendedora === sellerName && p.dataDigitacao.startsWith(currentMonthYear) && p.status === 'Paga'
+  // Filter propostas by period
+  const filteredPropostas = useMemo(() => {
+    return propostas.filter(p => {
+      const d = p.dataDigitacao;
+      if (!d) return false;
+
+      if (periodo === 'hoje') {
+        return d === baseDateInfo.todayStr;
+      }
+      if (periodo === 'semana') {
+        return d >= baseDateInfo.sundayCurrentStr && d <= baseDateInfo.todayStr;
+      }
+      if (periodo === 'semana_anterior') {
+        return (
+          (d >= baseDateInfo.lastFridayStr && d <= baseDateInfo.sundayCurrentStr) ||
+          (d >= baseDateInfo.prevFridayStr && d <= baseDateInfo.prevSundayStr) ||
+          (d >= baseDateInfo.prevSundayStr && d <= baseDateInfo.sundayCurrentStr)
+        );
+      }
+      if (periodo === 'mes') {
+        return d.startsWith(baseDateInfo.currentMonthStr);
+      }
+      if (periodo === 'mes_anterior') {
+        return d.startsWith(baseDateInfo.prevMonthStr);
+      }
+      if (periodo === 'ultimos_3_meses') {
+        return (
+          d.startsWith(baseDateInfo.currentMonthStr) ||
+          d.startsWith(baseDateInfo.prevMonthStr) ||
+          d.startsWith(baseDateInfo.prev2MonthsStr)
+        );
+      }
+      if (periodo === 'ano') {
+        const targetYear = String(anoSelecionado || 2026);
+        return d.startsWith(targetYear);
+      }
+      if (periodo === 'personalizado') {
+        const start = dataInicioPersonalizada || '2020-01-01';
+        const end = dataFimPersonalizada || '2030-12-31';
+        return d >= start && d <= end;
+      }
+      return true;
+    });
+  }, [propostas, periodo, baseDateInfo, anoSelecionado, dataInicioPersonalizada, dataFimPersonalizada]);
+
+  // Seller's paid proposals in the active filtered period
+  const sellerPaidPropsFiltered = useMemo(() => {
+    return filteredPropostas.filter(
+      p => isSameSeller(p.vendedora, sellerName) && p.status === 'Paga'
     );
-  }, [propostas, sellerName, currentMonthYear]);
+  }, [filteredPropostas, sellerName]);
 
-  // Seller's pending proposals
+  // Seller's pending proposals in current filter
   const sellerPendingProps = useMemo(() => {
-    return propostas.filter(
-      p => p.vendedora === sellerName && (p.status === 'Em análise' || p.status === 'Pendente')
+    return filteredPropostas.filter(
+      p => isSameSeller(p.vendedora, sellerName) && (p.status === 'Em análise' || p.status === 'Simuladas')
     );
-  }, [propostas, sellerName]);
+  }, [filteredPropostas, sellerName]);
 
-  // Seller's alerts
+  // Seller's all proposals in the active filtered period
+  const sellerPropostasInPeriod = useMemo(() => {
+    return filteredPropostas.filter(
+      p => isSameSeller(p.vendedora, sellerName)
+    );
+  }, [filteredPropostas, sellerName]);
+
+  // Seller's active alerts
   const sellerAlerts = useMemo(() => {
-    return alertas.filter(a => a.vendedoraResponsavel === sellerName && a.status === 'nova');
+    return alertas.filter(a => isSameSeller(a.vendedoraResponsavel, sellerName) && a.status === 'nova');
   }, [alertas, sellerName]);
 
-  // Sales totals
-  const totalVendas = sellerPaidPropsThisMonth.reduce((acc, p) => acc + p.valorEmprestimo, 0);
-  const totalTaxas = sellerPaidPropsThisMonth.reduce((acc, p) => acc + p.valorTaxa, 0);
+  // Totals
+  const totalVendas = sellerPaidPropsFiltered.reduce((acc, p) => acc + p.valorEmprestimo, 0);
+  const totalTaxas = sellerPaidPropsFiltered.reduce((acc, p) => acc + p.valorTaxa, 0);
   const taxaMedia = totalVendas > 0 ? (totalTaxas / totalVendas) * 100 : 0;
 
-  // Seller's Goal
-  const sellerMeta = metas.find(m => m.vendedoraId === currentUser?.id || m.vendedoraNome === sellerName);
-  const metaVenda = sellerMeta?.metaVenda || 95000;
+  // Period multiplier for scaling the goal
+  const periodMultiplier = useMemo(() => {
+    if (periodo === 'hoje') return 1 / 30;
+    if (periodo === 'semana' || periodo === 'semana_anterior') return 7 / 30;
+    if (periodo === 'mes' || periodo === 'mes_anterior') return 1;
+    if (periodo === 'ultimos_3_meses') return 3;
+    if (periodo === 'ano') return 12;
+    if (periodo === 'personalizado') {
+      const startMs = new Date(dataInicioPersonalizada || '2026-09-01').getTime();
+      const endMs = new Date(dataFimPersonalizada || '2026-09-30').getTime();
+      const diffDays = Math.max(1, Math.round((endMs - startMs) / (1000 * 60 * 60 * 24)));
+      return diffDays / 30;
+    }
+    return 1;
+  }, [periodo, dataInicioPersonalizada, dataFimPersonalizada]);
+
+  // Seller's Goal Lookup for selected Month
+  const sellerMeta = useMemo(() => {
+    return metas.find(
+      m => (m.vendedoraId === currentUser?.id || isSameSeller(m.vendedoraNome, sellerName)) && m.mesAno === activeCompetenceMonth
+    );
+  }, [metas, currentUser, sellerName, activeCompetenceMonth]);
+
+  const metaVendaBase = useMemo(() => {
+    if (sellerMeta && sellerMeta.metaVenda > 0) return sellerMeta.metaVenda;
+    const foundUser = allUsers.find(u => isSameSeller(u.name, sellerName));
+    if (foundUser && foundUser.monthlySalesGoal && foundUser.monthlySalesGoal > 0) return foundUser.monthlySalesGoal;
+
+    const defaults: Record<string, number> = {
+      'Bianca': 85000,
+      'Hellen Vasconcelos': 95000,
+      'Taciana Silva': 80000,
+      'Lucélia Ramos': 75000
+    };
+    const norm = normalizeSellerName(sellerName);
+    return defaults[norm] || 80000;
+  }, [sellerMeta, allUsers, sellerName]);
+
+  const metaVenda = metaVendaBase * periodMultiplier;
   const atingimentoMeta = metaVenda > 0 ? (totalVendas / metaVenda) * 100 : 0;
   const quantoFalta = Math.max(0, metaVenda - totalVendas);
 
   // Remaining days calculation
   const diasRestantes = useMemo(() => {
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-    if (todayStr.startsWith(currentMonthYear)) {
+    const todayStr = getLocalDateString(today);
+    if (todayStr.startsWith(activeCompetenceMonth)) {
       const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
       return Math.max(1, lastDay - today.getDate());
     }
-    return 0; // Mês já encerrado se for histórico
-  }, [currentMonthYear]);
+    return 0; // Historical month has 0 days left
+  }, [activeCompetenceMonth]);
 
   // Seller's estimated commissions to receive
   const fechamentoComissao = useMemo(() => {
     return calcularComissaoVendedoraMes(
       currentUser?.id || 'vendedora',
       sellerName,
-      currentMonthYear,
+      activeCompetenceMonth,
       propostas,
       sellerMeta,
       true
     );
-  }, [currentUser, sellerName, currentMonthYear, propostas, sellerMeta]);
+  }, [currentUser, sellerName, activeCompetenceMonth, propostas, sellerMeta]);
 
-  // Ranking (Safe: shows only sellers, rank position and sales total without exposing company net profit or company expenses!)
+  // Safe Store Ranking
   const rankingSeguro = useMemo(() => {
     const map = new Map<string, number>();
-    const allReps = ['Hellen Vasconcelos', 'Loja Igarassu (Balcão)', 'Taciana Silva', 'Lucélia Ramos', 'Pamella'];
+    const allReps = ['Hellen Vasconcelos', 'Loja Igarassu', 'Taciana Silva', 'Lucélia Ramos', 'Pamella'];
     allReps.forEach(r => map.set(r, 0));
 
     let outrosTotal = 0;
     propostas
-      .filter(p => p.dataDigitacao.startsWith(currentMonthYear) && p.status === 'Paga')
+      .filter(p => p.dataDigitacao.startsWith(activeCompetenceMonth) && p.status === 'Paga')
       .forEach(p => {
-        if (map.has(p.vendedora)) {
-          map.set(p.vendedora, (map.get(p.vendedora) || 0) + p.valorEmprestimo);
+        const normVendor = normalizeSellerName(p.vendedora);
+        if (map.has(normVendor)) {
+          map.set(normVendor, (map.get(normVendor) || 0) + p.valorEmprestimo);
         } else {
           outrosTotal += p.valorEmprestimo;
         }
       });
 
-    const list = Array.from(map.entries())
-      .map(([nome, vendas]) => ({ nome, vendas }));
+    const list = Array.from(map.entries()).map(([nome, vendas]) => ({ nome, vendas }));
     if (outrosTotal > 0) {
       list.push({ nome: 'Outros', vendas: outrosTotal });
     }
 
     return list.sort((a, b) => b.vendas - a.vendas);
-  }, [propostas, currentMonthYear]);
+  }, [propostas, activeCompetenceMonth]);
 
-  const minhaPosicaoRanking = rankingSeguro.findIndex(r => r.nome === sellerName) + 1;
+  const minhaPosicaoRanking = rankingSeguro.findIndex(r => isSameSeller(r.nome, sellerName)) + 1;
 
   return (
     <div className="space-y-4 pb-20 md:pb-8">
+      {/* Dynamic Period Filter Bar (Exactly matches the manager dashboard!) */}
+      <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3 overflow-visible">
+        <div>
+          <h2 className="text-sm font-extrabold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+            <Calendar className="w-4 h-4 text-teal-600" />
+            <span>Filtro de Período Ativo</span>
+          </h2>
+          <p className="text-[11px] text-slate-400">
+            Acompanhamento dinâmico: {competenceLabel}
+          </p>
+        </div>
+
+        {/* Filter Buttons */}
+        <div ref={filterContainerRef} className="flex items-center gap-1.5 overflow-visible relative flex-wrap sm:flex-nowrap">
+          {/* 1. Hoje */}
+          <button
+            type="button"
+            onClick={() => {
+              setPeriodo('hoje');
+              setOpenSubmenu(null);
+            }}
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
+              periodo === 'hoje'
+                ? 'bg-[#0F5C63] text-white'
+                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200/80 dark:hover:bg-slate-700/80'
+            }`}
+          >
+            Hoje
+          </button>
+
+          {/* 2. Semana */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setOpenSubmenu(prev => (prev === 'semana' ? null : 'semana'));
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                periodo === 'semana' || periodo === 'semana_anterior'
+                  ? 'bg-[#0F5C63] text-white'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200/80'
+              }`}
+            >
+              <span>{periodo === 'semana_anterior' ? 'Semana Anterior' : 'Semana'}</span>
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${openSubmenu === 'semana' ? 'rotate-180' : ''}`} />
+            </button>
+
+            {openSubmenu === 'semana' && (
+              <div className="absolute top-full left-0 mt-1.5 z-[70] min-w-[160px] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPeriodo('semana');
+                    setOpenSubmenu(null);
+                  }}
+                  className={`w-full text-left px-2.5 py-1.5 text-xs rounded-lg font-medium transition ${
+                    periodo === 'semana' ? 'bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-300' : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  Semana Atual
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPeriodo('semana_anterior');
+                    setOpenSubmenu(null);
+                  }}
+                  className={`w-full text-left px-2.5 py-1.5 text-xs rounded-lg font-medium transition ${
+                    periodo === 'semana_anterior' ? 'bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-300' : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  Semana Anterior
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* 3. Este Mês */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setOpenSubmenu(prev => (prev === 'mes' ? null : 'mes'));
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                periodo === 'mes' || periodo === 'mes_anterior' || periodo === 'ultimos_3_meses'
+                  ? 'bg-[#0F5C63] text-white'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200/80'
+              }`}
+            >
+              <span>
+                {periodo === 'mes_anterior' ? 'Mês Anterior' : periodo === 'ultimos_3_meses' ? '3 Meses' : 'Este Mês'}
+              </span>
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${openSubmenu === 'mes' ? 'rotate-180' : ''}`} />
+            </button>
+
+            {openSubmenu === 'mes' && (
+              <div className="absolute top-full left-0 mt-1.5 z-[70] min-w-[170px] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPeriodo('mes');
+                    setOpenSubmenu(null);
+                  }}
+                  className={`w-full text-left px-2.5 py-1.5 text-xs rounded-lg font-medium transition ${
+                    periodo === 'mes' ? 'bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-300' : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  Mês Atual
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPeriodo('mes_anterior');
+                    setOpenSubmenu(null);
+                  }}
+                  className={`w-full text-left px-2.5 py-1.5 text-xs rounded-lg font-medium transition ${
+                    periodo === 'mes_anterior' ? 'bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-300' : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  Mês Anterior
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPeriodo('ultimos_3_meses');
+                    setOpenSubmenu(null);
+                  }}
+                  className={`w-full text-left px-2.5 py-1.5 text-xs rounded-lg font-medium transition ${
+                    periodo === 'ultimos_3_meses' ? 'bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-300' : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  Últimos 3 Meses
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* 4. Filtro de Ano */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => {
+                setOpenSubmenu(prev => (prev === 'ano' ? null : 'ano'));
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                periodo === 'ano'
+                  ? 'bg-[#0F5C63] text-white'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200/80'
+              }`}
+            >
+              <span>{periodo === 'ano' && anoSelecionado ? String(anoSelecionado) : '2026'}</span>
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${openSubmenu === 'ano' ? 'rotate-180' : ''}`} />
+            </button>
+
+            {openSubmenu === 'ano' && (
+              <div className="absolute top-full left-0 mt-1.5 z-[70] min-w-[130px] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-100">
+                {[2026, 2025, 2024, 2023, 2022].map((yr) => (
+                  <button
+                    key={yr}
+                    type="button"
+                    onClick={() => {
+                      setAnoSelecionado(yr);
+                      setPeriodo('ano');
+                      setOpenSubmenu(null);
+                    }}
+                    className={`w-full text-left px-2.5 py-1.5 text-xs rounded-lg font-medium transition ${
+                      periodo === 'ano' && anoSelecionado === yr ? 'bg-teal-50 dark:bg-teal-950 text-teal-700 dark:text-teal-300' : 'hover:bg-slate-100 dark:hover:bg-slate-800'
+                    }`}
+                  >
+                    Ano {yr}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
       {/* Welcome Banner */}
       <div className="bg-gradient-to-br from-[#0B2A4A] via-[#0F5C63] to-[#1B8A8F] text-white rounded-3xl p-5 sm:p-6 shadow-md relative overflow-hidden">
         <div className="relative z-10 space-y-4">
@@ -182,7 +545,11 @@ export const VendedoraHome: React.FC<Props> = ({
                 Olá, {sellerName.split(' ')[0]}! 🚀
               </h1>
               <p className="text-xs text-teal-100">
-                Você está em <strong>{minhaPosicaoRanking}º lugar</strong> no ranking de vendas da loja este mês!
+                {minhaPosicaoRanking > 0 ? (
+                  <span>Você está em <strong>{minhaPosicaoRanking}º lugar</strong> no ranking de vendas da loja este período!</span>
+                ) : (
+                  <span>Nenhum contrato formalizado neste período ainda.</span>
+                )}
               </p>
             </div>
 
@@ -199,7 +566,7 @@ export const VendedoraHome: React.FC<Props> = ({
           <div className="bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/15 space-y-2">
             <div className="flex items-baseline justify-between">
               <div>
-                <span className="text-[11px] text-teal-100 font-semibold block">Sua Meta de Vendas</span>
+                <span className="text-[11px] text-teal-100 font-semibold block">Sua Meta de Vendas (Proporcional)</span>
                 <span className="text-2xl font-black text-white tabular-nums">
                   {formatCurrency(totalVendas)}
                 </span>
@@ -224,8 +591,12 @@ export const VendedoraHome: React.FC<Props> = ({
             </div>
 
             <div className="flex items-center justify-between text-[11px] text-teal-100 pt-0.5">
-              <span>{sellerPaidPropsThisMonth.length} contratos formalizados e pagos</span>
-              <span><strong>{diasRestantes} dias restantes</strong> no mês</span>
+              <span>{sellerPaidPropsFiltered.length} contratos formalizados e pagos</span>
+              {diasRestantes > 0 ? (
+                <span><strong>{diasRestantes} dias restantes</strong> no mês</span>
+              ) : (
+                <span>Histórico / Período Fechado</span>
+              )}
             </div>
           </div>
         </div>
@@ -250,7 +621,7 @@ export const VendedoraHome: React.FC<Props> = ({
         </div>
 
         <div className="bg-emerald-50/60 dark:bg-emerald-950/20 p-4 rounded-2xl border border-emerald-200/80 dark:border-emerald-800 shadow-xs">
-          <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">Minha Comissão Prevista</span>
+          <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">Minha Comissão</span>
           <p className="text-lg sm:text-xl font-black text-emerald-700 dark:text-emerald-400 tabular-nums mt-0.5">
             {formatCurrency(fechamentoComissao.totalAPagar)}
           </p>
@@ -258,7 +629,7 @@ export const VendedoraHome: React.FC<Props> = ({
         </div>
 
         <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
-          <span className="text-xs font-semibold text-slate-500">Oportunidades Hoje</span>
+          <span className="text-xs font-semibold text-slate-500">Oportunidades</span>
           <p className="text-lg sm:text-xl font-extrabold text-purple-600 tabular-nums mt-0.5">
             {sellerAlerts.length}
           </p>
@@ -323,7 +694,7 @@ export const VendedoraHome: React.FC<Props> = ({
         </button>
       </div>
 
-      {/* Card: Aniversariantes da Semana (Para a vendedora mandar parabéns e estreitar relacionamento) */}
+      {/* Card: Aniversariantes da Semana */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-3">
@@ -426,14 +797,14 @@ export const VendedoraHome: React.FC<Props> = ({
         )}
       </div>
 
-      {/* Grid: Pending Proposals + Safe Sales Ranking */}
+      {/* Grid: Proposals in Period + Safe Sales Ranking */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Minhas Propostas Pendentes / Em Análise */}
+        {/* Meus Contratos no Período */}
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-              <Clock className="w-4 h-4 text-amber-500" />
-              <span>Minhas Propostas em Andamento</span>
+              <Clock className="w-4 h-4 text-[#0F5C63]" />
+              <span>Meus Contratos no Período</span>
             </h2>
             <button
               onClick={onNavigateToPropostas}
@@ -444,34 +815,44 @@ export const VendedoraHome: React.FC<Props> = ({
           </div>
 
           <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-            {sellerPendingProps.length === 0 ? (
+            {sellerPropostasInPeriod.length === 0 ? (
               <p className="text-xs text-slate-400 text-center py-8">
-                Nenhuma proposta pendente no momento. Bom trabalho!
+                Nenhum contrato ou simulação para o período selecionado.
               </p>
             ) : (
-              sellerPendingProps.map((p) => (
-                <div key={p.id} className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 text-xs flex items-center justify-between">
-                  <div>
-                    <span className="font-bold text-slate-900 dark:text-white">{p.nomeCliente}</span>
-                    <p className="text-[11px] text-slate-500">
-                      {p.operacao} · {p.banco} · Contrato #{p.numeroContrato}
-                    </p>
+              sellerPropostasInPeriod.map((p) => {
+                const isPaid = p.status === 'Paga';
+                const isPending = p.status === 'Em análise' || p.status === 'Simuladas';
+                const isCancelled = p.status === 'Cancelada';
+                let statusColor = 'bg-slate-100 text-slate-700';
+                if (isPaid) statusColor = 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300';
+                else if (isPending) statusColor = 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300';
+                else if (isCancelled) statusColor = 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300';
+
+                return (
+                  <div key={p.id} className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 text-xs flex items-center justify-between">
+                    <div>
+                      <span className="font-bold text-slate-900 dark:text-white">{p.nomeCliente}</span>
+                      <p className="text-[11px] text-slate-500">
+                        {p.operacao} · {p.banco} · Contrato #{p.numeroContrato || 'Sem número'}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <span className="font-extrabold text-slate-900 dark:text-white tabular-nums">
+                        {formatCurrency(p.valorEmprestimo)}
+                      </span>
+                      <span className={`block text-[10px] font-bold px-2 py-0.5 rounded-full mt-0.5 w-fit ml-auto ${statusColor}`}>
+                        {p.status}
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className="font-extrabold text-slate-900 dark:text-white tabular-nums">
-                      {formatCurrency(p.valorEmprestimo)}
-                    </span>
-                    <span className="block text-[10px] font-bold text-amber-600 bg-amber-50 dark:bg-amber-950 px-2 py-0.5 rounded-full mt-0.5">
-                      {p.status}
-                    </span>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
 
-        {/* Ranking de Vendas da Loja (Sem dados financeiros confidenciais da empresa) */}
+        {/* Ranking de Vendas da Loja */}
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
@@ -483,7 +864,7 @@ export const VendedoraHome: React.FC<Props> = ({
 
           <div className="space-y-2.5">
             {rankingSeguro.map((rep, idx) => {
-              const isMe = rep.nome === sellerName;
+              const isMe = isSameSeller(rep.nome, sellerName);
 
               return (
                 <div

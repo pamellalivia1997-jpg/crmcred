@@ -4,7 +4,7 @@ import {defineConfig} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
-  const isGithubPages = process.env.GITHUB_PAGES === 'true' || Boolean(process.env.CI);
+  const isGithubPages = process.env.GITHUB_PAGES === 'true';
   const basePath = isGithubPages ? '/crmcred/' : '/';
 
   return {
@@ -56,6 +56,7 @@ export default defineConfig(() => {
         workbox: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,jpg}'],
           cleanupOutdatedCaches: true,
+          maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         },
         devOptions: {
           enabled: true,

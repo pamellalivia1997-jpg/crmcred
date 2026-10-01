@@ -38,6 +38,7 @@ interface SellerMonthMeta {
   vendedoraNome: string;
   isAtivo: boolean;
   metaVenda: number;
+  metaPercentualTaxa: number;
 }
 
 export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => {
@@ -65,16 +66,8 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
   const [selectedMesAno, setSelectedMesAno] = useState<string>('2026-09');
   const [totalMetaLojaInput, setTotalMetaLojaInput] = useState<number>(390000);
   const [sellerMetasMap, setSellerMetasMap] = useState<Record<string, SellerMonthMeta>>({});
+  const [frozenSellers, setFrozenSellers] = useState<Record<string, boolean>>({});
   const [metasSalvasNotice, setMetasSalvasNotice] = useState(false);
-
-  // Popup modal for manual adjustment rule
-  const [pendingAdjustment, setPendingAdjustment] = useState<{
-    vendedoraId: string;
-    vendedoraNome: string;
-    oldValue: number;
-    newValue: number;
-    difference: number;
-  } | null>(null);
 
   // Load or initialize metas for selected month
   useEffect(() => {
@@ -90,7 +83,8 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
           vendedoraId: s.id,
           vendedoraNome: s.name,
           isAtivo: found.isAtivoNoMes !== false && s.status === 'ativo',
-          metaVenda: found.metaVenda || 0
+          metaVenda: found.metaVenda || 0,
+          metaPercentualTaxa: found.metaPercentualTaxa ?? s.monthlyTaxPercentGoal ?? 20
         };
         totalFromExisting += found.metaVenda || 0;
       } else {
@@ -98,7 +92,8 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
           vendedoraId: s.id,
           vendedoraNome: s.name,
           isAtivo: s.status === 'ativo',
-          metaVenda: 0
+          metaVenda: 0,
+          metaPercentualTaxa: s.monthlyTaxPercentGoal ?? 20
         };
       }
     });
@@ -126,7 +121,38 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
     return Object.values(sellerMetasMap).filter(s => s.isAtivo).length;
   }, [sellerMetasMap]);
 
-  // Distribute store meta equally among currently active sellers
+  // Real-time distribution when Total Store Meta changes
+  const handleStoreTotalChange = (newTotal: number) => {
+    setTotalMetaLojaInput(newTotal);
+
+    const updated = { ...sellerMetasMap };
+    const sellers = Object.values(updated);
+
+    // Sum of frozen active sellers
+    const frozenActive = sellers.filter(s => s.isAtivo && frozenSellers[s.vendedoraId]);
+    const frozenTotal = frozenActive.reduce((sum, s) => sum + s.metaVenda, 0);
+
+    // Eligible active unfrozen sellers
+    const eligibleSellers = sellers.filter(s => s.isAtivo && !frozenSellers[s.vendedoraId]);
+
+    if (eligibleSellers.length > 0) {
+      const remainingToDistribute = Math.max(0, newTotal - frozenTotal);
+      const perSeller = Math.round(remainingToDistribute / eligibleSellers.length);
+
+      let runningSum = 0;
+      eligibleSellers.forEach((s, idx) => {
+        if (idx === eligibleSellers.length - 1) {
+          updated[s.vendedoraId].metaVenda = remainingToDistribute - runningSum;
+        } else {
+          updated[s.vendedoraId].metaVenda = perSeller;
+          runningSum += perSeller;
+        }
+      });
+      setSellerMetasMap(updated);
+    }
+  };
+
+  // Distribute equally (manual fallback trigger)
   const handleDistributeEqually = (targetTotal?: number) => {
     const totalToDistribute = targetTotal !== undefined ? targetTotal : totalMetaLojaInput;
     if (activeSellersCount === 0) return;
@@ -139,7 +165,6 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
 
     activeKeys.forEach((key, idx) => {
       if (idx === activeKeys.length - 1) {
-        // Last one takes rounding remainder
         updated[key].metaVenda = totalToDistribute - runningSum;
       } else {
         updated[key].metaVenda = perSeller;
@@ -157,7 +182,7 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
     setSellerMetasMap(updated);
   };
 
-  // Toggle seller active/vacation status in month
+  // Toggle seller active status
   const handleToggleSellerActive = (sellerId: string) => {
     const current = sellerMetasMap[sellerId];
     if (!current) return;
@@ -174,70 +199,79 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
     setSellerMetasMap(updated);
   };
 
-  // User finished typing or changed manual goal for a seller
-  const handleRequestManualMetaChange = (sellerId: string, inputVal: string) => {
+  // Dynamic automatic distribution when editing a single seller's meta
+  const handleSingleSellerMetaChange = (sellerId: string, inputVal: string) => {
     const current = sellerMetasMap[sellerId];
     if (!current) return;
 
-    const numVal = Math.max(0, parseFloat(inputVal) || 0);
-    if (numVal === current.metaVenda) return;
-
-    const diff = numVal - current.metaVenda;
-
-    // Trigger Pop-up as requested by client specification
-    setPendingAdjustment({
-      vendedoraId: sellerId,
-      vendedoraNome: current.vendedoraNome,
-      oldValue: current.metaVenda,
-      newValue: numVal,
-      difference: diff
-    });
-  };
-
-  // Resolve Pop-up: Option 1 - Redistribute difference equally among other active sellers
-  const handleResolveRedistributeAmongOthers = () => {
-    if (!pendingAdjustment) return;
-
-    const { vendedoraId, newValue, difference } = pendingAdjustment;
-    const otherActiveKeys = Object.keys(sellerMetasMap).filter(k => k !== vendedoraId && sellerMetasMap[k].isAtivo);
-
+    const newValue = Math.max(0, parseFloat(inputVal) || 0);
     const updated = { ...sellerMetasMap };
-    updated[vendedoraId] = {
-      ...updated[vendedoraId],
+    updated[sellerId] = {
+      ...updated[sellerId],
       metaVenda: newValue
     };
 
-    if (otherActiveKeys.length > 0) {
-      // If increased by 10k, other active sellers must reduce by (10k / count)
-      const perOtherAdjustment = Math.round(difference / otherActiveKeys.length);
-      otherActiveKeys.forEach(k => {
-        updated[k].metaVenda = Math.max(0, updated[k].metaVenda - perOtherAdjustment);
+    const sellers = Object.values(updated);
+
+    // Get other active and non-frozen sellers
+    const otherUnfrozenActive = sellers.filter(
+      s => s.isAtivo && s.vendedoraId !== sellerId && !frozenSellers[s.vendedoraId]
+    );
+
+    if (otherUnfrozenActive.length > 0) {
+      // Divide difference among other unfrozen active sellers
+      const otherFrozenActiveSum = sellers
+        .filter(s => s.isAtivo && s.vendedoraId !== sellerId && frozenSellers[s.vendedoraId])
+        .reduce((sum, s) => sum + s.metaVenda, 0);
+
+      const remainingForOthers = Math.max(0, totalMetaLojaInput - newValue - otherFrozenActiveSum);
+      const perSeller = Math.round(remainingForOthers / otherUnfrozenActive.length);
+
+      let runningSum = 0;
+      otherUnfrozenActive.forEach((s, idx) => {
+        if (idx === otherUnfrozenActive.length - 1) {
+          updated[s.vendedoraId].metaVenda = remainingForOthers - runningSum;
+        } else {
+          updated[s.vendedoraId].metaVenda = perSeller;
+          runningSum += perSeller;
+        }
       });
+      setSellerMetasMap(updated);
+    } else {
+      const activeSellers = sellers.filter(s => s.isAtivo);
+      const newStoreTotal = activeSellers.reduce((sum, s) => sum + s.metaVenda, 0);
+      setTotalMetaLojaInput(newStoreTotal);
+      setSellerMetasMap(updated);
     }
-
-    setSellerMetasMap(updated);
-    setPendingAdjustment(null);
   };
 
-  // Resolve Pop-up: Option 2 - Subtract / Adjust store total directly
-  const handleResolveAdjustStoreTotal = () => {
-    if (!pendingAdjustment) return;
-
-    const { vendedoraId, newValue } = pendingAdjustment;
-    const updated = { ...sellerMetasMap };
-    updated[vendedoraId] = {
-      ...updated[vendedoraId],
-      metaVenda: newValue
-    };
-
-    const newStoreTotal = Object.values(updated).reduce((acc, s) => acc + s.metaVenda, 0);
-    setTotalMetaLojaInput(newStoreTotal);
-    setSellerMetasMap(updated);
-    setPendingAdjustment(null);
+  const handleSingleSellerTaxPercentChange = (sellerId: string, inputVal: string) => {
+    const current = sellerMetasMap[sellerId];
+    if (!current) return;
+    const val = Math.max(0, parseFloat(inputVal) || 0);
+    setSellerMetasMap(prev => ({
+      ...prev,
+      [sellerId]: {
+        ...prev[sellerId],
+        metaPercentualTaxa: val
+      }
+    }));
   };
 
-  // Save all configured goals for the selected month to crmStorage and Firebase
+  // Save all configured goals to crmStorage and Firebase
   const handleSaveMonthMetas = () => {
+    // 1. Save global store goal for easy reference in dashboard
+    saveMeta({
+      id: `meta-loja-${selectedMesAno}`,
+      vendedoraId: 'loja',
+      vendedoraNome: 'Loja (Global)',
+      mesAno: selectedMesAno,
+      metaVenda: totalMetaLojaInput,
+      metaPercentualTaxa: 11.0,
+      isAtivoNoMes: true
+    });
+
+    // 2. Save individual seller goals
     Object.values(sellerMetasMap).forEach(item => {
       saveMeta({
         id: `meta-${item.vendedoraId}-${selectedMesAno}`,
@@ -245,7 +279,7 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
         vendedoraNome: item.vendedoraNome,
         mesAno: selectedMesAno,
         metaVenda: item.metaVenda,
-        metaPercentualTaxa: 11.0,
+        metaPercentualTaxa: item.metaPercentualTaxa,
         isAtivoNoMes: item.isAtivo
       });
 
@@ -253,7 +287,8 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
       if (foundUser) {
         saveUser({
           ...foundUser,
-          monthlySalesGoal: item.metaVenda
+          monthlySalesGoal: item.metaVenda,
+          monthlyTaxPercentGoal: item.metaPercentualTaxa
         });
       }
     });
@@ -376,6 +411,7 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
           else if (h.includes('DIGITADOR')) rowObj.digitador = val;
           else if (h.includes('CONTRATO')) rowObj.numeroContrato = val;
           else if (h.includes('STATUS')) rowObj.status = val;
+          else if (h.includes('LINK') || h.includes('DRIVE') || h.includes('DOCUMENTO')) rowObj.linkDocumento = val;
           else if (h.includes('COMISSÃO J2') || h.includes('COMISSAO J2')) rowObj.comissaoJ2 = val;
           else if (h.includes('COMISSÃO SEMPRE') || h.includes('COMISSAO SEMPRE')) rowObj.comissaoSempre = val;
           else if (h.includes('COMISSÃO DG') || h.includes('COMISSAO DG')) rowObj.comissaoDG = val;
@@ -513,7 +549,7 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
                   value={totalMetaLojaInput}
                   onChange={(e) => {
                     const val = parseFloat(e.target.value) || 0;
-                    setTotalMetaLojaInput(val);
+                    handleStoreTotalChange(val);
                   }}
                   className="w-full px-3 py-2 text-xs font-black rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 tabular-nums"
                   placeholder="Ex: 390000"
@@ -561,8 +597,8 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
                 <thead>
                   <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200/80 dark:border-slate-800 text-slate-500 uppercase text-[10px] font-extrabold tracking-wider">
                     <th className="py-2.5 px-3">Vendedora</th>
-                    <th className="py-2.5 px-3">Status no Mês</th>
-                    <th className="py-2.5 px-3">Meta Individual (R$)</th>
+                    <th className="py-2.5 px-3 text-center">Status no Mês</th>
+                    <th className="py-2.5 px-3">Meta Individual (R$) & Meta Taxa (%)</th>
                     <th className="py-2.5 px-3 text-right">% do Total da Loja</th>
                   </tr>
                 </thead>
@@ -572,7 +608,8 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
                       vendedoraId: seller.id,
                       vendedoraNome: seller.name,
                       isAtivo: true,
-                      metaVenda: 0
+                      metaVenda: 0,
+                      metaPercentualTaxa: seller.monthlyTaxPercentGoal ?? 20
                     };
 
                     const pctOfStore = totalMetaLojaInput > 0 ? (item.metaVenda / totalMetaLojaInput) * 100 : 0;
@@ -580,9 +617,7 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
                     return (
                       <tr
                         key={seller.id}
-                        className={`transition-colors ${
-                          !item.isAtivo ? 'opacity-60 bg-slate-50/50 dark:bg-slate-800/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
-                        }`}
+                        className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${!item.isAtivo ? 'opacity-60 bg-slate-50/50' : ''}`}
                       >
                         <td className="py-3 px-3">
                           <div className="flex items-center gap-2">
@@ -598,60 +633,65 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
                           </div>
                         </td>
 
-                        <td className="py-3 px-3">
+                        <td className="py-3 px-3 text-center">
                           <button
                             type="button"
                             onClick={() => handleToggleSellerActive(seller.id)}
-                            className={`px-2.5 py-1 rounded-full text-[10px] font-bold border flex items-center gap-1 transition-all ${
+                            className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all ${
                               item.isAtivo
-                                ? 'bg-emerald-50 text-emerald-800 border-emerald-300 dark:bg-emerald-950 dark:text-emerald-200'
-                                : 'bg-slate-100 text-slate-500 border-slate-300 dark:bg-slate-800 dark:text-slate-400'
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200 hover:bg-emerald-200'
+                                : 'bg-slate-100 text-slate-500 border border-slate-200 hover:bg-slate-200'
                             }`}
                           >
-                            {item.isAtivo ? (
-                              <>
-                                <Check className="w-3 h-3 text-emerald-600" />
-                                <span>Ativa no Mês</span>
-                              </>
-                            ) : (
-                              <>
-                                <UserX className="w-3 h-3 text-slate-400" />
-                                <span>Férias / Licença</span>
-                              </>
-                            )}
+                            {item.isAtivo ? 'ATIVO' : 'FÉRIAS/LICENÇA'}
                           </button>
                         </td>
 
                         <td className="py-3 px-3">
-                          <div className="flex items-center gap-1.5 max-w-[160px]">
-                            <span className="text-[11px] text-slate-400 font-bold">R$</span>
-                            <input
-                              type="number"
-                              disabled={!item.isAtivo}
-                              value={item.metaVenda}
-                              onBlur={(e) => handleRequestManualMetaChange(seller.id, e.target.value)}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  handleRequestManualMetaChange(seller.id, (e.target as HTMLInputElement).value);
-                                }
-                              }}
-                              onChange={(e) => {
-                                // update local input state
-                                const val = parseFloat(e.target.value) || 0;
-                                setSellerMetasMap(prev => ({
-                                  ...prev,
-                                  [seller.id]: {
-                                    ...prev[seller.id],
-                                    metaVenda: val
-                                  }
-                                }));
-                              }}
-                              className={`w-full px-2.5 py-1 text-xs font-black rounded-lg border tabular-nums ${
-                                !item.isAtivo
-                                  ? 'bg-slate-100 text-slate-400 border-slate-200'
-                                  : 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white border-slate-300 dark:border-slate-600 focus:ring-2 focus:ring-purple-500'
-                              }`}
-                            />
+                          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
+                            <div className="flex items-center gap-1.5 max-w-[140px] shrink-0">
+                              <span className="text-[11px] text-slate-400 font-bold">R$</span>
+                              <input
+                                type="number"
+                                value={item.metaVenda}
+                                onChange={(e) => {
+                                  handleSingleSellerMetaChange(seller.id, e.target.value);
+                                }}
+                                className="w-full px-2.5 py-1 text-xs font-black rounded-lg border tabular-nums bg-white dark:bg-slate-800 text-slate-900 dark:text-white border-slate-300 dark:border-slate-600 focus:ring-2 focus:ring-purple-500"
+                                title="Meta de Vendas"
+                              />
+                            </div>
+
+                            <div className="flex items-center gap-1 max-w-[110px] shrink-0">
+                              <input
+                                type="number"
+                                step="0.5"
+                                min="0"
+                                max="100"
+                                value={item.metaPercentualTaxa}
+                                onChange={(e) => {
+                                  handleSingleSellerTaxPercentChange(seller.id, e.target.value);
+                                }}
+                                className="w-full px-2 py-1 text-xs font-black rounded-lg border tabular-nums bg-white dark:bg-slate-800 text-slate-900 dark:text-white border-slate-300 dark:border-slate-600 focus:ring-2 focus:ring-purple-500"
+                                title="Meta de Taxa (%)"
+                              />
+                              <span className="text-[11px] font-bold text-amber-600 whitespace-nowrap">% Taxa</span>
+                            </div>
+
+                            <label className="inline-flex items-center gap-1 cursor-pointer text-slate-600 dark:text-slate-300 font-bold select-none whitespace-nowrap">
+                              <input
+                                type="checkbox"
+                                checked={Boolean(frozenSellers[seller.id])}
+                                onChange={() => {
+                                  setFrozenSellers(prev => ({
+                                    ...prev,
+                                    [seller.id]: !prev[seller.id]
+                                  }));
+                                }}
+                                className="w-3.5 h-3.5 rounded-md border-slate-300 dark:border-slate-700 text-purple-600 focus:ring-purple-500 cursor-pointer"
+                              />
+                              <span className="text-[10px] tracking-tight">Congelar</span>
+                            </label>
                           </div>
                         </td>
 
@@ -689,72 +729,7 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
         </div>
       )}
 
-      {/* ========================================================================= */}
-      {/* POP-UP MODAL: REGRA DE EXCEÇÃO DE AJUSTE MANUAL DE META */}
-      {/* ========================================================================= */}
-      {pendingAdjustment && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/65 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-md rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-5 sm:p-6 space-y-4">
-            <div className="flex items-center gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
-              <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-xs">
-                ⚖️
-              </div>
-              <div>
-                <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                  Ajuste Manual de Meta Individual
-                </h3>
-                <p className="text-[11px] text-slate-500">
-                  {pendingAdjustment.vendedoraNome}
-                </p>
-              </div>
-            </div>
 
-            <div className="p-3 rounded-2xl bg-purple-50 dark:bg-purple-950/50 border border-purple-200 text-xs space-y-1.5">
-              <p className="text-slate-700 dark:text-slate-300">
-                Você alterou a meta de <strong>{pendingAdjustment.vendedoraNome}</strong> de{' '}
-                <span className="line-through text-slate-400">{formatCurrency(pendingAdjustment.oldValue)}</span> para{' '}
-                <strong className="text-purple-700 dark:text-purple-300">{formatCurrency(pendingAdjustment.newValue)}</strong>.
-              </p>
-              <p className="text-[11px] font-bold text-purple-900 dark:text-purple-200">
-                Diferença: {pendingAdjustment.difference >= 0 ? '+' : ''}{formatCurrency(pendingAdjustment.difference)}
-              </p>
-            </div>
-
-            <p className="text-xs font-extrabold text-slate-800 dark:text-slate-200">
-              Deseja redistribuir a diferença igualmente entre os demais vendedores ou subtrair do total da loja?
-            </p>
-
-            {/* Decision Buttons */}
-            <div className="space-y-2 pt-1">
-              <button
-                type="button"
-                onClick={handleResolveRedistributeAmongOthers}
-                className="w-full py-2.5 px-4 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-extrabold text-xs shadow-xs transition flex items-center justify-between"
-              >
-                <span>Redistribuir a diferença igualmente entre os demais vendedores</span>
-                <ArrowRight className="w-4 h-4 ml-1" />
-              </button>
-
-              <button
-                type="button"
-                onClick={handleResolveAdjustStoreTotal}
-                className="w-full py-2.5 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-800 dark:text-slate-200 font-bold text-xs transition flex items-center justify-between border border-slate-300 dark:border-slate-700"
-              >
-                <span>Subtrair / ajustar do total da loja ({formatCurrency(totalMetaLojaInput + pendingAdjustment.difference)})</span>
-                <Check className="w-4 h-4 ml-1" />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setPendingAdjustment(null)}
-                className="w-full py-1.5 text-center text-slate-400 hover:text-slate-600 text-[11px] font-medium"
-              >
-                Cancelar alteração
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ========================================================================= */}
       {/* SUB-TAB 2: FEEDBACKS & PDI */}

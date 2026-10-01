@@ -20,24 +20,26 @@ export function formatCurrency(value: number | undefined | null): string {
 export function cleanPersonName(name?: string | null): string {
   if (!name) return '';
   let cleaned = name;
-  cleaned = cleaned.replace(/L[íi]via\s+Cristina(\s*\(.*?\))?/gi, 'Lívia');
-  cleaned = cleaned.replace(/L[íi]via\s*\(propriet[áa]ria\)/gi, 'Lívia');
-  cleaned = cleaned.replace(/Pamella\s+L[íi]via(\s*\(.*?\))?/gi, 'Pamella');
-  cleaned = cleaned.replace(/Pamella\s+L[íi]via/gi, 'Pamella');
+  cleaned = cleaned.replace(/\s*\(Balc[ãa]o\)/gi, '');
+  cleaned = cleaned.replace(/\s+Balc[ãa]o/gi, '');
   return cleaned.trim();
 }
 
 export function normalizeSellerName(name?: string | null): string {
   if (!name) return '';
-  const n = name.trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  if (n === 'HELLEN' || n === 'HELEN' || n === 'HELLEN VASCONCELOS' || n.includes('HELLEN')) return 'Hellen Vasconcelos';
-  if (n === 'TACY' || n === 'TACIANA' || n === 'TACIANA SILVA' || n.includes('TACIANA') || n.includes('TACY')) return 'Taciana Silva';
-  if (n === 'LUCELIA' || n === 'LUCELIA RAMOS' || n.includes('LUCELIA')) return 'Lucélia Ramos';
-  if (n === 'BIANCA' || n.includes('BIANCA')) return 'Bianca';
-  if (n === 'PAMELLA' || n.includes('PAMELLA')) return 'Pamella';
-  if (n === 'LIVIA' || n.includes('LIVIA')) return 'Lívia';
-  if (n === 'LOJA IGARASSU' || n === 'LOJA_IGARASSU' || n === 'IGARASSU' || n.includes('IGARASSU')) return 'Loja Igarassu (Balcão)';
-  return name.trim();
+  let n = name.trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  
+  // Specific legacy mappings for consistency
+  if (n === 'TACY' || n === 'TACIANA') return 'TACIANA SILVA';
+  if (n === 'LOJA IGARASSU' || n === 'LOJA_IGARASSU' || n === 'IGARASSU') return 'LOJA IGARASSU';
+  if (n === 'ANA' || n === 'ANINHA' || n === 'ANA PAULA' || n === 'ANA PAULA (DIGITADORA DEDICADA)') return 'ANA PAULA';
+  
+  // Support for Hellen and Lucélia variations
+  if (n.includes('HELLEN')) return 'HELLEN';
+  if (n.includes('LUCELIA')) return 'LUCELIA';
+  if (n.includes('ANA')) return 'ANA PAULA';
+  
+  return n;
 }
 
 export function isSameSeller(name1?: string | null, name2?: string | null): boolean {
@@ -115,6 +117,13 @@ export function maskPhoneInput(value: string): string {
   if (digits.length <= 2) return digits ? `(${digits}` : '';
   if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+}
+
+export function getLocalDateString(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 export function formatDate(dateStr: string | undefined | null): string {

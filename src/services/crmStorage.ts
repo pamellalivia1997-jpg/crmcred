@@ -17,7 +17,7 @@ import {
 import { generateSeedData, INITIAL_USERS } from '../data/mockSeed';
 import { db, handleFirestoreError, OperationType } from './firebase';
 import { doc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } from 'firebase/firestore';
-import { normalizeSellerName } from '../utils/formatters';
+import { normalizeSellerName, getLocalDateString } from '../utils/formatters';
 
 const STORAGE_KEY = 'livia_credsaude_crm_data_v1';
 
@@ -236,8 +236,10 @@ export function initFirestoreRealtimeSync() {
   });
 }
 
-// Start listeners
-initFirestoreRealtimeSync();
+// Start listeners lazily after initial render to avoid blocking first paint
+setTimeout(() => {
+  initFirestoreRealtimeSync();
+}, 600);
 
 // Helper: Standardize and auto-correct CPF (padding leading zeros if missing, cleaning extra characters)
 export function standardizeCPF(rawCpf: string): { cleanCpf: string; formattedCpf: string; wasCorrected: boolean } {
@@ -277,7 +279,7 @@ export function parseBrazilianCurrency(val: any): number {
 
 // Helper: Parse Brazilian date formats (e.g., "12/03/2026 18:04:11" -> "2026-03-12")
 export function parseBrazilianDate(dateStr: any): string {
-  if (!dateStr) return new Date().toISOString().split('T')[0];
+  if (!dateStr) return getLocalDateString();
   const s = String(dateStr).trim().split(' ')[0];
   if (s.includes('/')) {
     const parts = s.split('/');
@@ -291,7 +293,7 @@ export function parseBrazilianDate(dateStr: any): string {
   } else if (s.includes('-')) {
     return s;
   }
-  return new Date().toISOString().split('T')[0];
+  return getLocalDateString();
 }
 
 export interface SpreadsheetRowInput {
@@ -323,7 +325,7 @@ export interface SpreadsheetRowInput {
 
 export const crmStorage = {
   getStore(): CRMDataStore {
-    return currentStore;
+    return { ...currentStore };
   },
 
   reset(): void {
@@ -382,7 +384,7 @@ export const crmStorage = {
         convenioPrincipal: cli.convenioPrincipal || 'INSS',
         observacoes: cli.observacoes || 'Importado para a carteira de clientes.',
         vendedoraResponsavel: cli.vendedoraResponsavel || actor.name || 'Hellen Vasconcelos',
-        dataCriacao: cli.dataCriacao || new Date().toISOString().split('T')[0]
+        dataCriacao: cli.dataCriacao || getLocalDateString()
       };
 
       const existingIndex = currentStore.clientes.findIndex(c => c.cpf.replace(/\D/g, '') === cleanCpf);
@@ -493,11 +495,9 @@ export const crmStorage = {
       // 4. Map Status
       let statusProp: StatusProposta = 'Paga';
       const statusRaw = (row.status || '').toUpperCase();
-      if (statusRaw.includes('ANAL') || statusRaw.includes('ANÁL')) statusProp = 'Em análise';
-      else if (statusRaw.includes('PEND')) statusProp = 'Pendente';
-      else if (statusRaw.includes('APROV')) statusProp = 'Aprovada';
-      else if (statusRaw.includes('CANCEL')) statusProp = 'Cancelada';
-      else if (statusRaw.includes('REPROV')) statusProp = 'Reprovada';
+      if (statusRaw.includes('SIMUL') || statusRaw.includes('MOCK')) statusProp = 'Simuladas';
+      else if (statusRaw.includes('ANAL') || statusRaw.includes('ANÁL') || statusRaw.includes('PEND') || statusRaw.includes('APROV')) statusProp = 'Em análise';
+      else if (statusRaw.includes('CANCEL') || statusRaw.includes('REPROV')) statusProp = 'Cancelada';
 
       // 5. Create Proposta for this specific row (Supports repeated clients across multiple rows!)
       const proposalId = `prop-${cleanCpf}-${cleanContract.replace(/\W/g, '')}-${index}`;
@@ -603,13 +603,80 @@ export const crmStorage = {
 
   saveUser(user: User): void {
     const index = currentStore.users.findIndex(u => u.id === user.id);
+    const updatedUsers = [...currentStore.users];
+    
     if (index >= 0) {
-      currentStore.users[index] = user;
+      const oldName = currentStore.users[index].name;
+      const newName = user.name;
+      updatedUsers[index] = user;
+      
+      if (oldName !== newName) {
+        // Propagate to propostas
+        currentStore.propostas = currentStore.propostas.map(p => {
+          let modified = false;
+          let v = p.vendedora;
+          let d = p.digitador;
+          if (normalizeSellerName(v) === normalizeSellerName(oldName)) {
+            v = newName;
+            modified = true;
+          }
+          if (normalizeSellerName(d) === normalizeSellerName(oldName)) {
+            d = newName;
+            modified = true;
+          }
+          return modified ? { ...p, vendedora: v, digitador: d } : p;
+        });
+        
+        // Propagate to metas
+        currentStore.metas = currentStore.metas.map(m => {
+          if (normalizeSellerName(m.vendedoraNome) === normalizeSellerName(oldName)) {
+            return { ...m, vendedoraNome: newName };
+          }
+          return m;
+        });
+
+        // Propagate to alerts
+        currentStore.alertas = currentStore.alertas.map(a => {
+           if (normalizeSellerName(a.vendedoraResponsavel) === normalizeSellerName(oldName)) {
+             return { ...a, vendedoraResponsavel: newName };
+           }
+           return a;
+        });
+
+        // Propagate to clients
+        currentStore.clientes = currentStore.clientes.map(c => {
+           if (normalizeSellerName(c.vendedoraResponsavel) === normalizeSellerName(oldName)) {
+             return { ...c, vendedoraResponsavel: newName };
+           }
+           return c;
+        });
+
+        // Propagate to feedbacks
+        currentStore.feedbacks = currentStore.feedbacks.map(f => {
+           let modified = false;
+           let v = f.vendedoraNome;
+           let a = f.autorNome;
+           if (normalizeSellerName(v) === normalizeSellerName(oldName)) {
+             v = newName;
+             modified = true;
+           }
+           if (normalizeSellerName(a) === normalizeSellerName(oldName)) {
+             a = newName;
+             modified = true;
+           }
+           return modified ? { ...f, vendedoraNome: v, autorNome: a } : f;
+        });
+      }
     } else {
-      currentStore.users.push(user);
+      updatedUsers.push(user);
     }
+    
+    currentStore.users = updatedUsers;
     saveLocalStore(currentStore);
     syncItemToFirestore('users', user.id, user);
+    
+    // If name changed, we need to sync all modified collections to Firestore too
+    // In a real app we'd use a cloud function or batch, but here we'll just commit locally.
   },
 
   deleteUser(userId: string): void {
@@ -639,8 +706,15 @@ export const crmStorage = {
       cpf: cleanCpf
     };
 
+    const updatedClientes = [...currentStore.clientes];
     if (isNew) {
-      currentStore.clientes.unshift(formattedClient);
+      updatedClientes.unshift(formattedClient);
+    } else {
+      updatedClientes[index] = formattedClient;
+    }
+    currentStore.clientes = updatedClientes;
+
+    if (isNew) {
       this.logAudit({
         usuarioId: currentUser.id,
         usuarioNome: currentUser.name,
@@ -651,7 +725,6 @@ export const crmStorage = {
         detalhes: `Cadastrou novo cliente ${formattedClient.nome} (${formattedClient.convenioPrincipal}).`
       });
     } else {
-      currentStore.clientes[index] = formattedClient;
       this.logAudit({
         usuarioId: currentUser.id,
         usuarioNome: currentUser.name,
@@ -682,8 +755,15 @@ export const crmStorage = {
     const index = currentStore.propostas.findIndex(p => p.id === proposta.id);
     const isNew = index < 0;
 
+    const updatedPropostas = [...currentStore.propostas];
     if (isNew) {
-      currentStore.propostas.unshift(proposta);
+      updatedPropostas.unshift(proposta);
+    } else {
+      updatedPropostas[index] = proposta;
+    }
+    currentStore.propostas = updatedPropostas;
+
+    if (isNew) {
       this.logAudit({
         usuarioId: currentUser.id,
         usuarioNome: currentUser.name,
@@ -694,7 +774,6 @@ export const crmStorage = {
         detalhes: `Criou proposta de ${proposta.operacao} no ${proposta.banco} - R$ ${proposta.valorEmprestimo.toFixed(2)}.`
       });
     } else {
-      currentStore.propostas[index] = proposta;
       this.logAudit({
         usuarioId: currentUser.id,
         usuarioNome: currentUser.name,
@@ -709,32 +788,72 @@ export const crmStorage = {
     syncItemToFirestore('propostas', proposta.id, proposta);
   },
 
+  deleteProposta(id: string, currentUser: { id: string; name: string }): void {
+    const index = currentStore.propostas.findIndex(p => String(p.id).trim() === String(id).trim());
+    if (index === -1) {
+      console.warn('Proposta não encontrada para exclusão com id:', id);
+      return;
+    }
+    const prop = currentStore.propostas[index];
+    currentStore.propostas = currentStore.propostas.filter(p => String(p.id).trim() !== String(id).trim());
+
+    this.logAudit({
+      usuarioId: currentUser.id,
+      usuarioNome: currentUser.name,
+      acao: 'deletou',
+      tipoRecurso: 'proposta',
+      idRecurso: id,
+      cpfCliente: prop.cpf,
+      detalhes: `Excluiu proposta ${prop.numeroContrato} do cliente ${prop.nomeCliente}.`
+    });
+
+    saveLocalStore(currentStore);
+    deleteItemFromFirestore('propostas', id);
+  },
+
   updateStatusProposta(
     propostaId: string,
     novoStatus: StatusProposta,
     currentUser: { id: string; name: string },
     motivo?: string
   ): void {
-    const prop = currentStore.propostas.find(p => p.id === propostaId);
-    if (!prop) return;
+    const propIndex = currentStore.propostas.findIndex(p => p.id === propostaId);
+    if (propIndex === -1) return;
 
+    const updatedPropostas = [...currentStore.propostas];
+    const prop = { ...updatedPropostas[propIndex] };
+    
     const statusAntigo = prop.status;
+    if (statusAntigo === 'Simuladas' && novoStatus !== 'Simuladas') {
+      prop.origemSimulacao = true;
+      prop.isSimulacao = false;
+    }
     prop.status = novoStatus;
-    if (motivo) prop.motivoCancelamento = motivo;
+    if (novoStatus === 'Cancelada') {
+      if (motivo) prop.motivoCancelamento = motivo;
+    } else {
+      prop.motivoCancelamento = undefined;
+    }
 
     const now = new Date().toISOString().replace('T', ' ').slice(0, 16);
     if (novoStatus === 'Paga' && !prop.dataPagamentoCliente) {
-      prop.dataPagamentoCliente = new Date().toISOString().split('T')[0];
+      prop.dataPagamentoCliente = getLocalDateString();
       prop.taxaPaga = true;
       prop.clientePagouTaxa = true;
     }
 
-    prop.historicoStatus.push({
-      status: novoStatus,
-      data: now,
-      usuario: currentUser.name,
-      motivo
-    });
+    prop.historicoStatus = [
+      ...(prop.historicoStatus || []),
+      {
+        status: novoStatus,
+        data: now,
+        usuario: currentUser.name,
+        motivo
+      }
+    ];
+
+    updatedPropostas[propIndex] = prop;
+    currentStore.propostas = updatedPropostas;
 
     this.logAudit({
       usuarioId: currentUser.id,
@@ -757,11 +876,14 @@ export const crmStorage = {
 
   saveComissaoPromotora(comissao: ComissaoPromotora, currentUser: { id: string; name: string }): void {
     const index = currentStore.comissoesPromotoras.findIndex(c => c.id === comissao.id);
+    const updatedComissoes = [...currentStore.comissoesPromotoras];
+    
     if (index >= 0) {
-      currentStore.comissoesPromotoras[index] = comissao;
+      updatedComissoes[index] = comissao;
     } else {
-      currentStore.comissoesPromotoras.unshift(comissao);
+      updatedComissoes.unshift(comissao);
     }
+    currentStore.comissoesPromotoras = updatedComissoes;
 
     this.logAudit({
       usuarioId: currentUser.id,
@@ -783,22 +905,32 @@ export const crmStorage = {
 
   saveContaPagar(conta: ContaPagar): void {
     const index = currentStore.contasPagar.findIndex(c => c.id === conta.id);
+    const updatedContas = [...currentStore.contasPagar];
+    
     if (index >= 0) {
-      currentStore.contasPagar[index] = conta;
+      updatedContas[index] = conta;
     } else {
-      currentStore.contasPagar.unshift(conta);
+      updatedContas.unshift(conta);
     }
+    currentStore.contasPagar = updatedContas;
+    
     saveLocalStore(currentStore);
     syncItemToFirestore('contasPagar', conta.id, conta);
   },
 
-  marcarContaPaga(id: string, dataPagamento = new Date().toISOString().split('T')[0]): void {
-    const conta = currentStore.contasPagar.find(c => c.id === id);
-    if (conta) {
-      conta.status = 'paga';
-      conta.dataPagamento = dataPagamento;
+  marcarContaPaga(id: string, dataPagamento = getLocalDateString()): void {
+    const index = currentStore.contasPagar.findIndex(c => c.id === id);
+    if (index >= 0) {
+      const updatedContas = [...currentStore.contasPagar];
+      updatedContas[index] = {
+        ...updatedContas[index],
+        status: 'paga',
+        dataPagamento: dataPagamento
+      };
+      currentStore.contasPagar = updatedContas;
+      
       saveLocalStore(currentStore);
-      syncItemToFirestore('contasPagar', conta.id, conta);
+      syncItemToFirestore('contasPagar', id, updatedContas[index]);
     }
   },
 
@@ -809,11 +941,15 @@ export const crmStorage = {
 
   saveMeta(meta: MetaVendedora, currentUser: { id: string; name: string }): void {
     const index = currentStore.metas.findIndex(m => m.id === meta.id || (m.vendedoraId === meta.vendedoraId && m.mesAno === meta.mesAno));
+    const updatedMetas = [...currentStore.metas];
+    
     if (index >= 0) {
-      currentStore.metas[index] = meta;
+      updatedMetas[index] = meta;
     } else {
-      currentStore.metas.push(meta);
+      updatedMetas.push(meta);
     }
+    
+    currentStore.metas = updatedMetas;
 
     this.logAudit({
       usuarioId: currentUser.id,
@@ -835,11 +971,13 @@ export const crmStorage = {
 
   saveFeedback(fb: Feedback): void {
     const index = currentStore.feedbacks.findIndex(f => f.id === fb.id);
+    const updatedFeedbacks = [...currentStore.feedbacks];
     if (index >= 0) {
-      currentStore.feedbacks[index] = fb;
+      updatedFeedbacks[index] = fb;
     } else {
-      currentStore.feedbacks.unshift(fb);
+      updatedFeedbacks.unshift(fb);
     }
+    currentStore.feedbacks = updatedFeedbacks;
     saveLocalStore(currentStore);
     syncItemToFirestore('feedbacks', fb.id, fb);
   },
@@ -850,22 +988,31 @@ export const crmStorage = {
   },
 
   updateAlertaStatus(id: string, status: 'nova' | 'em_contato' | 'convertida' | 'descartada'): void {
-    const alerta = currentStore.alertas.find(a => a.id === id);
-    if (alerta) {
-      alerta.status = status;
+    const index = currentStore.alertas.findIndex(a => a.id === id);
+    if (index >= 0) {
+      const updatedAlertas = [...currentStore.alertas];
+      updatedAlertas[index] = { ...updatedAlertas[index], status };
+      currentStore.alertas = updatedAlertas;
       saveLocalStore(currentStore);
-      syncItemToFirestore('alertas', alerta.id, alerta);
+      syncItemToFirestore('alertas', id, updatedAlertas[index]);
     }
   },
 
   toggleLiberacaoLeadDigitador(alertaId: string, liberado: boolean, currentUser: { id: string; name: string }): void {
-    const alerta = currentStore.alertas.find(a => a.id === alertaId);
-    if (alerta) {
-      alerta.liberadoParaDigitador = liberado;
-      alerta.liberadoPor = liberado ? currentUser.name : undefined;
-      alerta.dataLiberacao = liberado ? new Date().toISOString().split('T')[0] : undefined;
+    const index = currentStore.alertas.findIndex(a => a.id === alertaId);
+    if (index >= 0) {
+      const updatedAlertas = [...currentStore.alertas];
+      const alerta = {
+        ...updatedAlertas[index],
+        liberadoParaDigitador: liberado,
+        liberadoPor: liberado ? currentUser.name : undefined,
+        dataLiberacao: liberado ? getLocalDateString() : undefined
+      };
+      updatedAlertas[index] = alerta;
+      currentStore.alertas = updatedAlertas;
+
       saveLocalStore(currentStore);
-      syncItemToFirestore('alertas', alerta.id, alerta);
+      syncItemToFirestore('alertas', alertaId, alerta);
 
       this.logAudit({
         usuarioId: currentUser.id,

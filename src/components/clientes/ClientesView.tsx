@@ -38,7 +38,8 @@ import {
   calculateAge,
   maskCPFInput,
   maskPhoneInput,
-  cleanDigits
+  cleanDigits,
+  getLocalDateString
 } from '../../utils/formatters';
 import { CPFValidationBadge } from '../common/CPFValidationBadge';
 
@@ -445,9 +446,8 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
                     <div key={prop.id} className="relative flex items-start gap-3 pl-1">
                       <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 z-10 ${
                         prop.status === 'Paga' ? 'bg-emerald-500 text-white' :
-                        prop.status === 'Aprovada' ? 'bg-blue-500 text-white' :
                         prop.status === 'Cancelada' ? 'bg-rose-500 text-white' :
-                        'bg-amber-500 text-slate-950'
+                        'bg-slate-400 text-slate-800'
                       }`}>
                         <CheckCircle2 className="w-3.5 h-3.5" />
                       </div>
@@ -459,9 +459,8 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
                           </span>
                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                             prop.status === 'Paga' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
-                            prop.status === 'Aprovada' ? 'bg-blue-100 text-blue-800' :
-                            prop.status === 'Cancelada' ? 'bg-rose-100 text-rose-800' :
-                            'bg-amber-100 text-amber-800'
+                            prop.status === 'Cancelada' ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300' :
+                            'bg-slate-100 text-slate-800'
                           }`}>
                             {prop.status}
                           </span>
@@ -568,7 +567,7 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
                   convenioPrincipal: (editingClient.convenioPrincipal as Convenio) || 'INSS',
                   observacoes: editingClient.observacoes || '',
                   vendedoraResponsavel: editingClient.vendedoraResponsavel || currentUser?.name || 'Hellen Vasconcelos',
-                  dataCriacao: editingClient.dataCriacao || new Date().toISOString().split('T')[0]
+                  dataCriacao: editingClient.dataCriacao || getLocalDateString()
                 };
 
                 saveCliente(clientToSave);

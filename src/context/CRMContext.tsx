@@ -49,6 +49,7 @@ interface CRMContextType {
   // Actions
   saveCliente: (cliente: Cliente) => void;
   saveProposta: (proposta: Proposta) => void;
+  deleteProposta: (id: string) => void;
   updateStatusProposta: (id: string, novoStatus: StatusProposta, motivo?: string) => void;
   saveComissaoPromotora: (comissao: ComissaoPromotora) => void;
   saveContaPagar: (conta: ContaPagar) => void;
@@ -75,12 +76,19 @@ const CRMContext = createContext<CRMContextType | undefined>(undefined);
 
 export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser } = useAuth();
+  const now = new Date();
+  const yr = now.getFullYear();
+  const mo = String(now.getMonth() + 1).padStart(2, '0');
+  const currentMonth = `${yr}-${mo}`;
+  const lastDay = new Date(yr, now.getMonth() + 1, 0).getDate();
+  const lastDayStr = `${yr}-${mo}-${String(lastDay).padStart(2, '0')}`;
+
   const [storeState, setStoreState] = useState(() => crmStorage.getStore());
   const [periodo, setPeriodo] = useState<PeriodoFiltro>('mes');
-  const [filtroMesAno, setFiltroMesAno] = useState<string>('2026-09');
-  const [dataInicioPersonalizada, setDataInicioPersonalizada] = useState<string>('2026-09-01');
-  const [dataFimPersonalizada, setDataFimPersonalizada] = useState<string>('2026-09-30');
-  const [anoSelecionado, setAnoSelecionado] = useState<number>(2026);
+  const [filtroMesAno, setFiltroMesAno] = useState<string>(currentMonth);
+  const [dataInicioPersonalizada, setDataInicioPersonalizada] = useState<string>(`${currentMonth}-01`);
+  const [dataFimPersonalizada, setDataFimPersonalizada] = useState<string>(lastDayStr);
+  const [anoSelecionado, setAnoSelecionado] = useState<number>(yr);
 
   useEffect(() => {
     return subscribeToData(() => {
@@ -103,6 +111,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const saveProposta = (proposta: Proposta) => {
     crmStorage.saveProposta(proposta, currentActor);
+  };
+
+  const deleteProposta = (id: string) => {
+    crmStorage.deleteProposta(id, currentActor);
   };
 
   const updateStatusProposta = (id: string, novoStatus: StatusProposta, motivo?: string) => {
@@ -165,16 +177,63 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  const cleanPropostas = React.useMemo(() => {
+    return storeState.propostas.map(p => {
+      if (p.vendedora) {
+        const cleaned = p.vendedora.replace(/\s*\(Balc[ãa]o\)/gi, '').replace(/\s+Balc[ãa]o/gi, '');
+        if (cleaned !== p.vendedora) {
+          return { ...p, vendedora: cleaned };
+        }
+      }
+      return p;
+    });
+  }, [storeState.propostas]);
+
+  const cleanMetas = React.useMemo(() => {
+    const seen = new Set<string>();
+    const uniqueMetas: MetaVendedora[] = [];
+    
+    // Reverse to process the latest saved metas first, if duplicates exist
+    const reversedMetas = [...storeState.metas].reverse();
+    
+    reversedMetas.forEach(m => {
+      let cleanedName = m.vendedoraNome || '';
+      cleanedName = cleanedName.replace(/\s*\(Balc[ãa]o\)/gi, '').replace(/\s+Balc[ãa]o/gi, '');
+      const key = `${m.vendedoraId || cleanedName}-${m.mesAno}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueMetas.push({
+          ...m,
+          vendedoraNome: cleanedName
+        });
+      }
+    });
+    
+    return uniqueMetas.reverse();
+  }, [storeState.metas]);
+
+  const cleanAlertas = React.useMemo(() => {
+    return storeState.alertas.map(a => {
+      if (a.vendedoraResponsavel) {
+        const cleaned = a.vendedoraResponsavel.replace(/\s*\(Balc[ãa]o\)/gi, '').replace(/\s+Balc[ãa]o/gi, '');
+        if (cleaned !== a.vendedoraResponsavel) {
+          return { ...a, vendedoraResponsavel: cleaned };
+        }
+      }
+      return a;
+    });
+  }, [storeState.alertas]);
+
   return (
     <CRMContext.Provider
       value={{
         clientes: storeState.clientes,
-        propostas: storeState.propostas,
+        propostas: cleanPropostas,
         comissoesPromotoras: storeState.comissoesPromotoras,
         contasPagar: storeState.contasPagar,
-        metas: storeState.metas,
+        metas: cleanMetas,
         feedbacks: storeState.feedbacks,
-        alertas: storeState.alertas,
+        alertas: cleanAlertas,
         auditLogs: storeState.auditLogs,
         periodo,
         setPeriodo,
@@ -188,6 +247,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setAnoSelecionado,
         saveCliente,
         saveProposta,
+        deleteProposta,
         updateStatusProposta,
         saveComissaoPromotora,
         saveContaPagar,

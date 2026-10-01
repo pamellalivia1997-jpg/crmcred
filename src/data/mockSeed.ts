@@ -285,17 +285,16 @@ export function generateSeedData() {
           taxaPaga = false;
           clientePagouTaxa = false;
         } else if (c === 1 || c === 8 || c === 14) {
-          status = 'Pendente';
+          status = 'Em análise';
           dataPagamentoCliente = undefined;
           taxaPaga = false;
           clientePagouTaxa = false;
         } else if (c === 2 || c === 12) {
-          status = 'Aprovada';
-          dataPagamentoCliente = undefined;
+          status = 'Paga';
           taxaPaga = true;
           clientePagouTaxa = true;
         } else if (c === 4) {
-          status = 'Reprovada';
+          status = 'Cancelada';
           dataPagamentoCliente = undefined;
           taxaPaga = false;
           clientePagouTaxa = false;
@@ -314,7 +313,7 @@ export function generateSeedData() {
         taxaPaga = false;
         clientePagouTaxa = false;
       } else if (c % 22 === 0) {
-        status = 'Reprovada';
+        status = 'Cancelada';
         motivoCancelamento = 'Pendência cadastral e restrição no banco de origem.';
         dataPagamentoCliente = undefined;
         taxaPaga = false;
@@ -323,8 +322,9 @@ export function generateSeedData() {
 
       const digitador = (c % 4 === 0) 
         ? 'Ana Paula' 
-        : (vendedora === 'Loja Igarassu (Balcão)' ? 'Taciana Silva' : vendedora);
+        : (vendedora === 'Loja Igarassu' ? 'Taciana Silva' : vendedora);
       const isSimulacao = (c % 3 === 0);
+      const finalStatus = isSimulacao ? 'Simuladas' : status;
 
       const proposta: Proposta = {
         id: `prop-${propIdCounter}`,
@@ -345,22 +345,21 @@ export function generateSeedData() {
         vendedora,
         digitador,
         numeroContrato: contractCounter.toString(),
-        status,
+        status: finalStatus,
         isSimulacao,
         motivoCancelamento,
+        linkDocumento: c % 2 === 0 ? `https://drive.google.com/file/d/mock-drive-link-${propIdCounter}/view` : undefined,
         observacoes: `Proposta gerada no sistema. Convênio ${client.convenioPrincipal}.`,
         historicoStatus: [
-          { status: 'Em análise', data: `${dataDig} 10:15`, usuario: vendedora },
-          { status: 'Aprovada', data: `${dataDig} 14:30`, usuario: 'Pamella' },
-          ...(status === 'Paga' ? [{ status: 'Paga' as StatusProposta, data: `${dataPagamentoCliente} 11:00`, usuario: 'Carlos Eduardo' }] : []),
-          ...(status === 'Cancelada' ? [{ status: 'Cancelada' as StatusProposta, data: `${dataDig} 16:00`, usuario: vendedora, motivo: motivoCancelamento }] : []),
-          ...(status === 'Reprovada' ? [{ status: 'Reprovada' as StatusProposta, data: `${dataDig} 17:00`, usuario: 'Banco Parceiro', motivo: motivoCancelamento }] : [])
+          { status: isSimulacao ? 'Simuladas' : 'Em análise', data: `${dataDig} 10:15`, usuario: vendedora },
+          ...(finalStatus === 'Paga' ? [{ status: 'Paga' as StatusProposta, data: `${dataPagamentoCliente} 11:00`, usuario: 'Carlos Eduardo' }] : []),
+          ...(finalStatus === 'Cancelada' ? [{ status: 'Cancelada' as StatusProposta, data: `${dataDig} 16:00`, usuario: vendedora, motivo: motivoCancelamento }] : [])
         ]
       };
       propostas.push(proposta);
 
       // Generate Promotora commission entry for paid proposals
-      if (status === 'Paga') {
+      if (finalStatus === 'Paga') {
         const percentualPromotora = 0.045;
         const valorRecebido = Math.round(valorEmprestimo * percentualPromotora);
         

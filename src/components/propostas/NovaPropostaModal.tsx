@@ -23,7 +23,8 @@ import {
   maskPhoneInput,
   formatCurrency,
   validateCPF,
-  calculateAge
+  calculateAge,
+  getLocalDateString
 } from '../../utils/formatters';
 import { estimarComissaoPromotora, estimarComissaoVendedoraProposta } from '../../utils/commissionRules';
 import { CPFValidationBadge } from '../common/CPFValidationBadge';
@@ -40,15 +41,12 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
   const isDigitadorUser = currentUser?.role === 'digitador';
 
   // Quem digitou o cadastro
-  const [digitador, setDigitador] = useState<string>(() => {
-    if (isDigitadorUser) return currentUser?.name || 'Ana Paula';
-    return currentUser?.name || 'Ana Paula';
-  });
+  const [digitador, setDigitador] = useState<string>(() => currentUser?.name || '');
 
   // Vendedora Responsável pela carteira
   const [vendedoraResponsavel, setVendedoraResponsavel] = useState<string>(() => {
     if (currentUser?.role === 'vendedora') return currentUser.name;
-    return 'Hellen Vasconcelos';
+    return '';
   });
 
   // Dados do Cliente
@@ -69,6 +67,7 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
   const [numeroContrato, setNumeroContrato] = useState(() => Math.floor(480000 + Math.random() * 50000).toString());
   const [status, setStatus] = useState<StatusProposta>('Em análise');
   const [observacoes, setObservacoes] = useState('');
+  const [linkDocumento, setLinkDocumento] = useState('');
 
   // Mensagens
   const [errorMsg, setErrorMsg] = useState('');
@@ -184,7 +183,7 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
           ? 'Cadastrado com proposta formalizada.'
           : 'Cadastrado via simulação rápida.',
         vendedoraResponsavel: vendedoraResponsavel || 'Hellen Vasconcelos',
-        dataCriacao: new Date().toISOString().split('T')[0]
+        dataCriacao: getLocalDateString()
       };
     }
 
@@ -195,10 +194,10 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
     // Se não tiver valor ou dados obrigatórios de venda, salva como Simulação com log registrado!
     const isSimulacao = !isDadosCompletosProposta;
     const nowIso = new Date().toISOString();
-    const dataDig = nowIso.split('T')[0];
+    const dataDig = getLocalDateString();
     const dataHoraFormatada = nowIso.replace('T', ' ').slice(0, 19);
-    const finalDigitador = digitador || (currentUser?.name) || 'Ana Paula';
-    const finalVendedora = clienteObj.vendedoraResponsavel || vendedoraResponsavel || 'Hellen Vasconcelos';
+    const finalDigitador = digitador || currentUser?.name || 'Não informado';
+    const finalVendedora = vendedoraResponsavel || (currentUser?.role === 'vendedora' ? currentUser.name : 'Loja Igarassu');
 
     const novaProposta: Proposta = {
       id: `prop-${Date.now()}`,
@@ -219,15 +218,16 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
       vendedora: finalVendedora,
       digitador: finalDigitador,
       numeroContrato: numeroContrato || Math.floor(480000 + Math.random() * 50000).toString(),
-      status: isSimulacao ? 'Em análise' : status,
+      status: isSimulacao ? 'Simuladas' : status,
       isSimulacao: isSimulacao,
       origemSimulacao: isSimulacao,
       simulacaoPor: isSimulacao ? finalDigitador : undefined,
       dataSimulacao: isSimulacao ? nowIso : undefined,
       observacoes: observacoes || (isSimulacao ? `Simulação rápida cadastrada por ${finalDigitador}.` : ''),
+      linkDocumento: linkDocumento.trim(),
       historicoStatus: [
         {
-          status: isSimulacao ? 'Em análise' : status,
+          status: isSimulacao ? 'Simuladas' : status,
           data: `${dataDig} ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`,
           usuario: currentUser?.name || finalDigitador,
           motivo: isSimulacao
@@ -284,16 +284,14 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
                 <select
                   value={digitador}
                   onChange={(e) => setDigitador(e.target.value)}
-                  disabled={isDigitadorUser}
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-teal-500 disabled:opacity-80"
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-teal-500"
                 >
-                  <option value="Ana Paula">Ana Paula (Digitadora Dedicada)</option>
-                  <option value="Hellen Vasconcelos">Hellen Vasconcelos</option>
-                  <option value="Taciana Silva">Taciana Silva</option>
-                  <option value="Lucélia Ramos">Lucélia Ramos</option>
-                  <option value="Bianca">Bianca</option>
-                  <option value="Pamella">Pamella</option>
-                  <option value="Lívia">Lívia</option>
+                  <option value="">Selecione o Digitador...</option>
+                  {allUsers
+                    .filter(u => u.status === 'ativo' && (u.role === 'digitador' || u.role === 'vendedora'))
+                    .map(u => (
+                      <option key={u.id} value={u.name}>{u.name} ({u.role})</option>
+                    ))}
                 </select>
               </div>
 
@@ -306,11 +304,11 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
                   onChange={(e) => setVendedoraResponsavel(e.target.value)}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-teal-500"
                 >
-                  <option value="Hellen Vasconcelos">Hellen Vasconcelos</option>
-                  <option value="Taciana Silva">Taciana Silva</option>
-                  <option value="Lucélia Ramos">Lucélia Ramos</option>
-                  <option value="Bianca">Bianca</option>
-                  <option value="Pamella">Pamella</option>
+                  <option value="">Selecione a Vendedora...</option>
+                  {allUsers.filter(u => u.role === 'vendedora' && u.status === 'ativo').map(u => (
+                    <option key={u.id} value={u.name}>{u.name}</option>
+                  ))}
+                  <option value="Loja Igarassu">Loja Igarassu (Balcão)</option>
                 </select>
               </div>
             </div>
@@ -573,10 +571,10 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
                   onChange={(e) => setStatus(e.target.value as StatusProposta)}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white focus:outline-none"
                 >
+                  <option value="Simuladas">Simuladas</option>
                   <option value="Em análise">Em análise</option>
-                  <option value="Pendente">Pendente</option>
-                  <option value="Aprovada">Aprovada</option>
                   <option value="Paga">Paga</option>
+                  <option value="Cancelada">Cancelada</option>
                 </select>
               </div>
             </div>
@@ -598,6 +596,19 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
                 </div>
               </div>
             )}
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              Link do Documento no Drive <span className="font-normal text-slate-400 text-[10px]">(opcional)</span>
+            </label>
+            <input
+              type="url"
+              placeholder="https://drive.google.com/..."
+              value={linkDocumento}
+              onChange={(e) => setLinkDocumento(e.target.value)}
+              className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none mb-3"
+            />
           </div>
 
           <div>

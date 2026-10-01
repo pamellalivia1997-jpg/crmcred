@@ -24,7 +24,7 @@ export const RelatoriosSemanalMensal: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'semanal' | 'faturamento'>('semanal');
   const [copiado, setCopiado] = useState(false);
 
-  const reps = ['Hellen Vasconcelos', 'Loja Igarassu (Balcão)', 'Taciana Silva', 'Lucélia Ramos', 'Pamella'];
+  const reps = ['Hellen Vasconcelos', 'Loja Igarassu', 'Taciana Silva', 'Lucélia Ramos', 'Pamella'];
   const operacoesDestaque: Operacao[] = ['FGTS', 'Portabilidade', 'Refin', 'Margem', 'Conta de Energia Elétrica/Luz', 'Cartão Novo'];
 
   // Current month proposals (2026-09)
