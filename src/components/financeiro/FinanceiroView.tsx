@@ -1,415 +1,312 @@
 import React, { useState, useMemo } from 'react';
 import {
   DollarSign,
-  Receipt,
-  TrendingUp,
-  AlertCircle,
-  CheckCircle2,
-  Calendar,
-  PlusCircle,
   FileCheck2,
+  CheckCircle2,
   Search,
-  Check,
-  X
+  History,
+  AlertCircle,
+  RefreshCw,
+  FileSpreadsheet
 } from 'lucide-react';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
-import { ComissaoPromotora, ContaPagar, Proposta, Promotora } from '../../types';
-import { formatCurrency, formatPercent, formatDate, getLocalDateString } from '../../utils/formatters';
-import { calcularComissaoVendedoraMes } from '../../utils/commissionRules';
+import { formatCurrency, formatDate, formatCPF } from '../../utils/formatters';
+import { Proposta } from '../../types';
+import { processControladoriaGoogleSheets, executeControladoriaSyncWithBackup } from '../../services/controladoriaSyncService';
 
 export const FinanceiroView: React.FC = () => {
-  const {
-    propostas,
-    comissoesPromotoras,
-    contasPagar,
-    metas,
-    saveComissaoPromotora,
-    saveContaPagar,
-    marcarContaPaga
-  } = useCRM();
-  const { allUsers, currentUser } = useAuth();
+  const { propostas, comissoesPromotoras, saveComissaoPromotora, saveComissaoPromotoraBatch } = useCRM();
+  const { currentUser, canAccessFinancial } = useAuth();
 
-  const [activeSubTab, setActiveSubTab] = useState<'promotoras' | 'conferencia' | 'contas_pagar' | 'fechamento_vendedoras' | 'dre'>('promotoras');
+  const [activeTab, setActiveTab] = useState<'pendentes' | 'conciliados'>('pendentes');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedContrato, setSelectedContrato] = useState<Proposta | null>(null);
+  const [valorRecebidoInput, setValorRecebidoInput] = useState('');
+  const [sucessoNotice, setSucessoNotice] = useState<string | null>(null);
+  const [erroNotice, setErroNotice] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [filterPromotora, setFilterPromotora] = useState('todas');
 
-  // Lançamento comissão promotora modal/form state
-  const [selectedContratoBusca, setSelectedContratoBusca] = useState('');
-  const [propostaSelecionada, setPropostaSelecionada] = useState<Proposta | null>(null);
-  const [valorComissaoStr, setValorComissaoStr] = useState('');
-  const [promotoraLancamento, setPromotoraLancamento] = useState<Promotora>('J2 Promotora');
-  const [comissaoSalvaSucesso, setComissaoSalvaSucesso] = useState(false);
+  const hasFinancialAccess = canAccessFinancial();
+  const isAllowedSyncUser = currentUser?.email && currentUser.email.toLowerCase().trim() === atob('Z2VvdmFubmUuYXJjZWxpbm9AZ21haWwuY29t');
 
-  // Nova Conta a Pagar modal state
-  const [isNovaContaModalOpen, setIsNovaContaModalOpen] = useState(false);
-  const [novaContaDescricao, setNovaContaDescricao] = useState('');
-  const [novaContaValorStr, setNovaContaValorStr] = useState('');
-  const [novaContaCategoria, setNovaContaCategoria] = useState<ContaPagar['categoria']>('Despesas Gerais');
-  const [novaContaVencimento, setNovaContaVencimento] = useState('2026-10-10');
+  // Set of proposal IDs with confirmed commission repasse
+  const confirmedPropostaIds = useMemo(() => {
+    const setIds = new Set<string>();
+    comissoesPromotoras
+      .filter(c => c.status === 'confirmada' && c.valorRecebido > 0)
+      .forEach(c => {
+        if (c.propostaId) setIds.add(c.propostaId);
+        if (c.numeroContrato) setIds.add(c.numeroContrato.trim().toLowerCase());
+      });
+    return setIds;
+  }, [comissoesPromotoras]);
 
-  // Paid propostas
-  const paidPropostas = useMemo(() => propostas.filter(p => p.status === 'Paga'), [propostas]);
+  // Contratos EXCLUSIVAMENTE SEM repasse de comissão da promotora
+  const contratosPendentesRepasse = useMemo(() => {
+    return propostas
+      .filter(p => p.status === 'Paga')
+      .filter(p => {
+        const hasCommission =
+          confirmedPropostaIds.has(p.id) ||
+          (p.numeroContrato && confirmedPropostaIds.has(p.numeroContrato.trim().toLowerCase()));
+        return !hasCommission;
+      })
+      .filter(p => {
+        const term = searchTerm.toLowerCase().trim();
+        const cleanTerm = term.replace(/\D/g, '');
+        const matchSearch =
+          !term ||
+          p.nomeCliente.toLowerCase().includes(term) ||
+          p.numeroContrato.toLowerCase().includes(term) ||
+          p.promotora.toLowerCase().includes(term) ||
+          p.banco.toLowerCase().includes(term) ||
+          (cleanTerm && p.cpf.replace(/\D/g, '').includes(cleanTerm));
 
-  // Contratos pagos sem comissão de promotora lançada (Pendências de conferência)
-  const pendenciasConferencia = useMemo(() => {
-    const launchedIds = new Set(
-      comissoesPromotoras
-        .filter(c => c.status === 'confirmada' && c.valorRecebido > 0)
-        .map(c => c.propostaId)
-    );
+        const matchPromotora = filterPromotora === 'todas' || p.promotora === filterPromotora;
+        return matchSearch && matchPromotora;
+      })
+      .sort((a, b) => {
+        const dateA = a.dataPagamentoCliente || a.dataDigitacao || '';
+        const dateB = b.dataPagamentoCliente || b.dataDigitacao || '';
+        return dateB.localeCompare(dateA);
+      });
+  }, [propostas, confirmedPropostaIds, searchTerm, filterPromotora]);
 
-    return paidPropostas.filter(p => !launchedIds.has(p.id));
-  }, [paidPropostas, comissoesPromotoras]);
+  // Histórico de Repasses Conciliados
+  const repassesConciliados = useMemo(() => {
+    return comissoesPromotoras
+      .filter(c => {
+        const term = searchTerm.toLowerCase().trim();
+        if (!term) return true;
+        return (
+          c.clienteNome.toLowerCase().includes(term) ||
+          c.numeroContrato.toLowerCase().includes(term) ||
+          c.promotora.toLowerCase().includes(term)
+        );
+      })
+      .sort((a, b) => (b.dataRecebimento || '').localeCompare(a.dataRecebimento || ''));
+  }, [comissoesPromotoras, searchTerm]);
 
-  // Dynamically detect competence month-year based on proposals in the system
-  const currentMonthYear = useMemo(() => {
-    if (propostas.length === 0) return '2026-09';
-    let latest = '';
-    propostas.forEach(p => {
-      if (p.dataDigitacao && p.dataDigitacao > latest) {
-        latest = p.dataDigitacao;
-      }
-    });
-    if (latest && latest.length >= 7) {
-      return latest.slice(0, 7); // 'YYYY-MM'
-    }
-    return '2026-09';
+  const totalVolumePendente = contratosPendentesRepasse.reduce((acc, p) => acc + p.valorEmprestimo, 0);
+  const totalComissoesRecebidas = comissoesPromotoras.reduce((acc, c) => acc + c.valorRecebido, 0);
+
+  const promotorasList = useMemo(() => {
+    return Array.from(new Set(propostas.map(p => p.promotora).filter(Boolean)));
   }, [propostas]);
 
-  // Pretty print for competence label (e.g. '2026-03' -> 'Março de 2026')
-  const competenceLabel = useMemo(() => {
-    const [yr, mo] = currentMonthYear.split('-');
-    const monthsNames: Record<string, string> = {
-      '01': 'Janeiro', '02': 'Fevereiro', '03': 'Março', '04': 'Abril',
-      '05': 'Maio', '06': 'Junho', '07': 'Julho', '08': 'Agosto',
-      '09': 'Setembro', '10': 'Outubro', '11': 'Novembro', '12': 'Dezembro'
-    };
-    return `${monthsNames[mo] || 'Setembro'} de ${yr || '2026'}`;
-  }, [currentMonthYear]);
+  // Automated Google Sheets Sync Handler with Safe Backup and Merge
+  const handleGoogleSheetsSync = async () => {
+    try {
+      setIsSyncing(true);
+      setErroNotice(null);
+      setSucessoNotice(null);
 
-  // Fechamento das comissões das vendedoras
-  const sellers = useMemo(() => allUsers.filter(u => u.role === 'vendedora'), [allUsers]);
-  const fechamentoVendedoras = useMemo(() => {
-    return sellers.map(seller => {
-      const sellerMeta = metas.find(m => m.vendedoraId === seller.id && m.mesAno === currentMonthYear);
-      return calcularComissaoVendedoraMes(
-        seller.id,
-        seller.name,
-        currentMonthYear,
+      const result = await executeControladoriaSyncWithBackup(
         propostas,
-        sellerMeta,
-        true // atingiu meta coletiva
+        comissoesPromotoras,
+        saveComissaoPromotoraBatch
       );
-    });
-  }, [sellers, metas, propostas, currentMonthYear]);
 
-  // DRE figures
-  const totalTaxas = useMemo(() => {
-    return paidPropostas
-      .filter(p => p.dataDigitacao.startsWith(currentMonthYear))
-      .reduce((acc, p) => acc + p.valorTaxa, 0);
-  }, [paidPropostas, currentMonthYear]);
-
-  const totalComissoesPromotorasConfirmadas = useMemo(() => {
-    return comissoesPromotoras
-      .filter(c => c.dataRecebimento.startsWith(currentMonthYear) && c.status === 'confirmada')
-      .reduce((acc, c) => acc + c.valorRecebido, 0);
-  }, [comissoesPromotoras, currentMonthYear]);
-
-  const faturamentoTotal = totalTaxas + totalComissoesPromotorasConfirmadas;
-
-  const totalContasPagarMes = useMemo(() => {
-    return contasPagar
-      .filter(c => c.vencimento.startsWith(currentMonthYear))
-      .reduce((acc, c) => acc + c.valor, 0);
-  }, [contasPagar, currentMonthYear]);
-
-  const totalComissoesEquipe = fechamentoVendedoras.reduce((acc, f) => acc + f.totalAPagar, 0);
-  const totalSalariosFixos = sellers.reduce((acc, s) => acc + s.baseSalaryCost, 0) + 3500; // ADM + sellers
-  const despesasOperacionaisTotais = totalContasPagarMes + totalSalariosFixos + totalComissoesEquipe;
-  const lucroLiquidoDRE = faturamentoTotal - despesasOperacionaisTotais;
-
-  // Handle buscar proposta por número de contrato
-  const handleBuscarContrato = () => {
-    const clean = selectedContratoBusca.trim();
-    if (!clean) return;
-    const found = propostas.find(p => p.numeroContrato === clean || p.cpf.includes(clean));
-    if (found) {
-      setPropostaSelecionada(found);
-      setPromotoraLancamento(found.promotora);
-      // Auto estimate 4.5%
-      setValorComissaoStr(Math.round(found.valorEmprestimo * 0.045).toString());
-    } else {
-      alert('Nenhum contrato encontrado com esse número ou CPF.');
+      setSucessoNotice(result.mensagem);
+      setTimeout(() => setSucessoNotice(null), 8000);
+    } catch (err: any) {
+      console.error('Erro na sincronização da Controladoria:', err);
+      setErroNotice(`Falha na sincronização: ${err.message || 'Erro de leitura da planilha'}. Nenhum dado foi alterado.`);
+      setTimeout(() => setErroNotice(null), 8000);
+    } finally {
+      setIsSyncing(false);
     }
   };
 
-  // Handle salvar comissão promotora
-  const handleSalvarComissao = (e: React.FormEvent) => {
+  const handleConfirmarRepasseManual = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!propostaSelecionada) return;
+    if (!selectedContrato) return;
+    const valor = parseFloat(valorRecebidoInput) || 0;
 
-    const valor = parseFloat(valorComissaoStr) || 0;
-    const novaCom: ComissaoPromotora = {
+    saveComissaoPromotora({
       id: `com-prom-${Date.now()}`,
-      propostaId: propostaSelecionada.id,
-      numeroContrato: propostaSelecionada.numeroContrato,
-      clienteNome: propostaSelecionada.nomeCliente,
-      promotora: promotoraLancamento,
+      propostaId: selectedContrato.id,
+      numeroContrato: selectedContrato.numeroContrato,
+      clienteNome: selectedContrato.nomeCliente,
+      promotora: selectedContrato.promotora,
       valorRecebido: valor,
-      dataRecebimento: getLocalDateString(),
-      tipo: 'percentual',
+      dataRecebimento: new Date().toISOString().split('T')[0],
+      tipo: 'fixo',
       status: 'confirmada',
-      observacao: 'Lançado no painel financeiro.'
-    };
+      observacao: 'Repasse confirmado manualmente via Controladoria.'
+    });
 
-    saveComissaoPromotora(novaCom);
-    setComissaoSalvaSucesso(true);
-    setPropostaSelecionada(null);
-    setSelectedContratoBusca('');
-    setValorComissaoStr('');
-    setTimeout(() => setComissaoSalvaSucesso(false), 2500);
+    setSucessoNotice(`Repasse do contrato #${selectedContrato.numeroContrato} confirmado com sucesso!`);
+    setSelectedContrato(null);
+    setValorRecebidoInput('');
+    setTimeout(() => setSucessoNotice(null), 4000);
   };
 
-  // Handle salvar nova conta a pagar
-  const handleSalvarContaPagar = (e: React.FormEvent) => {
-    e.preventDefault();
-    const val = parseFloat(novaContaValorStr) || 0;
-    if (!novaContaDescricao.trim() || val <= 0) return;
-
-    const novaConta: ContaPagar = {
-      id: `cp-${Date.now()}`,
-      descricao: novaContaDescricao.trim(),
-      categoria: novaContaCategoria,
-      valor: val,
-      vencimento: novaContaVencimento,
-      recorrente: true,
-      status: 'pendente'
-    };
-
-    saveContaPagar(novaConta);
-    setIsNovaContaModalOpen(false);
-    setNovaContaDescricao('');
-    setNovaContaValorStr('');
+  const renderMoney = (amount: number) => {
+    if (!hasFinancialAccess) return '••••••';
+    return formatCurrency(amount);
   };
 
   return (
     <div className="space-y-4 pb-20 md:pb-8">
-      {/* Header */}
-      <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {/* Top Header */}
+      <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
         <div>
           <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
             <DollarSign className="w-6 h-6 text-emerald-600" />
-            <span>Controladoria & Gestão Financeira</span>
+            <span>Controladoria</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Comissões recebidas das promotoras, conferência de extratos, contas a pagar e fechamento de equipe
+            Sincronização automatizada de extratos e conciliação de repasses via Google Sheets
           </p>
         </div>
 
-        {/* Sub-tabs */}
-        <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl overflow-x-auto scrollbar-none">
-          <button
-            onClick={() => setActiveSubTab('promotoras')}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap transition-all ${
-              activeSubTab === 'promotoras'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400'
-            }`}
-          >
-            Lançar Promotoras
-          </button>
-          <button
-            onClick={() => setActiveSubTab('conferencia')}
-            className={`flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap transition-all ${
-              activeSubTab === 'conferencia'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400'
-            }`}
-          >
-            <span>Conferência</span>
-            {pendenciasConferencia.length > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black">
-                {pendenciasConferencia.length}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveSubTab('contas_pagar')}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap transition-all ${
-              activeSubTab === 'contas_pagar'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400'
-            }`}
-          >
-            Contas a Pagar
-          </button>
-          <button
-            onClick={() => setActiveSubTab('fechamento_vendedoras')}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap transition-all ${
-              activeSubTab === 'fechamento_vendedoras'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400'
-            }`}
-          >
-            Comissões Vendedoras
-          </button>
-          <button
-            onClick={() => setActiveSubTab('dre')}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap transition-all ${
-              activeSubTab === 'dre'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400'
-            }`}
-          >
-            DRE & Resultado
-          </button>
-        </div>
+        {/* Action Button: Automated Google Sheets Sync (Restricted) */}
+        {isAllowedSyncUser && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={handleGoogleSheetsSync}
+              disabled={isSyncing}
+              className="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold shadow-sm transition-all active:scale-95 flex items-center gap-2"
+            >
+              <RefreshCw className={`w-4 h-4 text-emerald-200 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isSyncing ? 'Sincronizando Planilha...' : 'Sincronizar Extratos Google Sheets'}</span>
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* SUB-TAB 1: LANÇAR COMISSÃO PROMOTORA */}
-      {activeSubTab === 'promotoras' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-          {/* Form */}
-          <div className="lg:col-span-5 bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
-            <div>
-              <h2 className="text-base font-extrabold text-slate-900 dark:text-white">
-                Lançar Comissão Recebida
-              </h2>
-              <p className="text-xs text-slate-500">
-                Informe o número do contrato ou CPF da proposta para vincular o repasse
-              </p>
-            </div>
-
-            {comissaoSalvaSucesso && (
-              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 text-xs font-bold text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
-                <Check className="w-4 h-4 stroke-[3]" />
-                <span>Comissão lançada com sucesso no financeiro!</span>
-              </div>
-            )}
-
-            {/* Step 1: Search Contract */}
-            <div className="space-y-2">
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Buscar Contrato ou CPF do Cliente
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  placeholder="Ex: 482025 ou CPF..."
-                  value={selectedContratoBusca}
-                  onChange={(e) => setSelectedContratoBusca(e.target.value)}
-                  className="flex-1 px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={handleBuscarContrato}
-                  className="px-4 py-2 bg-slate-900 dark:bg-slate-800 text-white font-bold text-xs rounded-xl hover:bg-slate-800 transition-colors"
-                >
-                  Localizar
-                </button>
-              </div>
-            </div>
-
-            {/* Step 2: Fill Commission Details */}
-            {propostaSelecionada && (
-              <form onSubmit={handleSalvarComissao} className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800 text-xs">
-                <div className="p-3 rounded-2xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800/60 space-y-1">
-                  <p className="font-bold text-teal-900 dark:text-teal-200">
-                    {propostaSelecionada.nomeCliente} · Contrato #{propostaSelecionada.numeroContrato}
-                  </p>
-                  <p className="text-[11px] text-teal-800 dark:text-teal-300">
-                    Operação: {propostaSelecionada.operacao} · Banco: {propostaSelecionada.banco} · Venda: {formatCurrency(propostaSelecionada.valorEmprestimo)}
-                  </p>
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Promotora Pagadora
-                  </label>
-                  <select
-                    value={promotoraLancamento}
-                    onChange={(e) => setPromotoraLancamento(e.target.value as Promotora)}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                  >
-                    <option value="J2 Promotora">J2 Promotora</option>
-                    <option value="Sempre">Sempre</option>
-                    <option value="DG">DG</option>
-                    <option value="GFT">GFT</option>
-                    <option value="Direto Banco">Direto Banco</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Valor Recebido da Promotora (R$)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={valorComissaoStr}
-                    onChange={(e) => setValorComissaoStr(e.target.value)}
-                    className="w-full px-3 py-2 font-mono font-bold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm transition-all"
-                >
-                  Confirmar Recebimento da Comissão
-                </button>
-              </form>
-            )}
-          </div>
-
-          {/* List of recent launched commissions */}
-          <div className="lg:col-span-7 bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-3">
-            <h2 className="text-base font-extrabold text-slate-900 dark:text-white">
-              Comissões Lançadas Recentemente ({comissoesPromotoras.length})
-            </h2>
-
-            <div className="space-y-2 max-h-[68vh] overflow-y-auto pr-1">
-              {comissoesPromotoras.map((c) => (
-                <div key={c.id} className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-                  <div>
-                    <span className="font-bold text-slate-900 dark:text-white">{c.clienteNome}</span>
-                    <span className="text-[11px] text-slate-400 ml-1.5 font-mono">#{c.numeroContrato}</span>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      Promotora: <strong>{c.promotora}</strong> · Recebido em: {c.dataRecebimento ? formatDate(c.dataRecebimento) : 'Aguardando'}
-                    </p>
-                  </div>
-
-                  <div className="text-right">
-                    <span className="text-sm font-extrabold text-teal-700 dark:text-teal-400 tabular-nums">
-                      {formatCurrency(c.valorRecebido)}
-                    </span>
-                    <span className={`block text-[10px] font-bold ${c.status === 'confirmada' ? 'text-emerald-600' : 'text-amber-600'}`}>
-                      {c.status.toUpperCase()}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+      {/* Notice Banners */}
+      {sucessoNotice && (
+        <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 text-xs font-bold flex items-center gap-2 animate-in fade-in">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{sucessoNotice}</span>
         </div>
       )}
 
-      {/* SUB-TAB 2: CONFERÊNCIA & PENDÊNCIAS */}
-      {activeSubTab === 'conferencia' && (
+      {erroNotice && (
+        <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-xs font-bold flex items-center gap-2 animate-in fade-in">
+          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+          <span>{erroNotice}</span>
+        </div>
+      )}
+
+      {/* Navigation Tabs */}
+      <div className="flex items-center gap-2 border-b border-slate-200 dark:border-slate-800 pb-2">
+        <button
+          onClick={() => setActiveTab('pendentes')}
+          className={`px-4 py-2 text-xs font-bold rounded-2xl transition-all flex items-center gap-2 ${
+            activeTab === 'pendentes'
+              ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 shadow-xs'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+          <span>Contratos Sem Repasse ({contratosPendentesRepasse.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('conciliados')}
+          className={`px-4 py-2 text-xs font-bold rounded-2xl transition-all flex items-center gap-2 ${
+            activeTab === 'conciliados'
+              ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-900 dark:text-emerald-200 shadow-xs'
+              : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+        >
+          <History className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+          <span>Histórico de Repasses Conciliados ({comissoesPromotoras.length})</span>
+        </button>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
+          <span className="text-xs font-semibold text-slate-500">Contratos Aguardando Repasse</span>
+          <p className="text-2xl font-black text-amber-600 dark:text-amber-400 tabular-nums mt-0.5">
+            {contratosPendentesRepasse.length} contratos
+          </p>
+          <p className="text-[11px] text-slate-400 mt-1">
+            Volume em aberto: {renderMoney(totalVolumePendente)}
+          </p>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
+          <span className="text-xs font-semibold text-slate-500">Repasses Já Conciliados</span>
+          <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 tabular-nums mt-0.5">
+            {renderMoney(totalComissoesRecebidas)}
+          </p>
+          <p className="text-[11px] text-slate-400 mt-1">
+            Total de {comissoesPromotoras.length} contratos baixados
+          </p>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex items-center justify-between">
+          <div>
+            <span className="text-xs font-semibold text-slate-500">Integração Google Sheets</span>
+            <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-1">
+              Abas: J2, Sempre, DG, GFT
+            </p>
+            <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-0.5">
+              Cruzamento automático por contrato, CPF e fallbacks
+            </p>
+          </div>
+          {isAllowedSyncUser && (
+            <button
+              onClick={handleGoogleSheetsSync}
+              disabled={isSyncing}
+              className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 transition-colors shrink-0 disabled:opacity-50"
+              title="Sincronizar Planilha"
+            >
+              <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Filter Bar */}
+      <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-2.5">
+        <div className="relative w-full sm:w-80">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            placeholder="Buscar por cliente, CPF, contrato ou promotora..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+          />
+        </div>
+
+        <div className="flex items-center gap-2 w-full sm:w-auto">
+          <select
+            value={filterPromotora}
+            onChange={(e) => setFilterPromotora(e.target.value)}
+            className="px-3 py-1.5 text-xs font-bold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+          >
+            <option value="todas">Promotora: Todas</option>
+            {promotorasList.map(p => (
+              <option key={p} value={p}>{p}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* TAB 1: Contratos Sem Repasse */}
+      {activeTab === 'pendentes' && (
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
             <div>
               <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                <FileCheck2 className="w-5 h-5 text-amber-500" />
-                <span>Conferência de Extratos & Pendências de Repasse</span>
+                <AlertCircle className="w-5 h-5 text-amber-500" />
+                <span>Contratos com Repasse de Comissão Pendente</span>
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Contratos já pagos ao cliente no banco, mas que ainda não tiveram comissão de promotora lançada
+                Contratos pagos sem vinculação de repasse de comissão da promotora
               </p>
             </div>
-            <span className="text-xs font-bold px-3 py-1 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300">
-              {pendenciasConferencia.length} Pendências de Repasse
+            <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 self-start sm:self-auto">
+              {contratosPendentesRepasse.length} Pendências
             </span>
           </div>
 
@@ -418,54 +315,63 @@ export const FinanceiroView: React.FC = () => {
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase text-[10px]">
                   <th className="py-2.5 px-3">Contrato</th>
-                  <th className="py-2.5 px-3">Data Pgto Cliente</th>
-                  <th className="py-2.5 px-3">Cliente</th>
-                  <th className="py-2.5 px-3">Operação</th>
-                  <th className="py-2.5 px-3">Banco</th>
-                  <th className="py-2.5 px-3">Promotora Esperada</th>
-                  <th className="py-2.5 px-3 text-right">Venda (R$)</th>
-                  <th className="py-2.5 px-3 text-right text-amber-600 font-bold">Comissão Estimada (4,5%)</th>
-                  <th className="py-2.5 px-3 text-center">Ação</th>
+                  <th className="py-2.5 px-3">Cliente / CPF</th>
+                  <th className="py-2.5 px-3">Promotora</th>
+                  <th className="py-2.5 px-3">Banco / Operação</th>
+                  <th className="py-2.5 px-3 text-right">Valor Venda (R$)</th>
+                  <th className="py-2.5 px-3 text-center">Data Pagamento</th>
+                  <th className="py-2.5 px-3 text-center">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-                {pendenciasConferencia.length === 0 ? (
+                {contratosPendentesRepasse.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-8 text-center text-slate-400">
-                      Parabéns! Todos os contratos pagos já tiveram comissões confirmadas e conciliadas.
+                    <td colSpan={7} className="py-12 text-center text-slate-400">
+                      <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
+                      <p className="font-bold text-slate-700 dark:text-slate-300 text-sm">
+                        Nenhum contrato com repasse pendente!
+                      </p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Todos os contratos pagos já tiveram seus repasses de comissão conciliados.
+                      </p>
                     </td>
                   </tr>
                 ) : (
-                  pendenciasConferencia.map((p) => {
-                    const est = Math.round(p.valorEmprestimo * 0.045);
-                    return (
-                      <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                        <td className="py-2.5 px-3 font-mono">#{p.numeroContrato}</td>
-                        <td className="py-2.5 px-3 tabular-nums">{p.dataPagamentoCliente ? formatDate(p.dataPagamentoCliente) : '-'}</td>
-                        <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">{p.nomeCliente}</td>
-                        <td className="py-2.5 px-3">{p.operacao}</td>
-                        <td className="py-2.5 px-3">{p.banco}</td>
-                        <td className="py-2.5 px-3 font-semibold text-teal-700 dark:text-teal-400">{p.promotora}</td>
-                        <td className="py-2.5 px-3 text-right tabular-nums">{formatCurrency(p.valorEmprestimo)}</td>
-                        <td className="py-2.5 px-3 text-right font-extrabold text-amber-600 tabular-nums">
-                          {formatCurrency(est)}
-                        </td>
-                        <td className="py-2.5 px-3 text-center">
-                          <button
-                            onClick={() => {
-                              setPropostaSelecionada(p);
-                              setPromotoraLancamento(p.promotora);
-                              setValorComissaoStr(est.toString());
-                              setActiveSubTab('promotoras');
-                            }}
-                            className="px-2.5 py-1 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold text-[11px]"
-                          >
-                            Conciliar Agora
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })
+                  contratosPendentesRepasse.map((p) => (
+                    <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                      <td className="py-2.5 px-3 font-mono font-bold text-slate-600 dark:text-slate-400">
+                        #{p.numeroContrato}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <p className="font-bold text-slate-900 dark:text-white">{p.nomeCliente}</p>
+                        <p className="font-mono text-[10px] text-slate-400">{p.cpf ? formatCPF(p.cpf) : '—'}</p>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <span className="font-bold text-slate-800 dark:text-slate-200">{p.promotora}</span>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <p className="font-bold text-slate-900 dark:text-white">{p.banco}</p>
+                        <p className="text-[10px] text-slate-400">{p.operacao}</p>
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-white tabular-nums">
+                        {renderMoney(p.valorEmprestimo)}
+                      </td>
+                      <td className="py-2.5 px-3 text-center tabular-nums text-slate-600 dark:text-slate-400">
+                        {p.dataPagamentoCliente ? formatDate(p.dataPagamentoCliente) : formatDate(p.dataDigitacao)}
+                      </td>
+                      <td className="py-2.5 px-3 text-center">
+                        <button
+                          onClick={() => {
+                            setSelectedContrato(p);
+                            setValorRecebidoInput('');
+                          }}
+                          className="px-3 py-1 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-300 font-bold text-[11px] border border-emerald-200 dark:border-emerald-800 transition-all"
+                        >
+                          Lançar Repasse
+                        </button>
+                      </td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
@@ -473,273 +379,111 @@ export const FinanceiroView: React.FC = () => {
         </div>
       )}
 
-      {/* SUB-TAB 3: CONTAS A PAGAR */}
-      {activeSubTab === 'contas_pagar' && (
+      {/* TAB 2: Histórico de Repasses Conciliados */}
+      {activeTab === 'conciliados' && (
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100 dark:border-slate-800">
             <div>
               <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-                <Receipt className="w-5 h-5 text-rose-500" />
-                <span>Contas a Pagar & Despesas Operacionais</span>
+                <FileCheck2 className="w-5 h-5 text-emerald-600" />
+                <span>Histórico de Repasses Conciliados</span>
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Controle de aluguel, sistemas, internet, energia e despesas gerais da loja
+                Extratos recebidos e comissões vinculadas às produções
               </p>
             </div>
-
-            <button
-              onClick={() => setIsNovaContaModalOpen(true)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0B2A4A] dark:bg-teal-600 hover:bg-[#163E68] text-white font-bold text-xs shadow-xs"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>Nova Despesa</span>
-            </button>
+            <span className="text-xs font-bold px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 self-start sm:self-auto">
+              {repassesConciliados.length} Repasses Registrados
+            </span>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left">
               <thead>
                 <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase text-[10px]">
-                  <th className="py-2.5 px-3">Descrição da Despesa</th>
-                  <th className="py-2.5 px-3">Categoria</th>
-                  <th className="py-2.5 px-3">Vencimento</th>
-                  <th className="py-2.5 px-3 text-right">Valor (R$)</th>
+                  <th className="py-2.5 px-3">Contrato</th>
+                  <th className="py-2.5 px-3">Data Recebimento</th>
+                  <th className="py-2.5 px-3">Cliente</th>
+                  <th className="py-2.5 px-3">Promotora</th>
+                  <th className="py-2.5 px-3 text-right">Valor Repassado (R$)</th>
                   <th className="py-2.5 px-3 text-center">Status</th>
-                  <th className="py-2.5 px-3 text-center">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-                {contasPagar.map((cp) => (
-                  <tr key={cp.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                    <td className="py-3 px-3 font-bold text-slate-900 dark:text-white">{cp.descricao}</td>
-                    <td className="py-3 px-3">
-                      <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                        {cp.categoria}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 tabular-nums text-slate-500">{formatDate(cp.vencimento)}</td>
-                    <td className="py-3 px-3 text-right font-extrabold text-slate-900 dark:text-white tabular-nums">
-                      {formatCurrency(cp.valor)}
-                    </td>
-                    <td className="py-3 px-3 text-center">
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                        cp.status === 'paga' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
-                        cp.status === 'atrasada' ? 'bg-rose-100 text-rose-800' :
-                        'bg-amber-100 text-amber-800'
-                      }`}>
-                        {cp.status.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 text-center">
-                      {cp.status !== 'paga' && (
-                        <button
-                          onClick={() => marcarContaPaga(cp.id)}
-                          className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px]"
-                        >
-                          Marcar Paga
-                        </button>
-                      )}
+                {repassesConciliados.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="py-12 text-center text-slate-400">
+                      <FileSpreadsheet className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2 stroke-1" />
+                      <p className="font-semibold text-slate-600 dark:text-slate-400">Nenhum repasse registrado ainda</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Clique em "Sincronizar Extratos Google Sheets" para buscar as comissões das promotoras.
+                      </p>
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  repassesConciliados.map((c) => (
+                    <tr key={c.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
+                      <td className="py-2.5 px-3 font-mono text-slate-500">#{c.numeroContrato}</td>
+                      <td className="py-2.5 px-3 tabular-nums">{c.dataRecebimento ? formatDate(c.dataRecebimento) : '—'}</td>
+                      <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">{c.clienteNome}</td>
+                      <td className="py-2.5 px-3 text-slate-700 dark:text-slate-300">{c.promotora}</td>
+                      <td className="py-2.5 px-3 text-right font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                        {renderMoney(c.valorRecebido)}
+                      </td>
+                      <td className="py-2.5 px-3 text-center">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                          {c.status.toUpperCase()}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      {/* SUB-TAB 4: FECHAMENTO DE COMISSÕES DAS VENDEDORAS */}
-      {activeSubTab === 'fechamento_vendedoras' && (
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
-          <div>
-            <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-amber-500" />
-              <span>Fechamento de Comissões a Pagar às Vendedoras</span>
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Cálculo baseado nas regras isoladas em /utils/commissionRules.ts (Comissão sobre taxas, contratos digitados e bônus de metas)
-            </p>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead>
-                <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase text-[10px]">
-                  <th className="py-2.5 px-3">Vendedora</th>
-                  <th className="py-2.5 px-3 text-right">Vendas Pagas</th>
-                  <th className="py-2.5 px-3 text-right">Taxas Arrecadadas</th>
-                  <th className="py-2.5 px-3 text-right font-semibold text-amber-600">Comissão Taxa</th>
-                  <th className="py-2.5 px-3 text-right">Bônus Digitação</th>
-                  <th className="py-2.5 px-3 text-right">Bônus Cartões</th>
-                  <th className="py-2.5 px-3 text-right">Bônus Meta Loja</th>
-                  <th className="py-2.5 px-3 text-right font-black text-emerald-600 text-sm">Total a Pagar</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
-                {fechamentoVendedoras.map((f) => (
-                  <tr key={f.vendedoraId} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                    <td className="py-3 px-3 font-bold text-slate-900 dark:text-white">{f.vendedoraNome}</td>
-                    <td className="py-3 px-3 text-right tabular-nums">{formatCurrency(f.totalVendas)}</td>
-                    <td className="py-3 px-3 text-right tabular-nums text-amber-600 font-bold">{formatCurrency(f.totalTaxas)}</td>
-                    <td className="py-3 px-3 text-right tabular-nums text-amber-600">{formatCurrency(f.comissaoTaxas)}</td>
-                    <td className="py-3 px-3 text-right tabular-nums">{formatCurrency(f.comissaoDigitacao)}</td>
-                    <td className="py-3 px-3 text-right tabular-nums">{formatCurrency(f.comissaoCartao)}</td>
-                    <td className="py-3 px-3 text-right tabular-nums text-emerald-600">{formatCurrency(f.bonusMeta)}</td>
-                    <td className="py-3 px-3 text-right tabular-nums font-black text-emerald-600 dark:text-emerald-400 text-sm">
-                      {formatCurrency(f.totalAPagar)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* SUB-TAB 5: DRE & DEMONSTRATIVO DO RESULTADO DO MÊS */}
-      {activeSubTab === 'dre' && (
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4 max-w-3xl mx-auto">
-          <div className="text-center pb-3 border-b border-slate-100 dark:border-slate-800">
-            <h2 className="text-lg font-black text-slate-900 dark:text-white">
-              Demonstrativo de Resultado do Exercício (DRE Sintético)
-            </h2>
+      {/* Manual Commission Launch Modal */}
+      {selectedContrato && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-md w-full p-5 shadow-2xl space-y-4">
+            <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+              Confirmar Repasse de Comissão
+            </h3>
             <p className="text-xs text-slate-500">
-              Lívia Cred Saúde • Competência {competenceLabel}
+              Contrato #{selectedContrato.numeroContrato} • {selectedContrato.nomeCliente} • Promotora: {selectedContrato.promotora}
             </p>
-          </div>
 
-          <div className="space-y-3 text-xs">
-            <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-slate-800 font-bold text-slate-900 dark:text-white">
-              <span>(+) RECEITA BRUTA COM TAXAS DE ASSESSORIA</span>
-              <span className="tabular-nums">{formatCurrency(totalTaxas)}</span>
-            </div>
-
-            <div className="flex items-center justify-between py-2 border-b border-slate-100 dark:border-slate-800 font-bold text-slate-900 dark:text-white">
-              <span>(+) COMISSÕES RECEBIDAS DAS PROMOTORAS</span>
-              <span className="tabular-nums">{formatCurrency(totalComissoesPromotorasConfirmadas)}</span>
-            </div>
-
-            <div className="flex items-center justify-between py-2.5 bg-teal-50 dark:bg-teal-950/40 px-3 rounded-xl font-extrabold text-[#0F5C63] dark:text-[#28B0B7] text-sm">
-              <span>(=) FATURAMENTO BRUTO TOTAL</span>
-              <span className="tabular-nums">{formatCurrency(faturamentoTotal)}</span>
-            </div>
-
-            <div className="flex items-center justify-between py-2 text-rose-600 font-semibold">
-              <span>(-) Despesas Administrativas & Estrutura (Contas a Pagar)</span>
-              <span className="tabular-nums">-{formatCurrency(totalContasPagarMes)}</span>
-            </div>
-
-            <div className="flex items-center justify-between py-2 text-rose-600 font-semibold">
-              <span>(-) Salários e Encargos Fixos da Equipe</span>
-              <span className="tabular-nums">-{formatCurrency(totalSalariosFixos)}</span>
-            </div>
-
-            <div className="flex items-center justify-between py-2 text-rose-600 font-semibold">
-              <span>(-) Comissões a Pagar às Vendedoras</span>
-              <span className="tabular-nums">-{formatCurrency(totalComissoesEquipe)}</span>
-            </div>
-
-            <div className="flex items-center justify-between py-3 bg-gradient-to-r from-emerald-600 to-teal-700 text-white px-4 rounded-2xl font-black text-base shadow-sm">
-              <span>(=) LUCRO LÍQUIDO DO MÊS</span>
-              <span className="tabular-nums">{formatCurrency(lucroLiquidoDRE)}</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Nova Conta a Pagar */}
-      {isNovaContaModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="w-full max-w-md rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-5 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                Cadastrar Conta a Pagar
-              </h3>
-              <button
-                onClick={() => setIsNovaContaModalOpen(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-600"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSalvarContaPagar} className="space-y-3 text-xs">
+            <form onSubmit={handleConfirmarRepasseManual} className="space-y-3">
               <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Descrição da Conta / Fornecedor
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Valor Recebido no Extrato (R$)
                 </label>
                 <input
-                  type="text"
+                  type="number"
+                  step="0.01"
                   required
-                  placeholder="Ex: Aluguel Loja Física, Internet..."
-                  value={novaContaDescricao}
-                  onChange={(e) => setNovaContaDescricao(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+                  placeholder="0,00"
+                  value={valorRecebidoInput}
+                  onChange={(e) => setValorRecebidoInput(e.target.value)}
+                  className="w-full px-3 py-2 text-sm font-bold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
               </div>
 
-              <div>
-                <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Categoria
-                </label>
-                <select
-                  value={novaContaCategoria}
-                  onChange={(e) => setNovaContaCategoria(e.target.value as any)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                >
-                  <option value="Aluguel">Aluguel</option>
-                  <option value="Sistemas & Telefonia">Sistemas & Telefonia</option>
-                  <option value="Folha de Pagamento">Folha de Pagamento</option>
-                  <option value="Impostos">Impostos</option>
-                  <option value="Contabilidade">Contabilidade</option>
-                  <option value="Marketing">Marketing</option>
-                  <option value="Despesas Gerais">Despesas Gerais</option>
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Valor (R$)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    placeholder="0.00"
-                    value={novaContaValorStr}
-                    onChange={(e) => setNovaContaValorStr(e.target.value)}
-                    className="w-full px-3 py-2 font-mono font-bold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                  />
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Data Vencimento
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={novaContaVencimento}
-                    onChange={(e) => setNovaContaVencimento(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
-                  />
-                </div>
-              </div>
-
-              <div className="pt-2 flex justify-end gap-2">
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setIsNovaContaModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-slate-500 font-semibold"
+                  onClick={() => setSelectedContrato(null)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-slate-900 dark:bg-teal-600 text-white font-bold"
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all active:scale-95"
                 >
-                  Salvar Despesa
+                  Confirmar Repasse
                 </button>
               </div>
             </form>

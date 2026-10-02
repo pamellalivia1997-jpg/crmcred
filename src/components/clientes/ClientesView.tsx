@@ -51,6 +51,7 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
   const {
     clientes,
     propostas,
+    comissoesPromotoras,
     logCpfAccess,
     saveCliente,
     importClientPortfolio,
@@ -58,6 +59,7 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
     clearAllTestData
   } = useCRM();
   const { currentUser, isManager } = useAuth();
+  const isAdm = currentUser?.role === 'adm' || currentUser?.role === 'proprietaria';
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
@@ -475,14 +477,62 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
                           </div>
                           <div>
                             <span className="text-[10px] text-slate-400">Taxa Cobrada:</span>
-                            <p className="font-bold text-amber-600 dark:text-amber-400 tabular-nums">
-                              {formatCurrency(prop.valorTaxa)} ({prop.percentualTaxa}%)
-                            </p>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-amber-600 dark:text-amber-400 tabular-nums">
+                                {formatCurrency(prop.valorTaxa)} ({Number(prop.percentualTaxa || 0).toFixed(2)}%)
+                              </span>
+                              <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-full ${
+                                (prop.taxaPaga === true || prop.clientePagouTaxa === true)
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                  : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                              }`}>
+                                Taxa: {(prop.taxaPaga === true || prop.clientePagouTaxa === true) ? 'Paga (Sim)' : 'Pendente (Não)'}
+                              </span>
+                            </div>
                           </div>
                         </div>
 
+                        {/* Comissão Promotora (Visibilidade Restrita: ADM) */}
+                        {isAdm && (() => {
+                          const comItem = comissoesPromotoras.find(
+                            c => c.propostaId === prop.id || (prop.numeroContrato && c.numeroContrato && c.numeroContrato.trim().toLowerCase() === prop.numeroContrato.trim().toLowerCase())
+                          );
+                          return (
+                            <div className="mt-2 p-2 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/60 flex items-center justify-between text-xs">
+                              <div>
+                                <span className="text-[10px] text-emerald-800 dark:text-emerald-300 font-bold block">
+                                  Comissão Promotora (ADM):
+                                </span>
+                                {comItem && comItem.valorRecebido > 0 ? (
+                                  <span className="font-extrabold text-emerald-700 dark:text-emerald-300 tabular-nums">
+                                    {formatCurrency(comItem.valorRecebido)} ({comItem.promotora})
+                                  </span>
+                                ) : (
+                                  <span className="text-amber-700 dark:text-amber-400 font-semibold text-[11px]">
+                                    Repasse pendente
+                                  </span>
+                                )}
+                              </div>
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
+                                comItem && comItem.valorRecebido > 0
+                                  ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200'
+                                  : 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200'
+                              }`}>
+                                {comItem && comItem.valorRecebido > 0 ? 'CONCILIADO' : 'SEM REPASSE'}
+                              </span>
+                            </div>
+                          );
+                        })()}
+
                         <div className="mt-2 pt-2 border-t border-slate-200/60 dark:border-slate-700/60 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
-                          <span>Digitado em: {formatDate(prop.dataDigitacao)}</span>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span>Digitado em: <strong className="text-slate-700 dark:text-slate-300">{formatDate(prop.dataDigitacao)}</strong></span>
+                            {prop.dataPagamentoCliente && (
+                              <span className="text-teal-600 dark:text-teal-400 font-bold">
+                                • Pago ao Cliente: {formatDate(prop.dataPagamentoCliente)}
+                              </span>
+                            )}
+                          </div>
                           <span>Vendedora: <strong>{prop.vendedora}</strong></span>
                           {prop.linkDocumento && (
                             <a
@@ -890,15 +940,47 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
                   }
                   
                   let carimboIdx = headerCells.findIndex(c => c.includes('CARIMBO') || c.includes('HORA') || c.includes('TIMESTAMP'));
-                  let dataDigitaIdx = headerCells.findIndex(c => c.includes('DIGITAÇ') || c.includes('DIGITAC'));
-                  let dataPagtoIdx = headerCells.findIndex(c => c.includes('PAGAMENTO') || c.includes('PAGO AO CLIENTE'));
+
+                  let dataPagtoIdx = headerCells.findIndex(c =>
+                    c.includes('PAGAMENTO') ||
+                    c.includes('PGTO') ||
+                    c.includes('PAGO AO CLIENTE') ||
+                    c.includes('PAGO CLIENTE') ||
+                    c.includes('DATA PGTO') ||
+                    c.includes('DT PGTO') ||
+                    c.includes('DT PAGTO') ||
+                    c.includes('DT PAGAMENTO') ||
+                    c.includes('LIQUIDAÇÃO') ||
+                    c.includes('LIQUIDACAO') ||
+                    c.includes('LIBERAÇÃO') ||
+                    c.includes('LIBERACAO')
+                  );
+
+                  let dataDigitaIdx = headerCells.findIndex((c, idx) =>
+                    idx !== dataPagtoIdx && (
+                      c.includes('DIGITAÇ') ||
+                      c.includes('DIGITAC') ||
+                      c.includes('DIGITACAO') ||
+                      c.includes('DATA DIG') ||
+                      (c.includes('DATA') && !c.includes('NASC') && !c.includes('PGTO') && !c.includes('PAG') && !c.includes('LIQ'))
+                    )
+                  );
+
                   let convenioIdx = headerCells.findIndex(c => c.includes('CONV'));
                   let operacaoIdx = headerCells.findIndex(c => c.includes('OPERAÇ') || c.includes('OPERAC'));
                   let bancoIdx = headerCells.findIndex(c => c.includes('BANCO'));
                   let promotoraIdx = headerCells.findIndex(c => c.includes('PROMOTORA'));
                   let valorEmpIdx = headerCells.findIndex(c => c.includes('EMPRÉSTIMO') || c.includes('EMPRESTIMO') || c.includes('LIBERADO'));
                   let valorTaxaIdx = headerCells.findIndex(c => c.includes('TAXA DA ASSESSORIA') || c.includes('VALOR DA TAXA') || (c.includes('TAXA') && !c.includes('CARTÃO') && !c.includes('PERCENTUAL')));
-                  let clientePagouIdx = headerCells.findIndex(c => c.includes('PAGOU A TAXA') || c.includes('CLIENTE PAGOU'));
+
+                  let clientePagouIdx = headerCells.findIndex(c =>
+                    c.includes('PAGOU A TAXA') ||
+                    c.includes('CLIENTE PAGOU') ||
+                    c.includes('TAXA PAGA') ||
+                    c.includes('TAXA FOI PAGA') ||
+                    c.includes('TAXA QUITADA') ||
+                    (c.includes('TAXA') && (c.includes('SIM') || c.includes('PAGA') || c.includes('PG') || c.includes('STATUS')))
+                  );
                   let vendedoraIdx = headerCells.findIndex(c => c.includes('VENDEDOR') || c.includes('VENDEDORA'));
                   let digitadorIdx = headerCells.findIndex(c => c.includes('DIGITADOR'));
                   
@@ -1018,21 +1100,21 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
             ) : (
               <div className="space-y-3 text-xs text-slate-600 dark:text-slate-300">
                 <p className="leading-relaxed font-medium">
-                  Tem certeza de que deseja <strong>zerar todos os dados fictícios de teste</strong>?
+                  Tem certeza de que deseja <strong>zerar todos os registros de teste</strong> do banco de dados?
                 </p>
                 <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200 space-y-1">
                   <p className="font-bold flex items-center gap-1">
                     <AlertCircle className="w-4 h-4 text-amber-600" />
-                    O que será apagado do Firebase:
+                    O que será apagado:
                   </p>
                   <ul className="list-disc list-inside text-[11px] text-amber-800 dark:text-amber-300 space-y-0.5">
-                    <li>Todas as propostas de teste (analisadas, pagas ou pendentes)</li>
-                    <li>Lançamentos de comissões de promotoras e contas a pagar</li>
-                    <li>Alertas e histórico de simulações e auditoria</li>
+                    <li>Todas as propostas de teste (analisadas, pagas ou simuladas)</li>
+                    <li>Lançamentos de comissões de promotoras e contas a pagar de teste</li>
+                    <li>Alertas e histórico de auditoria antigos</li>
                   </ul>
                 </div>
                 <p className="text-[11px] text-slate-500">
-                  A sua carteira de clientes será mantida limpa e pronta para novos cadastros e importações reais.
+                  O sistema ficará limpo e pronto para novos cadastros e importações de clientes.
                 </p>
               </div>
             )}

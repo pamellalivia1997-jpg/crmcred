@@ -86,11 +86,17 @@ const PROMOTORAS_LIST: Promotora[] = [
 ];
 
 export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialProposta, onClose, onProposalUpdated }) => {
-  const { saveProposta, deleteProposta, propostas } = useCRM();
+  const { saveProposta, deleteProposta, propostas, comissoesPromotoras } = useCRM();
   const { currentUser, canEditProposal, allUsers } = useAuth();
+
+  const isAdm = currentUser?.role === 'adm' || currentUser?.role === 'proprietaria';
 
   // Keep proposta up-to-date from context if it changes
   const proposta = propostas.find(p => p.id === initialProposta?.id) || initialProposta;
+
+  const comissaoPromotoraItem = proposta ? comissoesPromotoras.find(
+    c => c.propostaId === proposta.id || (proposta.numeroContrato && c.numeroContrato && c.numeroContrato.trim().toLowerCase() === proposta.numeroContrato.trim().toLowerCase())
+  ) : null;
 
   const [isEditing, setIsEditing] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
@@ -113,6 +119,7 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
     digitador: '',
     dataDigitacao: '',
     dataPagamentoCliente: '',
+    taxaPaga: true,
     motivoCancelamento: '',
     observacoes: '',
     linkDocumento: ''
@@ -128,7 +135,7 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
         cpf: proposta.cpf || '',
         valorEmprestimo: proposta.valorEmprestimo || 0,
         valorTaxa: proposta.valorTaxa || 0,
-        percentualTaxa: proposta.percentualTaxa || 0,
+        percentualTaxa: Number((proposta.percentualTaxa || 0).toFixed(2)),
         banco: proposta.banco || 'Banco Pan',
         operacao: proposta.operacao || 'Portabilidade',
         promotora: proposta.promotora || 'J2 Promotora',
@@ -137,6 +144,7 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
         digitador: proposta.digitador || '',
         dataDigitacao: proposta.dataDigitacao || '',
         dataPagamentoCliente: proposta.dataPagamentoCliente || '',
+        taxaPaga: proposta.taxaPaga === true || proposta.clientePagouTaxa === true,
         motivoCancelamento: proposta.motivoCancelamento || '',
         observacoes: proposta.observacoes || '',
         linkDocumento: proposta.linkDocumento || ''
@@ -265,9 +273,9 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
       cpf: formData.cpf.replace(/\D/g, ''),
       valorEmprestimo: formData.valorEmprestimo,
       valorTaxa: formData.valorTaxa,
-      percentualTaxa: formData.percentualTaxa,
-      taxaPaga: isPaid ? true : proposta.taxaPaga,
-      clientePagouTaxa: isPaid ? true : proposta.clientePagouTaxa,
+      percentualTaxa: Number(formData.percentualTaxa.toFixed(2)),
+      taxaPaga: formData.taxaPaga,
+      clientePagouTaxa: formData.taxaPaga,
       banco: formData.banco,
       operacao: formData.operacao,
       promotora: formData.promotora,
@@ -275,7 +283,7 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
       vendedora: formData.vendedora.trim() || proposta.vendedora,
       digitador: formData.digitador.trim() || proposta.digitador,
       dataDigitacao: formData.dataDigitacao || proposta.dataDigitacao,
-      dataPagamentoCliente: isPaid ? (formData.dataPagamentoCliente || nowStr.split(' ')[0]) : formData.dataPagamentoCliente,
+      dataPagamentoCliente: formData.dataPagamentoCliente || (isPaid ? nowStr.split(' ')[0] : undefined),
       motivoCancelamento: formData.motivoCancelamento.trim(),
       observacoes: formData.observacoes.trim(),
       linkDocumento: formData.linkDocumento.trim(),
@@ -475,15 +483,29 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
 
                   <div>
                     <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 mb-1">
-                      % Taxa Extra
+                      % Taxa Cobrada
                     </label>
                     <input
                       type="number"
-                      step="0.1"
+                      step="0.01"
                       value={formData.percentualTaxa}
                       onChange={e => setFormData({ ...formData, percentualTaxa: parseFloat(e.target.value) || 0 })}
                       className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 font-bold text-xs"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                      Taxa Paga pelo Cliente? *
+                    </label>
+                    <select
+                      value={formData.taxaPaga ? 'sim' : 'nao'}
+                      onChange={e => setFormData({ ...formData, taxaPaga: e.target.value === 'sim' })}
+                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white font-bold text-xs"
+                    >
+                      <option value="sim">Sim (Taxa Paga)</option>
+                      <option value="nao">Não (Pendente)</option>
+                    </select>
                   </div>
                 </div>
               </div>
@@ -714,7 +736,7 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                 <div>
                   <span className="text-[10px] uppercase font-bold text-slate-400">Taxa Arrecadada</span>
                   <p className="text-base font-extrabold text-amber-600 dark:text-amber-400 tabular-nums mt-0.5">
-                    {formatCurrency(proposta.valorTaxa)} ({proposta.percentualTaxa}%)
+                    {formatCurrency(proposta.valorTaxa)} ({Number(proposta.percentualTaxa || 0).toFixed(2)}%)
                   </p>
                 </div>
                 <div>
@@ -760,8 +782,14 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                   </div>
                   <div>
                     <span className="text-slate-400 text-[11px]">Taxa Paga:</span>
-                    <p className="font-semibold text-slate-800 dark:text-slate-200">
-                      {proposta.taxaPaga ? 'Sim (Quitada)' : 'Pendente'}
+                    <p className="font-semibold text-slate-800 dark:text-slate-200 mt-0.5">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        (proposta.taxaPaga === true || proposta.clientePagouTaxa === true)
+                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                          : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                      }`}>
+                        {(proposta.taxaPaga === true || proposta.clientePagouTaxa === true) ? 'Sim (Paga)' : 'Não (Pendente)'}
+                      </span>
                     </p>
                   </div>
                   {proposta.linkDocumento && (
@@ -786,6 +814,38 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                   )}
                 </div>
               </div>
+
+              {/* Promotora Commission Info (Strictly ADM only) */}
+              {isAdm && (
+                <div className="p-3.5 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-100 dark:bg-emerald-900/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                      <DollarSign className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-emerald-800 dark:text-emerald-300 block">
+                        Comissão Recebida da Promotora (Visibilidade: Apenas ADM)
+                      </span>
+                      {comissaoPromotoraItem && comissaoPromotoraItem.valorRecebido > 0 ? (
+                        <p className="text-sm font-black text-emerald-700 dark:text-emerald-300 tabular-nums">
+                          {formatCurrency(comissaoPromotoraItem.valorRecebido)} <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">• {comissaoPromotoraItem.promotora} {comissaoPromotoraItem.dataRecebimento ? `(em ${formatDate(comissaoPromotoraItem.dataRecebimento)})` : ''}</span>
+                        </p>
+                      ) : (
+                        <p className="text-xs font-bold text-amber-700 dark:text-amber-400">
+                          Repasse não confirmado / Aguardando extrato da promotora
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold tracking-wide self-start sm:self-auto ${
+                    comissaoPromotoraItem && comissaoPromotoraItem.valorRecebido > 0
+                      ? 'bg-emerald-200 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-200'
+                      : 'bg-amber-200 text-amber-900 dark:bg-amber-900 dark:text-amber-200'
+                  }`}>
+                    {comissaoPromotoraItem && comissaoPromotoraItem.valorRecebido > 0 ? 'REPASSE CONFIRMADO' : 'SEM REPASSE'}
+                  </span>
+                </div>
+              )}
 
               {/* Observacoes */}
               {proposta.observacoes && (

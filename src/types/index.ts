@@ -8,6 +8,8 @@ export interface User {
   role: UserRole;
   avatarUrl?: string;
   phone: string;
+  cpf?: string;
+  pix?: string;
   status: 'ativo' | 'inativo';
   salesName?: string; // Nome que aparece nos formulários e planilhas (Ex: "Hellen")
   monthlySalesGoal?: number; // Ex: 70000
@@ -192,14 +194,29 @@ export interface AlertaOportunidade {
   tipo: 'portabilidade' | 'refin' | 'cartao_credito' | 'reativacao' | 'aniversario' | 'proposta_parada' | 'taxa_pendente' | 'meta_alerta';
   motivo: string;
   vendedoraResponsavel: string;
-  status: 'nova' | 'em_contato' | 'convertida' | 'descartada';
+  status: 'nova' | 'em_contato' | 'convertida' | 'descartada' | 'adiada' | 'concluida';
   dataCriacao: string;
   valorPotencial?: number;
   propostaOrigemId?: string;
   liberadoParaDigitador?: boolean;
   liberadoPor?: string;
   dataLiberacao?: string;
+  adiadoAte?: string;
+  concluidoEm?: string;
 }
+
+export type PeriodoFiltro =
+  | 'hoje'
+  | '7d'
+  | 'mes'
+  | 'todos'
+  | 'personalizado'
+  | 'semana'
+  | 'semana_anterior'
+  | 'mes_anterior'
+  | 'ultimos_3_meses'
+  | 'ano'
+  | 'tudo';
 
 export interface AuditLog {
   id: string;

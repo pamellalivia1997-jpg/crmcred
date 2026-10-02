@@ -59,6 +59,9 @@ export const INITIAL_USERS: User[] = [
     password: '123',
     role: 'vendedora',
     phone: '(81) 98444-5566',
+    cpf: '704.619.204-92',
+    pix: '70461920492',
+    salesName: 'Bianca',
     status: 'ativo',
     monthlySalesGoal: 85000,
     monthlyTaxPercentGoal: 11.0,
@@ -71,6 +74,9 @@ export const INITIAL_USERS: User[] = [
     password: '123',
     role: 'vendedora',
     phone: '(81) 98111-2233',
+    cpf: '132.482.714-93',
+    pix: '13248271493',
+    salesName: 'Hellen',
     status: 'ativo',
     monthlySalesGoal: 95000,
     monthlyTaxPercentGoal: 12.0,
@@ -83,6 +89,9 @@ export const INITIAL_USERS: User[] = [
     password: '123',
     role: 'vendedora',
     phone: '(81) 98222-3344',
+    cpf: '720.175.034-87',
+    pix: '72017503487',
+    salesName: 'Taciana',
     status: 'ativo',
     monthlySalesGoal: 80000,
     monthlyTaxPercentGoal: 10.5,
@@ -95,6 +104,9 @@ export const INITIAL_USERS: User[] = [
     password: '123',
     role: 'vendedora',
     phone: '(81) 98333-4455',
+    cpf: '601.234.567-89',
+    pix: '81983334455',
+    salesName: 'Lucélia',
     status: 'ativo',
     monthlySalesGoal: 75000,
     monthlyTaxPercentGoal: 10.0,
@@ -277,35 +289,65 @@ export function generateSeedData() {
       let clientePagouTaxa = true;
       let motivoCancelamento: string | undefined = undefined;
 
-      // In current month (2026-09), create some in other statuses
+      // In current month (2026-09), generate proposals matching exact management figures
       if (m.year === 2026 && m.month === 9) {
-        if (c === 0 || c === 5) {
-          status = 'Em análise';
-          dataPagamentoCliente = undefined;
-          taxaPaga = false;
-          clientePagouTaxa = false;
-        } else if (c === 1 || c === 8 || c === 14) {
-          status = 'Em análise';
-          dataPagamentoCliente = undefined;
-          taxaPaga = false;
-          clientePagouTaxa = false;
-        } else if (c === 2 || c === 12) {
-          status = 'Paga';
-          taxaPaga = true;
-          clientePagouTaxa = true;
-        } else if (c === 4) {
-          status = 'Cancelada';
-          dataPagamentoCliente = undefined;
-          taxaPaga = false;
-          clientePagouTaxa = false;
-          motivoCancelamento = 'Margem consignável insuficiente no Dataprev / INSS.';
-        } else if (c === 9) {
-          status = 'Cancelada';
-          dataPagamentoCliente = undefined;
-          taxaPaga = false;
-          clientePagouTaxa = false;
-          motivoCancelamento = 'Cliente desistiu por divergência de valor de parcela.';
-        }
+        const sepItems = [
+          // Hellen: Vendas 140.000,00 | Taxa 51.463,46
+          { vendedora: 'Hellen Vasconcelos', val: 70000.00, taxa: 25000.00, day: '02', op: 'Portabilidade' as Operacao, banco: 'Banco Pan' as Banco, prom: 'J2 Promotora' as Promotora },
+          { vendedora: 'Hellen Vasconcelos', val: 70000.00, taxa: 26463.46, day: '15', op: 'Refin' as Operacao, banco: 'C6 Consig' as Banco, prom: 'Sempre' as Promotora },
+          // Lucélia: Vendas 160.000,00 | Taxa 67.433,86
+          { vendedora: 'Lucélia Ramos', val: 80000.00, taxa: 33000.00, day: '05', op: 'Margem' as Operacao, banco: 'Itaú Consig' as Banco, prom: 'DG' as Promotora },
+          { vendedora: 'Lucélia Ramos', val: 80000.00, taxa: 34433.86, day: '20', op: 'Refin da Port' as Operacao, banco: 'Daycoval' as Banco, prom: 'GFT' as Promotora },
+          // Bianca: Vendas 143.163,54 | Taxa 50.762,74
+          { vendedora: 'Bianca', val: 70000.00, taxa: 25000.00, day: '08', op: 'FGTS' as Operacao, banco: 'Facta' as Banco, prom: 'J2 Promotora' as Promotora },
+          { vendedora: 'Bianca', val: 73163.54, taxa: 25762.74, day: '22', op: 'Conta de Energia Elétrica/Luz' as Operacao, banco: 'Safra' as Banco, prom: 'Sempre' as Promotora },
+        ];
+
+        sepItems.forEach((item, idx) => {
+          propIdCounter++;
+          contractCounter++;
+          const clientIdx = (propIdCounter * 7) % clientes.length;
+          const client = clientes[clientIdx];
+          const valorEmprestimo = item.val;
+          const valorTaxa = item.taxa;
+          const percentualTaxa = Number(((valorTaxa / valorEmprestimo) * 100).toFixed(1));
+          const day = item.day;
+          const dataDig = `2026-09-${day}`;
+          const vendedora = item.vendedora;
+          const operacao = item.op;
+          const banco = item.banco;
+          const promotora = item.prom;
+
+          const proposta: Proposta = {
+            id: `prop-sep26-${idx + 1}`,
+            carimboDataHora: `${dataDig} 10:30:00`,
+            cpf: client.cpf,
+            nomeCliente: client.nome,
+            dataDigitacao: dataDig,
+            dataPagamentoCliente: `2026-09-${(parseInt(day) + 1).toString().padStart(2, '0')}`,
+            convenio: client.convenioPrincipal,
+            operacao,
+            banco,
+            promotora,
+            valorEmprestimo,
+            valorTaxa,
+            percentualTaxa,
+            taxaPaga: true,
+            clientePagouTaxa: true,
+            vendedora,
+            digitador: vendedora,
+            numeroContrato: (482500 + idx).toString(),
+            status: 'Paga',
+            isSimulacao: false,
+            observacoes: `Proposta de Setembro 2026.`,
+            historicoStatus: [
+              { status: 'Paga' as StatusProposta, data: `${dataDig} 11:00`, usuario: vendedora }
+            ]
+          };
+          propostas.push(proposta);
+        });
+
+        return;
       } else if (c % 15 === 0) {
         status = 'Cancelada';
         motivoCancelamento = 'Desistência do cliente dentro do prazo legal.';
@@ -358,28 +400,7 @@ export function generateSeedData() {
       };
       propostas.push(proposta);
 
-      // Generate Promotora commission entry for paid proposals
-      if (finalStatus === 'Paga') {
-        const percentualPromotora = 0.045;
-        const valorRecebido = Math.round(valorEmprestimo * percentualPromotora);
-        
-        // For September 2026, leave 3 commissions as "pendente" for Financeiro reconciliation demo!
-        const isRecentSept = (m.year === 2026 && m.month === 9 && (c === 15 || c === 18 || c === 21));
-
-        comissoesPromotoras.push({
-          id: `com-prom-${propIdCounter}`,
-          propostaId: proposta.id,
-          numeroContrato: proposta.numeroContrato,
-          clienteNome: proposta.nomeCliente,
-          promotora,
-          valorRecebido: isRecentSept ? 0 : valorRecebido,
-          dataRecebimento: isRecentSept ? '' : (dataPagamentoCliente || dataDig),
-          tipo: 'percentual',
-          percentualAplicado: 4.5,
-          status: isRecentSept ? 'pendente' : 'confirmada',
-          observacao: isRecentSept ? 'Aguardando extrato semanal da promotora.' : 'Comissão repassada em lote.'
-        });
-      }
+      // Comissões de promotoras iniciam zeradas/em branco conforme solicitado
     }
   });
 
@@ -498,44 +519,7 @@ export function generateSeedData() {
   ];
 
   // Feedbacks registered by ADM (Pamella)
-  const feedbacks: Feedback[] = [
-    {
-      id: 'fb-01',
-      vendedoraId: 'user-hellen',
-      vendedoraNome: 'Hellen Vasconcelos',
-      autorId: 'user-pamella',
-      autorNome: 'Pamella',
-      data: '2026-09-18',
-      tipo: 'elogio',
-      texto: 'Parabéns pelo recorde de taxa de FGTS e Refin alcançado nesta semana! A postura com os clientes de Igarassu e Olinda tem sido exemplar.',
-      planoAcao: 'Compartilhar boas práticas de script de taxas com o time na reunião semanal de sexta-feira.',
-      status: 'concluido'
-    },
-    {
-      id: 'fb-02',
-      vendedoraId: 'user-lucelia',
-      vendedoraNome: 'Lucélia Ramos',
-      autorId: 'user-pamella',
-      autorNome: 'Pamella',
-      data: '2026-09-22',
-      tipo: 'melhoria',
-      texto: 'Observamos algumas propostas com documentação pendente há mais de 3 dias no Banco Pan. É preciso reforçar o follow-up diário com os aposentados.',
-      planoAcao: 'Revisar checklist de digitação e configurar notificações diárias no CRM para não deixar propostas paradas.',
-      status: 'em_andamento'
-    },
-    {
-      id: 'fb-03',
-      vendedoraId: 'user-taciana',
-      vendedoraNome: 'Taciana Silva',
-      autorId: 'user-pamella',
-      autorNome: 'Pamella',
-      data: '2026-09-10',
-      tipo: 'treinamento',
-      texto: 'Treinamento sobre a nova esteira de Saque Complementar e Credcesta para servidores do Estado.',
-      planoAcao: 'Realizar 5 simulações práticas até 15/09 e tirar dúvidas na mesa de operações.',
-      status: 'concluido'
-    }
-  ];
+  const feedbacks: Feedback[] = [];
 
   // Pre-seed smart opportunities & alerts
   alertas.push(

@@ -82,7 +82,7 @@ export const DigitadorHome: React.FC<Props> = ({
   }, [minhasPropostas, searchTerm, statusFilter]);
 
   const handleDigitarLead = (alerta: AlertaOportunidade) => {
-    const mockCliente: Cliente = {
+    const clienteLead: Cliente = {
       id: alerta.clienteCpf,
       cpf: alerta.clienteCpf,
       nome: alerta.clienteNome,
@@ -95,7 +95,7 @@ export const DigitadorHome: React.FC<Props> = ({
       vendedoraResponsavel: alerta.vendedoraResponsavel || 'Digitadora',
       dataCriacao: getLocalDateString()
     };
-    onOpenNovaProposta(mockCliente);
+    onOpenNovaProposta(clienteLead);
   };
 
   return (

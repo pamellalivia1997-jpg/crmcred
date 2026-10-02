@@ -39,6 +39,7 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
   const { clientes, saveCliente, saveProposta } = useCRM();
   const { currentUser, allUsers } = useAuth();
   const isDigitadorUser = currentUser?.role === 'digitador';
+  const isAdm = currentUser?.role === 'adm' || currentUser?.role === 'proprietaria';
 
   // Quem digitou o cadastro
   const [digitador, setDigitador] = useState<string>(() => currentUser?.name || '');
@@ -66,6 +67,9 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
   const [valorTaxaStr, setValorTaxaStr] = useState('');
   const [numeroContrato, setNumeroContrato] = useState(() => Math.floor(480000 + Math.random() * 50000).toString());
   const [status, setStatus] = useState<StatusProposta>('Em análise');
+  const [dataDigitacao, setDataDigitacao] = useState(() => getLocalDateString());
+  const [dataPagamentoCliente, setDataPagamentoCliente] = useState('');
+  const [taxaPaga, setTaxaPaga] = useState(true);
   const [observacoes, setObservacoes] = useState('');
   const [linkDocumento, setLinkDocumento] = useState('');
 
@@ -204,17 +208,17 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
       carimboDataHora: dataHoraFormatada,
       cpf: cleanCpf,
       nomeCliente: clienteObj.nome,
-      dataDigitacao: dataDig,
-      dataPagamentoCliente: (!isSimulacao && status === 'Paga') ? dataDig : undefined,
+      dataDigitacao: dataDigitacao || dataDig,
+      dataPagamentoCliente: dataPagamentoCliente || ((!isSimulacao && status === 'Paga') ? (dataDigitacao || dataDig) : undefined),
       convenio,
       operacao,
       banco,
       promotora: promotora || 'J2 Promotora',
       valorEmprestimo: isSimulacao ? (valorEmprestimo > 0 ? valorEmprestimo : 0) : valorEmprestimo,
       valorTaxa: isSimulacao ? 0 : valorTaxa,
-      percentualTaxa: isSimulacao ? 0 : percentualTaxa,
-      taxaPaga: !isSimulacao && status === 'Paga',
-      clientePagouTaxa: !isSimulacao && status === 'Paga',
+      percentualTaxa: isSimulacao ? 0 : Number(percentualTaxa.toFixed(2)),
+      taxaPaga: !isSimulacao && taxaPaga,
+      clientePagouTaxa: !isSimulacao && taxaPaga,
       vendedora: finalVendedora,
       digitador: finalDigitador,
       numeroContrato: numeroContrato || Math.floor(480000 + Math.random() * 50000).toString(),
@@ -545,8 +549,46 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
                   % Taxa
                 </label>
                 <div className="px-3 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold tabular-nums">
-                  {percentualTaxa}%
+                  {percentualTaxa.toFixed(2)}%
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Taxa Paga pelo Cliente?
+                </label>
+                <select
+                  value={taxaPaga ? 'sim' : 'nao'}
+                  onChange={(e) => setTaxaPaga(e.target.value === 'sim')}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white font-bold focus:outline-none"
+                >
+                  <option value="sim">Sim (Taxa Paga)</option>
+                  <option value="nao">Não (Pendente)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Data de Digitação
+                </label>
+                <input
+                  type="date"
+                  value={dataDigitacao}
+                  onChange={(e) => setDataDigitacao(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Data de Pagamento ao Cliente
+                </label>
+                <input
+                  type="date"
+                  value={dataPagamentoCliente}
+                  onChange={(e) => setDataPagamentoCliente(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white focus:outline-none"
+                />
               </div>
 
               <div>
@@ -581,13 +623,15 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
 
             {/* Estimates preview */}
             {valorEmprestimo > 0 && (
-              <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs grid grid-cols-2 gap-2 mt-2">
-                <div>
-                  <span className="text-[10px] text-slate-400 block font-semibold">Comissão Promotora Estimada:</span>
-                  <span className="font-extrabold text-blue-600 dark:text-blue-400 tabular-nums">
-                    {formatCurrency(comissaoPromotoraEst)}
-                  </span>
-                </div>
+              <div className={`p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs grid ${isAdm ? 'grid-cols-2' : 'grid-cols-1'} gap-2 mt-2`}>
+                {isAdm && (
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-semibold">Comissão Promotora Estimada (ADM):</span>
+                    <span className="font-extrabold text-blue-600 dark:text-blue-400 tabular-nums">
+                      {formatCurrency(comissaoPromotoraEst)}
+                    </span>
+                  </div>
+                )}
                 <div>
                   <span className="text-[10px] text-slate-400 block font-semibold">Comissão Vendedora:</span>
                   <span className="font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums">

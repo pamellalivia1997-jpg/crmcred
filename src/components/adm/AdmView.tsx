@@ -30,7 +30,7 @@ import {
 } from '../../utils/formatters';
 
 interface AdmViewProps {
-  initialSubTab?: 'metas' | 'feedbacks' | 'importador';
+  initialSubTab?: 'metas' | 'feedbacks';
 }
 
 interface SellerMonthMeta {
@@ -42,15 +42,15 @@ interface SellerMonthMeta {
 }
 
 export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => {
-  const { metas, feedbacks, propostas, saveMeta, saveFeedback, importFullSpreadsheetRows } = useCRM();
+  const { metas, feedbacks, propostas, saveMeta, saveFeedback } = useCRM();
   const { allUsers, currentUser, saveUser } = useAuth();
 
-  const [activeSubTab, setActiveSubTab] = useState<'metas' | 'feedbacks' | 'importador'>(
-    initialSubTab === 'feedbacks' || initialSubTab === 'importador' ? initialSubTab : 'metas'
+  const [activeSubTab, setActiveSubTab] = useState<'metas' | 'feedbacks'>(
+    initialSubTab === 'feedbacks' ? 'feedbacks' : 'metas'
   );
 
   useEffect(() => {
-    if (initialSubTab === 'metas' || initialSubTab === 'feedbacks' || initialSubTab === 'importador') {
+    if (initialSubTab === 'metas' || initialSubTab === 'feedbacks') {
       setActiveSubTab(initialSubTab);
     }
   }, [initialSubTab]);
@@ -319,10 +319,34 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
     return { totalMonthSales, outrosTotal, outrosCount, monthProposals };
   }, [propostas, selectedMesAno, sellersList]);
 
+  // All operational team members (vendedoras, digitadoras, etc.) for feedback evaluation without duplicate names
+  const operationalTeam = useMemo(() => {
+    const map = new Map<string, User>();
+    allUsers.forEach(u => {
+      if (u.status === 'ativo' && u.role !== 'proprietaria') {
+        const normName = u.name.trim();
+        const key = normName.toLowerCase();
+        if (!map.has(key)) {
+          map.set(key, { ...u, name: normName });
+        }
+      }
+    });
+    return Array.from(map.values());
+  }, [allUsers]);
+
+  // Selected employee for detailed feedback history view
+  const [selectedEmployeeIdForHistory, setSelectedEmployeeIdForHistory] = useState<string | null>(null);
+
   // ==========================================
   // 2. FEEDBACKS FORM & STATE
   // ==========================================
-  const [fbVendedoraId, setFbVendedoraId] = useState(allUsers.find(u => u.role === 'vendedora')?.id || '');
+  const [fbVendedoraId, setFbVendedoraId] = useState(() => operationalTeam[0]?.id || '');
+
+  useEffect(() => {
+    if (operationalTeam.length > 0 && !fbVendedoraId) {
+      setFbVendedoraId(operationalTeam[0].id);
+    }
+  }, [operationalTeam, fbVendedoraId]);
   const [fbTipo, setFbTipo] = useState<'elogio' | 'melhoria' | 'advertencia' | 'treinamento'>('elogio');
   const [fbTexto, setFbTexto] = useState('');
   const [fbPlanoAcao, setFbPlanoAcao] = useState('');
@@ -352,85 +376,6 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
     setTimeout(() => setFbSalvoSucesso(false), 3000);
   };
 
-  // ==========================================
-  // 3. PLANILHA IMPORTER STATE
-  // ==========================================
-  const [rawSpreadsheetText, setRawSpreadsheetText] = useState('');
-  const [isSimulatingImport, setIsSimulatingImport] = useState(false);
-  const [fullImportResult, setFullImportResult] = useState<{
-    totalRows: number;
-    clientsCreated: number;
-    clientsUpdated: number;
-    proposalsCreated: number;
-    commissionsCreated: number;
-    cpfsCorrectedCount: number;
-  } | null>(null);
-
-  const handleProcessRealSpreadsheet = (textInput?: string) => {
-    const textToProcess = textInput || rawSpreadsheetText;
-    if (!textToProcess.trim()) {
-      alert('Por favor, cole o texto da sua planilha.');
-      return;
-    }
-
-    setIsSimulatingImport(true);
-
-    setTimeout(() => {
-      const lines = textToProcess.split('\n').filter(l => l.trim().length > 0);
-      if (lines.length < 2) {
-        setIsSimulatingImport(false);
-        alert('A planilha precisa conter pelo menos um cabeçalho e linhas de dados.');
-        return;
-      }
-
-      const separator = lines[0].includes('\t') ? '\t' : lines[0].includes(';') ? ';' : ',';
-      const headers = lines[0].split(separator).map(h => h.trim().toUpperCase());
-
-      const parsedRows: any[] = [];
-      for (let i = 1; i < lines.length; i++) {
-        const parts = lines[i].split(separator);
-        if (parts.length < 2) continue;
-
-        const rowObj: any = {};
-        headers.forEach((h, idx) => {
-          const val = parts[idx] ? parts[idx].trim() : '';
-          if (h.includes('DATA/HORA') || h.includes('CARIMBO')) rowObj.carimboDataHora = val;
-          else if (h.includes('CPF')) rowObj.cpf = val;
-          else if (h.includes('NOME')) rowObj.nomeCliente = val;
-          else if (h.includes('DIGITAÇÃO') || h.includes('DIGITACAO')) rowObj.dataDigitacao = val;
-          else if (h.includes('PAGAMENTO AO CLIENTE')) rowObj.dataPagamentoCliente = val;
-          else if (h.includes('CONVÊNIO') || h.includes('CONVENIO')) rowObj.convenio = val;
-          else if (h.includes('OPERAÇÃO') || h.includes('OPERACAO')) rowObj.operacao = val;
-          else if (h.includes('BANCO')) rowObj.banco = val;
-          else if (h.includes('PROMOTORA')) rowObj.promotora = val;
-          else if (h.includes('VALOR DO EMPRÉSTIMO') || h.includes('VALOR DO EMPRESTIMO')) rowObj.valorEmprestimo = val;
-          else if (h.includes('VALOR DA TAXA')) rowObj.valorTaxa = val;
-          else if (h.includes('CLIENTE PAGOU')) rowObj.clientePagou = val;
-          else if (h.includes('TAXA DO') || h.includes('PERCENTUAL')) rowObj.percentualTaxa = val;
-          else if (h.includes('VENDEDOR')) rowObj.vendedora = val;
-          else if (h.includes('DIGITADOR')) rowObj.digitador = val;
-          else if (h.includes('CONTRATO')) rowObj.numeroContrato = val;
-          else if (h.includes('STATUS')) rowObj.status = val;
-          else if (h.includes('LINK') || h.includes('DRIVE') || h.includes('DOCUMENTO')) rowObj.linkDocumento = val;
-          else if (h.includes('COMISSÃO J2') || h.includes('COMISSAO J2')) rowObj.comissaoJ2 = val;
-          else if (h.includes('COMISSÃO SEMPRE') || h.includes('COMISSAO SEMPRE')) rowObj.comissaoSempre = val;
-          else if (h.includes('COMISSÃO DG') || h.includes('COMISSAO DG')) rowObj.comissaoDG = val;
-          else if (h.includes('COMISSÃO GFT') || h.includes('COMISSAO GFT')) rowObj.comissaoGFT = val;
-          else if (h.includes('FATURADO')) rowObj.faturado = val;
-        });
-
-        if (rowObj.nomeCliente || rowObj.cpf) {
-          parsedRows.push(rowObj);
-        }
-      }
-
-      const res = importFullSpreadsheetRows(parsedRows);
-      setFullImportResult(res);
-      setIsSimulatingImport(false);
-      setRawSpreadsheetText('');
-    }, 800);
-  };
-
   return (
     <div className="space-y-4 pb-20 md:pb-8">
       {/* Header & Sub-Tabs */}
@@ -438,10 +383,10 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
         <div>
           <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
             <Target className="w-6 h-6 text-purple-600" />
-            <span>Painel da Administração & Gestão de Equipe</span>
+            <span>Gestão de Equipe em Feedbacks & PDI</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Gerenciamento centralizado de metas mensais, feedbacks/PDI e importação de contratos
+            Gerenciamento centralizado de metas mensais e acompanhamento de feedbacks/PDI por colaborador
           </p>
         </div>
 
@@ -456,7 +401,7 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
             }`}
           >
             <Target className="w-3.5 h-3.5 text-purple-600" />
-            <span>Metas do Mês</span>
+            <span>Metas da Equipe</span>
           </button>
 
           <button
@@ -469,18 +414,6 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
           >
             <MessageSquare className="w-3.5 h-3.5 text-amber-600" />
             <span>Feedbacks & PDI</span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab('importador')}
-            className={`px-3 py-1.5 text-xs font-bold rounded-lg whitespace-nowrap transition-all flex items-center gap-1.5 ${
-              activeSubTab === 'importador'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-            }`}
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-            <span>Importar Planilha Oficial</span>
           </button>
         </div>
       </div>
@@ -757,16 +690,16 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
             <form onSubmit={handleSaveFeedback} className="space-y-3 text-xs">
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Atendente Avaliada
+                  Colaborador(a) Avaliado(a) (Atendente / Digitadora)
                 </label>
                 <select
                   value={fbVendedoraId}
                   onChange={(e) => setFbVendedoraId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-medium"
                 >
-                  {sellersList.map((s) => (
+                  {operationalTeam.map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.name}
+                      {s.name} ({s.role === 'digitador' ? 'Digitadora' : s.role === 'vendedora' ? 'Vendedora' : s.role})
                     </option>
                   ))}
                 </select>
@@ -825,104 +758,135 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
             </form>
           </div>
 
-          {/* Feedbacks Timeline */}
-          <div className="lg:col-span-7 bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-3">
-            <h2 className="text-base font-extrabold text-slate-900 dark:text-white">
-              Histórico de Feedbacks da Equipe ({feedbacks.length})
-            </h2>
-
-            <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
-              {feedbacks.length === 0 ? (
-                <p className="text-center py-8 text-slate-400 text-xs">
-                  Nenhum feedback registrado ainda.
+          {/* Feedbacks History Grouped by Employee */}
+          <div className="lg:col-span-7 bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-base font-extrabold text-slate-900 dark:text-white">
+                  Histórico de Feedbacks por Colaborador
+                </h2>
+                <p className="text-xs text-slate-500">
+                  {selectedEmployeeIdForHistory
+                    ? `Visualizando histórico individual`
+                    : 'Selecione um funcionário para visualizar os registros de feedback'}
                 </p>
-              ) : (
-                feedbacks.map((fb) => (
-                  <div key={fb.id} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 space-y-2 text-xs">
-                    <div className="flex items-center justify-between">
-                      <span className="font-extrabold text-slate-900 dark:text-white">
-                        {fb.vendedoraNome}
-                      </span>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        fb.tipo === 'elogio' ? 'bg-emerald-100 text-emerald-800' :
-                        fb.tipo === 'treinamento' ? 'bg-blue-100 text-blue-800' :
-                        fb.tipo === 'melhoria' ? 'bg-amber-100 text-amber-800' :
-                        'bg-rose-100 text-rose-800'
-                      }`}>
-                        {fb.tipo.toUpperCase()}
-                      </span>
-                    </div>
+              </div>
 
-                    <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
-                      "{fb.texto}"
-                    </p>
-
-                    <div className="p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700">
-                      <span className="font-bold text-purple-700 dark:text-purple-300 block text-[11px]">Plano de Ação:</span>
-                      <p className="text-slate-600 dark:text-slate-400 mt-0.5">{fb.planoAcao}</p>
-                    </div>
-
-                    <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1">
-                      <span>Autor: {fb.autorNome}</span>
-                      <span>Registrado em: {formatDate(fb.data)}</span>
-                    </div>
-                  </div>
-                ))
+              {selectedEmployeeIdForHistory && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedEmployeeIdForHistory(null)}
+                  className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold transition-all"
+                >
+                  ← Voltar para Lista
+                </button>
               )}
             </div>
-          </div>
-        </div>
-      )}
 
-      {/* ========================================================================= */}
-      {/* SUB-TAB 3: IMPORTADOR DE PLANILHAS OFICIAIS */}
-      {/* ========================================================================= */}
-      {activeSubTab === 'importador' && (
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 sm:p-6 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
-          <div>
-            <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
-              <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
-              <span>Importador de Planilha de Produção & Contratos</span>
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Cole os dados copiados da sua planilha oficial (Excel ou Google Sheets) para sincronizar clientes, contratos e comissões diretamente no sistema.
-            </p>
-          </div>
+            {/* View 1: Employee Cards List */}
+            {!selectedEmployeeIdForHistory && (
+              <div className="space-y-2.5 max-h-[70vh] overflow-y-auto pr-1">
+                {operationalTeam.map((emp) => {
+                  const empFeedbacks = feedbacks.filter(
+                    (f) => f.vendedoraId === emp.id || f.vendedoraNome === emp.name
+                  );
 
-          {fullImportResult && (
-            <div className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-xs text-emerald-900 dark:text-emerald-200 space-y-1.5 animate-in fade-in">
-              <div className="flex items-center gap-2 font-black text-sm">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                <span>Planilha importada com sucesso!</span>
+                  return (
+                    <div
+                      key={emp.id}
+                      onClick={() => setSelectedEmployeeIdForHistory(emp.id)}
+                      className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/80 dark:border-slate-700/80 hover:border-purple-300 dark:hover:border-purple-600 cursor-pointer transition-all flex items-center justify-between group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300 font-extrabold text-xs flex items-center justify-center">
+                          {emp.name.slice(0, 2).toUpperCase()}
+                        </div>
+                        <div>
+                          <p className="text-xs font-extrabold text-slate-900 dark:text-white group-hover:text-purple-600 transition-colors">
+                            {emp.name}
+                          </p>
+                          <span className="text-[10px] font-bold text-slate-400 capitalize">
+                            {emp.role === 'digitador' ? 'Digitadora' : emp.role === 'vendedora' ? 'Vendedora' : emp.role}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2.5 py-1 rounded-full text-[11px] font-extrabold ${
+                          empFeedbacks.length > 0
+                            ? 'bg-purple-100 dark:bg-purple-950 text-purple-800 dark:text-purple-300 border border-purple-200'
+                            : 'bg-slate-200 dark:bg-slate-700 text-slate-500'
+                        }`}>
+                          {empFeedbacks.length} {empFeedbacks.length === 1 ? 'feedback' : 'feedbacks'}
+                        </span>
+                        <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-purple-600 transition-colors" />
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
-              <p>
-                Foram processadas <strong>{fullImportResult.totalRows} linhas</strong>: {fullImportResult.clientsCreated} novos clientes criados, {fullImportResult.proposalsCreated} contratos/propostas registrados e {fullImportResult.commissionsCreated} lançamentos de comissões calculados.
-              </p>
-            </div>
-          )}
+            )}
 
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-              Cole aqui as linhas da sua planilha (com cabeçalho):
-            </label>
-            <textarea
-              rows={8}
-              placeholder="Cole as colunas com cabeçalho (Carimbo, CPF, Cliente, Operação, Banco, Valor, etc.)..."
-              value={rawSpreadsheetText}
-              onChange={(e) => setRawSpreadsheetText(e.target.value)}
-              className="w-full p-3 text-xs font-mono rounded-2xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-          </div>
+            {/* View 2: Employee Timeline Detail */}
+            {selectedEmployeeIdForHistory && (
+              <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
+                {(() => {
+                  const emp = operationalTeam.find((u) => u.id === selectedEmployeeIdForHistory);
+                  const empFeedbacks = feedbacks.filter(
+                    (f) => f.vendedoraId === selectedEmployeeIdForHistory || (emp && f.vendedoraNome === emp.name)
+                  );
 
-          <div className="flex items-center justify-end gap-2">
-            <button
-              type="button"
-              disabled={isSimulatingImport || !rawSpreadsheetText.trim()}
-              onClick={() => handleProcessRealSpreadsheet()}
-              className="py-2.5 px-6 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white font-extrabold text-xs shadow-md active:scale-95 transition disabled:opacity-50"
-            >
-              {isSimulatingImport ? 'Processando e Sincronizando...' : 'Processar e Salvar Planilha'}
-            </button>
+                  if (empFeedbacks.length === 0) {
+                    return (
+                      <div className="text-center py-10 bg-slate-50 dark:bg-slate-800/40 rounded-2xl p-6">
+                        <MessageSquare className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                        <p className="text-slate-600 dark:text-slate-300 font-bold text-xs">
+                          Nenhum feedback registrado para {emp?.name || 'este funcionário'}.
+                        </p>
+                        <p className="text-slate-400 text-[11px] mt-1">
+                          Utilize o formulário ao lado para cadastrar o primeiro feedback/PDI.
+                        </p>
+                      </div>
+                    );
+                  }
+
+                  return empFeedbacks.map((fb) => (
+                    <div
+                      key={fb.id}
+                      className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 space-y-2 text-xs"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-extrabold text-slate-900 dark:text-white">
+                          {fb.vendedoraNome}
+                        </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          fb.tipo === 'elogio' ? 'bg-emerald-100 text-emerald-800' :
+                          fb.tipo === 'treinamento' ? 'bg-blue-100 text-blue-800' :
+                          fb.tipo === 'melhoria' ? 'bg-amber-100 text-amber-800' :
+                          'bg-rose-100 text-rose-800'
+                        }`}>
+                          {fb.tipo.toUpperCase()}
+                        </span>
+                      </div>
+
+                      <p className="text-slate-700 dark:text-slate-300 leading-relaxed">
+                        "{fb.texto}"
+                      </p>
+
+                      <div className="p-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700">
+                        <span className="font-bold text-purple-700 dark:text-purple-300 block text-[11px]">Plano de Ação:</span>
+                        <p className="text-slate-600 dark:text-slate-400 mt-0.5">{fb.planoAcao}</p>
+                      </div>
+
+                      <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1">
+                        <span>Autor: {fb.autorNome}</span>
+                        <span>Registrado em: {formatDate(fb.data)}</span>
+                      </div>
+                    </div>
+                  ));
+                })()}
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -36,6 +36,8 @@ export const UsuariosView: React.FC = () => {
   const [formRole, setFormRole] = useState<UserRole>('vendedora');
   const [formPhone, setFormPhone] = useState('');
   const [formSalesName, setFormSalesName] = useState('');
+  const [formCpf, setFormCpf] = useState('');
+  const [formPix, setFormPix] = useState('');
   const [formStatus, setFormStatus] = useState<'ativo' | 'inativo'>('ativo');
 
   const [showPasswordMap, setShowPasswordMap] = useState<Record<string, boolean>>({});
@@ -54,6 +56,8 @@ export const UsuariosView: React.FC = () => {
     setFormRole('vendedora');
     setFormPhone('');
     setFormSalesName('');
+    setFormCpf('');
+    setFormPix('');
     setFormStatus('ativo');
     setIsUserModalOpen(true);
   };
@@ -67,6 +71,8 @@ export const UsuariosView: React.FC = () => {
     setFormRole(user.role);
     setFormPhone(user.phone || '');
     setFormSalesName(user.salesName || '');
+    setFormCpf(user.cpf || '');
+    setFormPix(user.pix || '');
     setFormStatus(user.status);
     setIsUserModalOpen(true);
   };
@@ -86,6 +92,8 @@ export const UsuariosView: React.FC = () => {
       role: formRole,
       phone: formPhone.trim(),
       salesName: formSalesName.trim(),
+      cpf: formCpf.trim(),
+      pix: formPix.trim(),
       status: formStatus
     };
 
@@ -536,20 +544,48 @@ export const UsuariosView: React.FC = () => {
                 </div>
               </div>
 
-              <div>
-                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Telefone / WhatsApp <span className="font-normal text-slate-400 text-[10px]">(opcional)</span>
-                </label>
-                <div className="relative">
-                  <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Telefone / WhatsApp <span className="font-normal text-slate-400 text-[10px]">(opcional)</span>
+                  </label>
+                  <div className="relative">
+                    <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="(81) 98888-7777"
+                      value={formPhone}
+                      onChange={(e) => setFormPhone(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 font-medium"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    CPF <span className="font-normal text-slate-400 text-[10px]">(opcional)</span>
+                  </label>
                   <input
                     type="text"
-                    placeholder="(81) 98888-7777"
-                    value={formPhone}
-                    onChange={(e) => setFormPhone(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 font-medium"
+                    placeholder="000.000.000-00"
+                    value={formCpf}
+                    onChange={(e) => setFormCpf(e.target.value)}
+                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 font-medium font-mono"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-teal-700 dark:text-teal-400 mb-1 flex items-center justify-between">
+                  <span>Chave Pix</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="Ex: 81988920288 ou CPF ou E-mail"
+                  value={formPix}
+                  onChange={(e) => setFormPix(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-teal-50/40 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 font-mono font-semibold"
+                />
               </div>
 
               {/* Action Buttons */}

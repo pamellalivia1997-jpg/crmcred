@@ -31,7 +31,7 @@ export function normalizeSellerName(name?: string | null): string {
   
   // Specific legacy mappings for consistency
   if (n === 'TACY' || n === 'TACIANA') return 'TACIANA SILVA';
-  if (n === 'LOJA IGARASSU' || n === 'LOJA_IGARASSU' || n === 'IGARASSU') return 'LOJA IGARASSU';
+  if (n === 'LOJA IGARASSU' || n === 'LOJA_IGARASSU' || n === 'IGARASSU' || n.includes('IGARASSU')) return 'BIANCA';
   if (n === 'ANA' || n === 'ANINHA' || n === 'ANA PAULA' || n === 'ANA PAULA (DIGITADORA DEDICADA)') return 'ANA PAULA';
   
   // Support for Hellen and Lucélia variations
@@ -280,23 +280,26 @@ export interface IndicationInfo {
 export function getPostSaleIndicationInfo(dateStr: string | undefined | null, now = new Date()): IndicationInfo | null {
   if (!dateStr) return null;
   try {
-    const pDate = new Date(dateStr.split('T')[0]);
-    if (isNaN(pDate.getTime())) return null;
+    const parts = dateStr.split('T')[0].split('-');
+    if (parts.length !== 3) return null;
+    const [pYear, pMonth, pDay] = parts.map(Number);
+    if (!pYear || !pMonth || !pDay) return null;
+
     const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const pMidnight = new Date(pDate.getFullYear(), pDate.getMonth(), pDate.getDate());
+    const pMidnight = new Date(pYear, pMonth - 1, pDay);
     
     const diffMs = todayMidnight.getTime() - pMidnight.getTime();
     const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
 
     const isPostSale3to7Days = diffDays >= 3 && diffDays <= 7;
     let badgeLabel = '';
-    if (diffDays === 3) badgeLabel = 'Pago há 3 dias (Janela Ideal para Indicação)';
-    else if (diffDays === 4) badgeLabel = 'Pago há 4 dias';
-    else if (diffDays === 5) badgeLabel = 'Pago há 5 dias';
-    else if (diffDays === 6) badgeLabel = 'Pago há 6 dias';
-    else if (diffDays === 7) badgeLabel = 'Pago há 7 dias (Fim da janela pós-venda)';
-    else if (diffDays < 3 && diffDays >= 0) badgeLabel = `Pago há ${diffDays} dia(s) (Pós-Venda Recente)`;
-    else badgeLabel = `Pago há ${diffDays} dias`;
+    if (diffDays === 3) badgeLabel = 'Pago/Digitado há 3 dias (Janela Ideal para Indicação)';
+    else if (diffDays === 4) badgeLabel = 'Pago/Digitado há 4 dias';
+    else if (diffDays === 5) badgeLabel = 'Pago/Digitado há 5 dias';
+    else if (diffDays === 6) badgeLabel = 'Pago/Digitado há 6 dias';
+    else if (diffDays === 7) badgeLabel = 'Pago/Digitado há 7 dias (Fim da janela de indicação)';
+    else if (diffDays < 3 && diffDays >= 0) badgeLabel = `Pago/Digitado há ${diffDays} dia(s) (Recente)`;
+    else badgeLabel = `Pago/Digitado há ${diffDays} dias`;
 
     return {
       isPostSale3to7Days,

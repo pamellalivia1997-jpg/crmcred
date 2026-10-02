@@ -12,16 +12,20 @@ import {
 } from '../types';
 import { crmStorage, subscribeToData, SpreadsheetRowInput } from '../services/crmStorage';
 import { useAuth } from './AuthContext';
+import { fetchGoogleSheetsExpenses, SheetExpenseRow } from '../services/expensesSheetService';
+import { calculateDashboardMetrics, DashboardMetrics } from '../utils/dashboardCalculations';
 
 export type PeriodoFiltro =
   | 'hoje'
+  | '7d'
+  | 'mes'
+  | 'todos'
+  | 'personalizado'
   | 'semana'
   | 'semana_anterior'
-  | 'mes'
   | 'mes_anterior'
   | 'ultimos_3_meses'
   | 'ano'
-  | 'personalizado'
   | 'tudo';
 
 interface CRMContextType {
@@ -29,6 +33,8 @@ interface CRMContextType {
   propostas: Proposta[];
   comissoesPromotoras: ComissaoPromotora[];
   contasPagar: ContaPagar[];
+  sheetExpenses: SheetExpenseRow[];
+  refreshSheetExpenses: () => Promise<void>;
   metas: MetaVendedora[];
   feedbacks: Feedback[];
   alertas: AlertaOportunidade[];
@@ -52,11 +58,15 @@ interface CRMContextType {
   deleteProposta: (id: string) => void;
   updateStatusProposta: (id: string, novoStatus: StatusProposta, motivo?: string) => void;
   saveComissaoPromotora: (comissao: ComissaoPromotora) => void;
+  saveComissaoPromotoraBatch: (comissoes: ComissaoPromotora[]) => void;
   saveContaPagar: (conta: ContaPagar) => void;
   marcarContaPaga: (id: string, data?: string) => void;
   saveMeta: (meta: MetaVendedora) => void;
   saveFeedback: (fb: Feedback) => void;
-  updateAlertaStatus: (id: string, status: 'nova' | 'em_contato' | 'convertida' | 'descartada') => void;
+  saveAlerta: (alerta: AlertaOportunidade) => void;
+  updateAlertaStatus: (id: string, status: 'nova' | 'em_contato' | 'convertida' | 'descartada' | 'adiada' | 'concluida') => void;
+  adiarAlerta: (id: string, dataAdiada: string, alertData?: Partial<AlertaOportunidade>) => void;
+  concluirAlerta: (id: string, alertData?: Partial<AlertaOportunidade>) => void;
   toggleLiberacaoLeadDigitador: (alertaId: string, liberado: boolean) => void;
   resetAllData: () => void;
   clearAllTestData: () => void;
@@ -70,12 +80,13 @@ interface CRMContextType {
     cpfsCorrectedCount: number;
   };
   logCpfAccess: (cpf: string, nomeCliente: string) => void;
+  dashboardMetrics: DashboardMetrics;
 }
 
 const CRMContext = createContext<CRMContextType | undefined>(undefined);
 
 export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { currentUser } = useAuth();
+  const { currentUser, allUsers } = useAuth();
   const now = new Date();
   const yr = now.getFullYear();
   const mo = String(now.getMonth() + 1).padStart(2, '0');
@@ -84,11 +95,104 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const lastDayStr = `${yr}-${mo}-${String(lastDay).padStart(2, '0')}`;
 
   const [storeState, setStoreState] = useState(() => crmStorage.getStore());
-  const [periodo, setPeriodo] = useState<PeriodoFiltro>('mes');
-  const [filtroMesAno, setFiltroMesAno] = useState<string>(currentMonth);
-  const [dataInicioPersonalizada, setDataInicioPersonalizada] = useState<string>(`${currentMonth}-01`);
-  const [dataFimPersonalizada, setDataFimPersonalizada] = useState<string>(lastDayStr);
-  const [anoSelecionado, setAnoSelecionado] = useState<number>(yr);
+
+  const [periodo, setPeriodoState] = useState<PeriodoFiltro>(() => {
+    try {
+      const saved = localStorage.getItem('lviacred_periodo_financeiro');
+      if (saved && ['hoje', 'semana', 'semana_anterior', 'mes', 'mes_anterior', 'ultimos_3_meses', 'ano', 'personalizado', 'tudo'].includes(saved)) {
+        return saved as PeriodoFiltro;
+      }
+    } catch (e) {}
+    return 'mes';
+  });
+
+  const [filtroMesAno, setFiltroMesAnoState] = useState<string>(() => {
+    try {
+      return localStorage.getItem('lviacred_fin_filtro_mes') || currentMonth;
+    } catch (e) {
+      return currentMonth;
+    }
+  });
+
+  const [dataInicioPersonalizada, setDataInicioPersonalizadaState] = useState<string>(() => {
+    try {
+      return localStorage.getItem('lviacred_fin_dt_inicio') || '2026-09-01';
+    } catch (e) {
+      return '2026-09-01';
+    }
+  });
+
+  const [dataFimPersonalizada, setDataFimPersonalizadaState] = useState<string>(() => {
+    try {
+      return localStorage.getItem('lviacred_fin_dt_fim') || '2026-09-30';
+    } catch (e) {
+      return '2026-09-30';
+    }
+  });
+
+  const [anoSelecionado, setAnoSelecionadoState] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('lviacred_fin_ano');
+      if (saved && !isNaN(Number(saved))) return Number(saved);
+    } catch (e) {}
+    return yr;
+  });
+
+  const setPeriodo = (p: PeriodoFiltro) => {
+    setPeriodoState(p);
+    try {
+      localStorage.setItem('lviacred_periodo_financeiro', p);
+    } catch (e) {}
+  };
+
+  const setFiltroMesAno = (m: string) => {
+    setFiltroMesAnoState(m);
+    try {
+      localStorage.setItem('lviacred_fin_filtro_mes', m);
+    } catch (e) {}
+  };
+
+  const setDataInicioPersonalizada = (d: string) => {
+    setDataInicioPersonalizadaState(d);
+    try {
+      localStorage.setItem('lviacred_fin_dt_inicio', d);
+    } catch (e) {}
+  };
+
+  const setDataFimPersonalizada = (d: string) => {
+    setDataFimPersonalizadaState(d);
+    try {
+      localStorage.setItem('lviacred_fin_dt_fim', d);
+    } catch (e) {}
+  };
+
+  const setAnoSelecionado = (a: number) => {
+    setAnoSelecionadoState(a);
+    try {
+      localStorage.setItem('lviacred_fin_ano', String(a));
+    } catch (e) {}
+  };
+
+  const [sheetExpenses, setSheetExpenses] = useState<SheetExpenseRow[]>([]);
+
+  const refreshSheetExpenses = async () => {
+    try {
+      const rows = await fetchGoogleSheetsExpenses(true);
+      setSheetExpenses(rows);
+    } catch (e) {
+      console.error('Erro ao atualizar despesas do Google Sheets:', e);
+    }
+  };
+
+  useEffect(() => {
+    fetchGoogleSheetsExpenses().then(rows => {
+      if (rows && rows.length > 0) {
+        setSheetExpenses(rows);
+      }
+    }).catch(err => {
+      console.error('Erro inicial ao buscar despesas do Google Sheets:', err);
+    });
+  }, []);
 
   useEffect(() => {
     return subscribeToData(() => {
@@ -125,6 +229,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     crmStorage.saveComissaoPromotora(comissao, currentActor);
   };
 
+  const saveComissaoPromotoraBatch = (comissoes: ComissaoPromotora[]) => {
+    crmStorage.saveComissaoPromotoraBatch(comissoes, currentActor);
+  };
+
   const saveContaPagar = (conta: ContaPagar) => {
     crmStorage.saveContaPagar(conta);
   };
@@ -141,8 +249,20 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     crmStorage.saveFeedback(fb);
   };
 
-  const updateAlertaStatus = (id: string, status: 'nova' | 'em_contato' | 'convertida' | 'descartada') => {
+  const saveAlerta = (alerta: AlertaOportunidade) => {
+    crmStorage.saveAlerta(alerta);
+  };
+
+  const updateAlertaStatus = (id: string, status: 'nova' | 'em_contato' | 'convertida' | 'descartada' | 'adiada' | 'concluida') => {
     crmStorage.updateAlertaStatus(id, status);
+  };
+
+  const adiarAlerta = (id: string, dataAdiada: string, alertData?: Partial<AlertaOportunidade>) => {
+    crmStorage.adiarAlerta(id, dataAdiada, alertData);
+  };
+
+  const concluirAlerta = (id: string, alertData?: Partial<AlertaOportunidade>) => {
+    crmStorage.concluirAlerta(id, alertData);
   };
 
   const toggleLiberacaoLeadDigitador = (alertaId: string, liberado: boolean) => {
@@ -224,6 +344,16 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   }, [storeState.alertas]);
 
+  const dashboardMetrics = React.useMemo(() => {
+    return calculateDashboardMetrics(
+      cleanPropostas,
+      dataInicioPersonalizada,
+      dataFimPersonalizada,
+      cleanMetas,
+      allUsers || []
+    );
+  }, [cleanPropostas, dataInicioPersonalizada, dataFimPersonalizada, cleanMetas, allUsers]);
+
   return (
     <CRMContext.Provider
       value={{
@@ -231,6 +361,8 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         propostas: cleanPropostas,
         comissoesPromotoras: storeState.comissoesPromotoras,
         contasPagar: storeState.contasPagar,
+        sheetExpenses,
+        refreshSheetExpenses,
         metas: cleanMetas,
         feedbacks: storeState.feedbacks,
         alertas: cleanAlertas,
@@ -250,17 +382,22 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteProposta,
         updateStatusProposta,
         saveComissaoPromotora,
+        saveComissaoPromotoraBatch,
         saveContaPagar,
         marcarContaPaga,
         saveMeta,
         saveFeedback,
+        saveAlerta,
         updateAlertaStatus,
+        adiarAlerta,
+        concluirAlerta,
         toggleLiberacaoLeadDigitador,
         resetAllData,
         clearAllTestData,
         importClientPortfolio,
         importFullSpreadsheetRows,
-        logCpfAccess
+        logCpfAccess,
+        dashboardMetrics
       }}
     >
       {children}

@@ -20,7 +20,9 @@ import {
   X,
   FileSpreadsheet,
   Calculator,
-  ChevronDown
+  ChevronDown,
+  Settings,
+  Sliders
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -41,6 +43,9 @@ import { useAuth } from '../../context/AuthContext';
 import { Proposta, Operacao, Promotora } from '../../types';
 import { formatCurrency, formatPercent, formatDate, normalizeSellerName, getMonthYearLabel } from '../../utils/formatters';
 import { DetalhePropostaModal } from '../propostas/DetalhePropostaModal';
+import { calculateTotalExpensesFromSheet } from '../../services/expensesSheetService';
+import { SmartFilter } from '../common/SmartFilter';
+import { SystemHealthIndicator } from '../common/SystemHealthIndicator';
 
 interface Props {
   onNavigateToPropostas?: (filter?: any) => void;
@@ -57,6 +62,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     propostas,
     comissoesPromotoras,
     contasPagar,
+    sheetExpenses,
     metas,
     alertas,
     periodo,
@@ -68,12 +74,38 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     dataInicioPersonalizada,
     setDataInicioPersonalizada,
     dataFimPersonalizada,
-    setDataFimPersonalizada
+    setDataFimPersonalizada,
+    dashboardMetrics
   } = useCRM();
   const { allUsers } = useAuth();
 
+  // 1. Single Source of Truth for Date Filtering Range (Defaults strictly to September 2026 to avoid race conditions)
+  const [dateRange, setDateRange] = useState<{ dataInicio: string; dataFim: string }>(() => ({
+    dataInicio: dataInicioPersonalizada || '2026-09-01',
+    dataFim: dataFimPersonalizada || '2026-09-30'
+  }));
+
+  // Sync with global CRM context whenever context dates update (e.g. from Painel Financeiro)
+  useEffect(() => {
+    if (dataInicioPersonalizada && dataFimPersonalizada) {
+      setDateRange({
+        dataInicio: dataInicioPersonalizada,
+        dataFim: dataFimPersonalizada
+      });
+    }
+  }, [dataInicioPersonalizada, dataFimPersonalizada]);
+
+  // Sync dateRange with global context when user changes filter
+  const handleRangeChange = (newRange: { dataInicio: string; dataFim: string }) => {
+    setDateRange(newRange);
+    setDataInicioPersonalizada(newRange.dataInicio);
+    setDataFimPersonalizada(newRange.dataFim);
+  };
+
   // Submenu state for touch/mobile and desktop click
   const [openSubmenu, setOpenSubmenu] = useState<'semana' | 'mes' | 'ano' | null>(null);
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
+  const [copiedResumo, setCopiedResumo] = useState(false);
   const filterContainerRef = React.useRef<HTMLDivElement>(null);
 
   // Close dropdown when clicking outside
@@ -91,14 +123,14 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     };
   }, []);
 
-  // State for detail modal when user taps an element if needed
+  // State for detail modal
   const [detailModalTitle, setDetailModalTitle] = useState<string | null>(null);
   const [detailModalContracts, setDetailModalContracts] = useState<Proposta[]>([]);
   const [selectedSellerName, setSelectedSellerName] = useState<string | null>(null);
   const [selectedSellerProposals, setSelectedSellerProposals] = useState<Proposta[]>([]);
   const [selectedProposalDetail, setSelectedProposalDetail] = useState<Proposta | null>(null);
 
-  // Dynamically adapt baseDate based on current date and latest proposal date
+  // Base date calculations for comparisons
   const baseDateInfo = useMemo(() => {
     const now = new Date();
     const safeYr = now.getFullYear();
@@ -107,15 +139,13 @@ export const ProprietariaDashboard: React.FC<Props> = ({
 
     const todayStr = `${safeYr}-${String(safeMo).padStart(2, '0')}-${String(safeDy).padStart(2, '0')}`;
     
-    // Format helper for year-month strings
     const getYearMonthStr = (year: number, month: number) => {
       const m = String(month).padStart(2, '0');
       return `${year}-${m}`;
     };
 
-    const currentMonthStr = getYearMonthStr(safeYr, safeMo); // YYYY-MM
+    const currentMonthStr = getYearMonthStr(safeYr, safeMo);
     
-    // Previous month
     let prevMo = safeMo - 1;
     let prevYr = safeYr;
     if (prevMo === 0) {
@@ -124,7 +154,6 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     }
     const prevMonthStr = getYearMonthStr(prevYr, prevMo);
 
-    // Month before previous
     let prev2Mo = prevMo - 1;
     let prev2Yr = prevYr;
     if (prev2Mo === 0) {
@@ -133,23 +162,19 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     }
     const prev2MonthsStr = getYearMonthStr(prev2Yr, prev2Mo);
 
-    // Domingo da semana atual
-    const dayOfWeek = now.getDay(); // 0 = Domingo
+    const dayOfWeek = now.getDay();
     const sundayCurrent = new Date(now);
     sundayCurrent.setDate(now.getDate() - dayOfWeek);
     const sundayCurrentStr = `${sundayCurrent.getFullYear()}-${String(sundayCurrent.getMonth() + 1).padStart(2, '0')}-${String(sundayCurrent.getDate()).padStart(2, '0')}`;
 
-    // Sexta-feira anterior (2 dias antes do Domingo da semana atual)
     const lastFriday = new Date(sundayCurrent);
     lastFriday.setDate(sundayCurrent.getDate() - 2);
     const lastFridayStr = `${lastFriday.getFullYear()}-${String(lastFriday.getMonth() + 1).padStart(2, '0')}-${String(lastFriday.getDate()).padStart(2, '0')}`;
 
-    // Domingo anterior ao domingo atual (7 dias antes)
     const prevSunday = new Date(sundayCurrent);
     prevSunday.setDate(sundayCurrent.getDate() - 7);
     const prevSundayStr = `${prevSunday.getFullYear()}-${String(prevSunday.getMonth() + 1).padStart(2, '0')}-${String(prevSunday.getDate()).padStart(2, '0')}`;
 
-    // Sexta-feira da semana anterior (9 dias antes do domingo atual)
     const prevFriday = new Date(sundayCurrent);
     prevFriday.setDate(sundayCurrent.getDate() - 9);
     const prevFridayStr = `${prevFriday.getFullYear()}-${String(prevFriday.getMonth() + 1).padStart(2, '0')}-${String(prevFriday.getDate()).padStart(2, '0')}`;
@@ -167,104 +192,44 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     };
   }, []);
 
-  // Filter propostas by period
-  const filteredPropostas = useMemo(() => {
-    return propostas.filter(p => {
-      const d = p.dataDigitacao;
-      if (!d) return false;
-
-      if (periodo === 'hoje') {
-        return d === baseDateInfo.todayStr;
-      }
-      if (periodo === 'semana') {
-        // Obrigatório: do Domingo da semana atual até a data atual (hoje)
-        return d >= baseDateInfo.sundayCurrentStr && d <= baseDateInfo.todayStr;
-      }
-      if (periodo === 'semana_anterior') {
-        // "Semana Anterior" (definida da sexta-feira anterior até o domingo anterior)
-        return (
-          (d >= baseDateInfo.lastFridayStr && d <= baseDateInfo.sundayCurrentStr) ||
-          (d >= baseDateInfo.prevFridayStr && d <= baseDateInfo.prevSundayStr) ||
-          (d >= baseDateInfo.prevSundayStr && d <= baseDateInfo.sundayCurrentStr)
-        );
-      }
-      if (periodo === 'mes') {
-        return d.startsWith(filtroMesAno || baseDateInfo.currentMonthStr);
-      }
-      if (periodo === 'mes_anterior') {
-        return d.startsWith(baseDateInfo.prevMonthStr);
-      }
-      if (periodo === 'ultimos_3_meses') {
-        return (
-          d.startsWith(baseDateInfo.currentMonthStr) ||
-          d.startsWith(baseDateInfo.prevMonthStr) ||
-          d.startsWith(baseDateInfo.prev2MonthsStr)
-        );
-      }
-      if (periodo === 'ano') {
-        const targetYear = String(anoSelecionado || 2026);
-        return d.startsWith(targetYear);
-      }
-      if (periodo === 'personalizado') {
-        const start = dataInicioPersonalizada || '2020-01-01';
-        const end = dataFimPersonalizada || '2030-12-31';
-        return d >= start && d <= end;
-      }
-      return true;
-    });
-  }, [propostas, periodo, baseDateInfo, anoSelecionado, dataInicioPersonalizada, dataFimPersonalizada]);
+  // 2. Filter Propostas and KPIs mapped strictly from centralized dashboardMetrics
+  const filteredPropostas = dashboardMetrics.filteredPropostas;
+  const totalVendas = dashboardMetrics.totalVendas;
+  const totalTaxas = dashboardMetrics.totalTaxas;
+  const paidPropostas = dashboardMetrics.contratosFormalizadosEPagos;
 
   // Previous month for comparative deltas
   const prevMonthPropostas = useMemo(() => {
-    return propostas.filter(p => p.dataDigitacao.startsWith(baseDateInfo.prevMonthStr) && p.status === 'Paga');
+    return propostas.filter(p => {
+      const dataDigi = p.dataDigitacao ? p.dataDigitacao.substring(0, 10) : '';
+      const promotoraUpper = (p.promotora || '').toUpperCase().trim();
+      const naoEhAssessoria = promotoraUpper !== 'ASSESSORIA' && !promotoraUpper.includes('ASSESSORIA');
+      return dataDigi.startsWith(baseDateInfo.prevMonthStr) && p.status === 'Paga' && naoEhAssessoria;
+    });
   }, [propostas, baseDateInfo]);
 
-  // Paid propostas in current filter
-  const paidPropostas = useMemo(() => {
-    return filteredPropostas.filter(p => p.status === 'Paga');
-  }, [filteredPropostas]);
-
-  // Financial aggregates
-  const totalVendas = useMemo(() => {
-    return paidPropostas.reduce((acc, p) => acc + (p.valorEmprestimo || 0), 0);
-  }, [paidPropostas]);
-
-  const totalTaxas = useMemo(() => {
-    return paidPropostas.reduce((acc, p) => acc + (p.valorTaxa || 0), 0);
-  }, [paidPropostas]);
-
   const totalComissoesPromotoras = useMemo(() => {
-    const paidIds = new Set(paidPropostas.map(p => p.id));
+    const periodIds = new Set(filteredPropostas.map(p => p.id));
     return comissoesPromotoras
-      .filter(c => paidIds.has(c.propostaId) && c.status === 'confirmada')
+      .filter(c => (periodIds.has(c.propostaId) || (c.dataRecebimento && c.dataRecebimento >= dateRange.dataInicio && c.dataRecebimento <= dateRange.dataFim)) && c.status === 'confirmada')
       .reduce((acc, c) => acc + c.valorRecebido, 0);
-  }, [paidPropostas, comissoesPromotoras]);
+  }, [filteredPropostas, comissoesPromotoras, dateRange]);
 
   const faturamentoBruto = totalTaxas + totalComissoesPromotoras;
 
-  // Expenses in current period
+  // Expenses in current period from Google Sheets
   const totalDespesas = useMemo(() => {
+    if (sheetExpenses && sheetExpenses.length > 0) {
+      return calculateTotalExpensesFromSheet(sheetExpenses, dateRange.dataInicio, dateRange.dataFim);
+    }
     const cp = contasPagar.filter(c => {
-      if (periodo === 'hoje' || periodo === 'semana' || periodo === 'semana_anterior') return c.status === 'pendente';
-      if (periodo === 'mes_anterior') return c.vencimento.startsWith(baseDateInfo.prevMonthStr);
-      if (periodo === 'ultimos_3_meses') {
-        return (
-          c.vencimento.startsWith(baseDateInfo.currentMonthStr) ||
-          c.vencimento.startsWith(baseDateInfo.prevMonthStr) ||
-          c.vencimento.startsWith(baseDateInfo.prev2MonthsStr)
-        );
-      }
-      if (periodo === 'personalizado') {
-        const start = dataInicioPersonalizada || '2020-01-01';
-        const end = dataFimPersonalizada || '2030-12-31';
-        return c.vencimento >= start && c.vencimento <= end;
-      }
-      return c.vencimento.startsWith(baseDateInfo.currentMonthStr);
+      if (!c.vencimento) return false;
+      if (dateRange.dataInicio && c.vencimento < dateRange.dataInicio) return false;
+      if (dateRange.dataFim && c.vencimento > dateRange.dataFim) return false;
+      return true;
     });
-    const billsTotal = cp.reduce((acc, c) => acc + c.valor, 0);
-    const teamSalaries = periodo === 'semana' || periodo === 'semana_anterior' ? 3375 : 13500;
-    return billsTotal + teamSalaries;
-  }, [contasPagar, periodo, baseDateInfo, dataInicioPersonalizada, dataFimPersonalizada]);
+    return cp.reduce((acc, c) => acc + c.valor, 0);
+  }, [sheetExpenses, contasPagar, dateRange]);
 
   const lucroLiquido = faturamentoBruto - totalDespesas;
   const margemLucro = faturamentoBruto > 0 ? (lucroLiquido / faturamentoBruto) * 100 : 0;
@@ -283,7 +248,6 @@ export const ProprietariaDashboard: React.FC<Props> = ({
       prevProps = propostas.filter(p => p.dataDigitacao === yStr && p.status === 'Paga');
       label = 'vs ontem';
     } else if (periodo === 'semana') {
-      // Semana anterior
       prevProps = propostas.filter(p => {
         const d = p.dataDigitacao;
         return (
@@ -319,16 +283,13 @@ export const ProprietariaDashboard: React.FC<Props> = ({
 
   const deltaVendas = prevPeriodVendas > 0 ? ((totalVendas - prevPeriodVendas) / prevPeriodVendas) * 100 : 0;
 
-  // Determine active competence month for goals lookup based on active period filter
+  // 4. Dynamic Competence Month derived from dateRange.dataInicio (e.g. '2026-09-01' -> '2026-09')
   const activeCompetenceMonth = useMemo(() => {
-    if (periodo === 'mes_anterior') {
-      return baseDateInfo.prevMonthStr;
-    }
-    if (periodo === 'mes') {
-      return filtroMesAno || baseDateInfo.currentMonthStr;
+    if (dateRange.dataInicio && dateRange.dataInicio.length >= 7) {
+      return dateRange.dataInicio.substring(0, 7);
     }
     return baseDateInfo.currentMonthStr;
-  }, [periodo, baseDateInfo, filtroMesAno]);
+  }, [dateRange, baseDateInfo]);
 
   // Map of normalized name/salesName to User for easy lookup
   const userMap = useMemo(() => {
@@ -342,13 +303,12 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     return map;
   }, [allUsers]);
 
-  // Active saleswomen list (only role === 'vendedora', active status, and not inactivated in month)
+  // Active saleswomen list
   const activeSellers = useMemo(() => {
     return allUsers.filter(u => {
       if (u.role !== 'vendedora') return false;
       if (u.status !== 'ativo') return false;
       
-      // Check if specifically deactivated for this month in metas
       const foundMeta = metas.find(m => 
         (m.vendedoraId === u.id || 
          normalizeSellerName(m.vendedoraNome) === normalizeSellerName(u.name) ||
@@ -363,17 +323,12 @@ export const ProprietariaDashboard: React.FC<Props> = ({
 
   // Store meta sum calculation based on individual saleswomen targets
   const storeMetaMonthly = useMemo(() => {
-    // 1. Filter metas for the active competence month
     const savedMetasForMonth = metas.filter(m => m.mesAno === activeCompetenceMonth);
-    
-    // 2. Check if there's a master "loja" meta defined (priority)
     const masterLojaMeta = savedMetasForMonth.find(m => m.vendedoraId === 'loja');
     if (masterLojaMeta && masterLojaMeta.metaVenda > 0) {
       return masterLojaMeta.metaVenda;
     }
 
-    // 3. Otherwise, sum individual metas saved by the user
-    // CRITICAL: Only sum metas for sellers that are currently active in allUsers to avoid "ghost" values from old names/IDs
     const activeSellerIds = new Set(allUsers.filter(u => u.role === 'vendedora').map(u => u.id));
     const uniqueMetasMap = new Map<string, number>();
     
@@ -384,121 +339,28 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     });
 
     const sum = Array.from(uniqueMetasMap.values()).reduce((acc, val) => acc + val, 0);
-    
     if (sum > 0) {
       return sum;
     }
 
-    // 4. Final fallback only if absolutely NO metas are defined in the database
     return 320000;
   }, [metas, activeCompetenceMonth, allUsers]);
 
-  const metaLoja = useMemo(() => {
-    let periodMultiplier = 1;
-    if (periodo === 'hoje') periodMultiplier = 1 / 30;
-    else if (periodo === 'semana' || periodo === 'semana_anterior') periodMultiplier = 7 / 30;
-    else if (periodo === 'mes' || periodo === 'mes_anterior') periodMultiplier = 1;
-    else if (periodo === 'ultimos_3_meses') periodMultiplier = 3;
-    else if (periodo === 'ano') periodMultiplier = 12;
-    else if (periodo === 'personalizado') {
-      const startMs = new Date(dataInicioPersonalizada || '2026-09-01').getTime();
-      const endMs = new Date(dataFimPersonalizada || '2026-09-30').getTime();
-      const diffDays = Math.max(1, Math.round((endMs - startMs) / (1000 * 60 * 60 * 24)));
-      periodMultiplier = diffDays / 30;
-    }
-    return storeMetaMonthly * periodMultiplier;
-  }, [storeMetaMonthly, periodo, dataInicioPersonalizada, dataFimPersonalizada]);
+  const metaLoja = dashboardMetrics.metaPeriodo;
+  const rankingVendedoras = dashboardMetrics.rankingVendedoras;
 
   const atingimentoMeta = metaLoja > 0 ? (totalVendas / metaLoja) * 100 : 0;
   const quantoFalta = Math.max(0, metaLoja - totalVendas);
 
-  // Ranking of sales reps (ONLY active users registered as 'vendedora'; everything else goes to 'Outros')
-  const rankingVendedoras = useMemo(() => {
-    const sellersMap = new Map<string, { nome: string; vendas: number; taxa: number; count: number; meta: number }>();
-
-    // Dynamic list of active registered vendedoras ONLY
-    const reps = activeSellers.map(u => u.name);
-    
-    // Period multiplier for scaling
-    let periodMultiplier = 1;
-    if (periodo === 'hoje') periodMultiplier = 1 / 30;
-    else if (periodo === 'semana' || periodo === 'semana_anterior') periodMultiplier = 7 / 30;
-    else if (periodo === 'mes' || periodo === 'mes_anterior') periodMultiplier = 1;
-    else if (periodo === 'ultimos_3_meses') periodMultiplier = 3;
-    else if (periodo === 'ano') periodMultiplier = 12;
-    else if (periodo === 'personalizado') {
-      const startMs = new Date(dataInicioPersonalizada || '2026-09-01').getTime();
-      const endMs = new Date(dataFimPersonalizada || '2026-09-30').getTime();
-      const diffDays = Math.max(1, Math.round((endMs - startMs) / (1000 * 60 * 60 * 24)));
-      periodMultiplier = diffDays / 30;
-    }
-
-    const getSellerPeriodMeta = (user: any): number => {
-      const foundMeta = metas.find(m => 
-        (m.vendedoraId === user.id || normalizeSellerName(m.vendedoraNome) === normalizeSellerName(user.name)) && 
-        m.mesAno === activeCompetenceMonth
-      );
-      
-      // Sovereign rule: if found in metas menu, use it. Otherwise, meta is 0.
-      return (foundMeta && foundMeta.metaVenda > 0) 
-        ? foundMeta.metaVenda * periodMultiplier
-        : 0;
-    };
-
-    activeSellers.forEach(u => {
-      sellersMap.set(u.name, { 
-        nome: u.name, 
-        vendas: 0, 
-        taxa: 0, 
-        count: 0, 
-        meta: getSellerPeriodMeta(u) 
-      });
-    });
-
-    let outrosVendas = 0;
-    let outrosTaxa = 0;
-    let outrosCount = 0;
-
-    paidPropostas.forEach(p => {
-      const normName = normalizeSellerName(p.vendedora);
-      const user = userMap.get(normName);
-      
-      if (user && activeSellers.some(au => au.id === user.id)) {
-        const rep = sellersMap.get(user.name);
-        if (rep) {
-          rep.vendas += p.valorEmprestimo;
-          rep.taxa += p.valorTaxa;
-          rep.count += 1;
-          return;
-        }
-      }
-
-      // Collect into generic "Outros" for non-vendedoras/unassigned
-      outrosVendas += p.valorEmprestimo;
-      outrosTaxa += p.valorTaxa;
-      outrosCount += 1;
-    });
-
-    if (outrosCount > 0) {
-      sellersMap.set('Outros', {
-        nome: 'Outros',
-        vendas: outrosVendas,
-        taxa: outrosTaxa,
-        count: outrosCount,
-        meta: 0
-      });
-    }
-
-    return Array.from(sellersMap.values()).sort((a, b) => b.vendas - a.vendas);
-  }, [paidPropostas, activeSellers, metas, allUsers, periodo, baseDateInfo, dataInicioPersonalizada, dataFimPersonalizada, userMap]);
-
-  // Operations breakdown & profitability
+  // Operations breakdown
   const operationsChartData = useMemo(() => {
     const map = new Map<Operacao, { operacao: Operacao; vendas: number; taxa: number; count: number }>();
-    paidPropostas.forEach(p => {
+    filteredPropostas.forEach(p => {
       const curr = map.get(p.operacao) || { operacao: p.operacao, vendas: 0, taxa: 0, count: 0 };
-      curr.vendas += p.valorEmprestimo;
-      curr.taxa += p.valorTaxa;
+      curr.vendas += (p.valorEmprestimo || 0);
+      if (p.taxaPaga === true || String(p.taxaPaga).toUpperCase() === 'SIM' || p.clientePagouTaxa === true) {
+        curr.taxa += (p.valorTaxa || 0);
+      }
       curr.count += 1;
       map.set(p.operacao, curr);
     });
@@ -509,22 +371,32 @@ export const ProprietariaDashboard: React.FC<Props> = ({
         percentualTaxa: item.vendas > 0 ? (item.taxa / item.vendas) * 100 : 0
       }))
       .sort((a, b) => b.vendas - a.vendas);
-  }, [paidPropostas]);
+  }, [filteredPropostas]);
 
   // Promotoras breakdown
   const promotorasChartData = useMemo(() => {
     const map = new Map<Promotora, { promotora: Promotora; vendas: number; count: number }>();
-    paidPropostas.forEach(p => {
+    filteredPropostas.forEach(p => {
+      if (!p.promotora) return;
+      const promLower = p.promotora.toLowerCase();
+      if (
+        promLower.includes('assessoria') ||
+        promLower.includes('maquineta') ||
+        promLower.includes('pessoal de livia') ||
+        promLower.includes('pessoal da livia')
+      ) {
+        return;
+      }
       const curr = map.get(p.promotora) || { promotora: p.promotora, vendas: 0, count: 0 };
-      curr.vendas += p.valorEmprestimo;
+      curr.vendas += (p.valorEmprestimo || 0);
       curr.count += 1;
       map.set(p.promotora, curr);
     });
 
     return Array.from(map.values()).sort((a, b) => b.vendas - a.vendas);
-  }, [paidPropostas]);
+  }, [filteredPropostas]);
 
-  // 12-Month evolution data for Chart 1: Vendas e Taxas
+  // 12-Month evolution data for Chart 1
   const evolutionVendasTaxas = useMemo(() => {
     const months = [
       { key: '2025-10', label: 'Out/25' },
@@ -542,9 +414,15 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     ];
 
     return months.map(m => {
-      const mProps = propostas.filter(p => p.dataDigitacao.startsWith(m.key) && p.status === 'Paga');
+      const mProps = propostas.filter(p => {
+        const d = p.dataDigitacao;
+        const promUpper = (p.promotora || '').toUpperCase();
+        return d && d.startsWith(m.key) && p.status === 'Paga' && !promUpper.includes('ASSESSORIA');
+      });
       const vendas = mProps.reduce((acc, p) => acc + p.valorEmprestimo, 0);
-      const taxas = mProps.reduce((acc, p) => acc + p.valorTaxa, 0);
+      const taxas = mProps
+        .filter(p => p.taxaPaga === true || String(p.taxaPaga).toUpperCase() === 'SIM' || p.clientePagouTaxa === true)
+        .reduce((acc, p) => acc + p.valorTaxa, 0);
 
       return {
         mes: m.label,
@@ -554,89 +432,133 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     });
   }, [propostas]);
 
-  // 12-Month evolution data for Chart 2: Receita, Despesa e Lucro Líquido
-  const evolutionFinanceiraReceitaDespesa = useMemo(() => {
-    const months = [
-      { key: '2025-10', label: 'Out/25' },
-      { key: '2025-11', label: 'Nov/25' },
-      { key: '2025-12', label: 'Dez/25' },
-      { key: '2026-01', label: 'Jan/26' },
-      { key: '2026-02', label: 'Fev/26' },
-      { key: '2026-03', label: 'Mar/26' },
-      { key: '2026-04', label: 'Abr/26' },
-      { key: '2026-05', label: 'Mai/26' },
-      { key: '2026-06', label: 'Jun/26' },
-      { key: '2026-07', label: 'Jul/26' },
-      { key: '2026-08', label: 'Ago/26' },
-      { key: '2026-09', label: 'Set/26' },
-    ];
+  // Canonical operations
+  const CANONICAL_OPERATIONS = [
+    'Portabilidade',
+    'Refin',
+    'Margem',
+    'FGTS',
+    'Refin da Port',
+    'Conta de Energia',
+    'Cartão Novo',
+    'Saque Complementar',
+    'Credcesta'
+  ];
 
-    return months.map(m => {
-      const mProps = propostas.filter(p => p.dataDigitacao.startsWith(m.key) && p.status === 'Paga');
-      const vendas = mProps.reduce((acc, p) => acc + p.valorEmprestimo, 0);
-      const taxas = mProps.reduce((acc, p) => acc + p.valorTaxa, 0);
-
-      const paidIds = new Set(mProps.map(p => p.id));
-      const comissoesPromotorasNoMes = comissoesPromotoras
-        .filter(c => paidIds.has(c.propostaId) && c.status === 'confirmada')
-        .reduce((acc, c) => acc + c.valorRecebido, 0);
-
-      const comissaoPromotoraEst = comissoesPromotorasNoMes > 0 ? comissoesPromotorasNoMes : Math.round(vendas * 0.045);
-      const receita = taxas + comissaoPromotoraEst;
-
-      const billsTotal = contasPagar
-        .filter(c => c.vencimento.startsWith(m.key))
-        .reduce((acc, c) => acc + c.valor, 0);
-      const teamSalaries = 13500 + (m.key === '2025-12' ? 5000 : 0);
-      const despesas = billsTotal > 0 ? (billsTotal + teamSalaries) : (19500 + (m.key === '2025-12' ? 5000 : 0));
-
-      const lucro = receita - despesas;
-
-      return {
-        mes: m.label,
-        receita,
-        despesas,
-        lucro
-      };
-    });
-  }, [propostas, comissoesPromotoras, contasPagar]);
-
-  // Employee profitability calculation (Taxa + Comissão - Custo)
-  const employeeProfitability = useMemo(() => {
-    return rankingVendedoras.map(seller => {
-      const isOutros = seller.nome === 'Outros';
-      const user = allUsers.find(u => u.name === seller.nome);
-      const custo = isOutros ? 0 : (user?.baseSalaryCost || 2200);
-      const comissaoPromotoraEst = Math.round(seller.vendas * 0.045);
-      const receitaGerada = seller.taxa + comissaoPromotoraEst;
-      const rentabilidadeLiquida = receitaGerada - custo;
-
-      return {
-        nome: seller.nome,
-        vendas: seller.vendas,
-        taxas: seller.taxa,
-        comissaoPromotora: comissaoPromotoraEst,
-        receitaTotal: receitaGerada,
-        custo,
-        rentabilidadeLiquida
-      };
-    }).sort((a, b) => b.rentabilidadeLiquida - a.rentabilidadeLiquida);
-  }, [rankingVendedoras, allUsers]);
-
-  // Cancellations & Rejections
-  const canceladasOuReprovadas = useMemo(() => {
-    return filteredPropostas.filter(p => p.status === 'Cancelada');
-  }, [filteredPropostas]);
-
-  const totalCancelado = canceladasOuReprovadas.reduce((acc, p) => acc + p.valorEmprestimo, 0);
-
-  // Handle card click to open contract detail modal
-  const handleOpenDetailModal = (title: string, list: Proposta[]) => {
-    setDetailModalTitle(title);
-    setDetailModalContracts(list);
+  const getCanonicalOpName = (rawOp?: string): string => {
+    if (!rawOp || !rawOp.trim()) return 'Outros';
+    const p = rawOp.trim().toLowerCase();
+    if (p.includes('fgts') || p.includes('saque-aniversário') || p.includes('saque aniversario')) return 'FGTS';
+    if (p.includes('refin da port') || p.includes('refin port')) return 'Refin da Port';
+    if (p === 'port' || (p.includes('portabilidade') && !p.includes('refin'))) return 'Portabilidade';
+    if (p === 'refinanciamento' || p === 'refin' || p.startsWith('refin')) return 'Refin';
+    if (p.includes('margem') || p === 'novo' || p.includes('novo consignado')) return 'Margem';
+    if (p.includes('energia') || p.includes('luz')) return 'Conta de Energia';
+    if (p.includes('cartão') || p.includes('cartao') || p.includes('rmc') || p.includes('rcc')) return 'Cartão Novo';
+    if (p.includes('complementar')) return 'Saque Complementar';
+    if (p.includes('credcesta')) return 'Credcesta';
+    return rawOp.trim();
   };
 
-  // Estatísticas de Digitação: Quantas propostas e simulações cada um digitou
+  const distinctOperations = useMemo(() => {
+    const presentOps = new Set<string>();
+    paidPropostas.forEach(p => {
+      const op = getCanonicalOpName(p.operacao);
+      presentOps.add(op);
+    });
+
+    const list: string[] = [];
+    CANONICAL_OPERATIONS.forEach(op => {
+      if (presentOps.has(op) || ['FGTS', 'Portabilidade', 'Refin', 'Margem'].includes(op)) {
+        list.push(op);
+      }
+    });
+    presentOps.forEach(op => {
+      if (!list.includes(op)) list.push(op);
+    });
+
+    return list;
+  }, [paidPropostas]);
+
+  const resolveSellerCanonicalName = (rawSeller?: string | null): string => {
+    if (!rawSeller || !rawSeller.trim()) return 'Não informado';
+    const clean = rawSeller.trim();
+    const cleanLower = clean.toLowerCase();
+    if (cleanLower.includes('igarassu') || cleanLower.includes('loja')) {
+      const bianca = allUsers.find(u => u.name.toLowerCase().includes('bianca') || (u.salesName && u.salesName.toLowerCase().includes('bianca')));
+      if (bianca) return bianca.salesName || bianca.name;
+      return 'Bianca';
+    }
+    const found = allUsers.find(u => {
+      if (u.salesName && u.salesName.toLowerCase().trim() === clean.toLowerCase()) return true;
+      if (u.name && u.name.toLowerCase().trim() === clean.toLowerCase()) return true;
+      if (normalizeSellerName(u.name) === normalizeSellerName(clean)) return true;
+      if (u.salesName && normalizeSellerName(u.salesName) === normalizeSellerName(clean)) return true;
+      return false;
+    });
+    if (found) {
+      return found.salesName || found.name;
+    }
+    return clean;
+  };
+
+  const matrixDataOperacoes = useMemo(() => {
+    const activeList = allUsers
+      .filter(u => u.role === 'vendedora' && u.status === 'ativo')
+      .map(u => u.salesName || u.name);
+
+    const uniqueSellersMap = new Map<string, Proposta[]>();
+    activeList.forEach(seller => {
+      uniqueSellersMap.set(seller, []);
+    });
+
+    filteredPropostas.forEach(p => {
+      const canonicalSeller = resolveSellerCanonicalName(p.vendedora);
+      if (!uniqueSellersMap.has(canonicalSeller)) {
+        uniqueSellersMap.set(canonicalSeller, []);
+      }
+      uniqueSellersMap.get(canonicalSeller)!.push(p);
+    });
+
+    const result = Array.from(uniqueSellersMap.entries()).map(([repName, repProps]) => {
+      const totalVendaRep = repProps.reduce((acc, p) => acc + (p.valorEmprestimo || 0), 0);
+      const totalTaxaRep = repProps
+        .filter(p => p.taxaPaga === true || String(p.taxaPaga).toUpperCase() === 'SIM' || p.clientePagouTaxa === true)
+        .reduce((acc, p) => acc + (p.valorTaxa || 0), 0);
+      const percentTaxaGeral = totalVendaRep > 0 ? Number(((totalTaxaRep / totalVendaRep) * 100).toFixed(2)) : 0;
+
+      const userMeta = metas.find(m => m.vendedoraNome && (
+        m.vendedoraNome.toLowerCase().includes(repName.toLowerCase()) || 
+        repName.toLowerCase().includes(m.vendedoraNome.toLowerCase())
+      ))?.metaVenda || 75000;
+      const atingimento = userMeta > 0 ? Number(((totalVendaRep / userMeta) * 100).toFixed(1)) : 0;
+
+      const opsBreakdown: Record<string, { venda: number; taxa: number; percent: number; count: number }> = {};
+      distinctOperations.forEach(op => {
+        const ops = repProps.filter(p => getCanonicalOpName(p.operacao) === op);
+        const venda = ops.reduce((acc, p) => acc + (p.valorEmprestimo || 0), 0);
+        const taxa = ops
+          .filter(p => p.taxaPaga === true || String(p.taxaPaga).toUpperCase() === 'SIM' || p.clientePagouTaxa === true)
+          .reduce((acc, p) => acc + (p.valorTaxa || 0), 0);
+        const percent = venda > 0 ? Number(((taxa / venda) * 100).toFixed(2)) : 0;
+        opsBreakdown[op] = { venda, taxa, percent, count: ops.length };
+      });
+
+      return {
+        repName,
+        totalVendaRep,
+        totalTaxaRep,
+        percentTaxaGeral,
+        userMeta,
+        atingimento,
+        opsBreakdown
+      };
+    });
+
+    return result.sort((a, b) => b.totalVendaRep - a.totalVendaRep);
+  }, [filteredPropostas, allUsers, metas, distinctOperations]);
+
+  // Digitação Stats
   const digitacaoStats = useMemo(() => {
     const counts: Record<string, { propostas: number; volume: number; simulacoes: number }> = {};
 
@@ -650,13 +572,11 @@ export const ProprietariaDashboard: React.FC<Props> = ({
         counts[dig] = { propostas: 0, volume: 0, simulacoes: 0 };
       }
       
-      // 1. Simulações: Conta se é simulação ou originou de simulação
       const isSim = p.isSimulacao === true || p.status === 'Simuladas' || p.origemSimulacao === true;
       if (isSim) {
         counts[dig].simulacoes += 1;
       }
 
-      // 2. Propostas Digitadas / Volume: SÓ conta se NÃO for mais simulação (ou seja, formalizada)
       const isPropostaOficial = p.status !== 'Simuladas' && p.isSimulacao !== true;
       if (isPropostaOficial) {
         counts[dig].propostas += 1;
@@ -686,248 +606,74 @@ export const ProprietariaDashboard: React.FC<Props> = ({
 
   return (
     <div className="space-y-5 pb-20 md:pb-8">
-      {/* Top Header Controls: Title & Period Filter */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
+      {/* Top Header Controls: Title, Secret Button, Settings, & Smart Period Filter */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
         <div>
-          <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-            Painel Gerencial
-          </h1>
+          <div className="flex items-center gap-2">
+            <Award className="w-5 h-5 text-purple-600 shrink-0" />
+            <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+              Painel de Resultados Gerais
+            </h1>
+            {/* Secret System Health Indicator Button */}
+            <SystemHealthIndicator />
+            {/* Discrete Config / Shortcuts Dropdown Button */}
+            <div className="relative ml-1">
+              <button
+                onClick={() => setIsShortcutsOpen(!isShortcutsOpen)}
+                className="p-1 text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                title="Atalhos do Painel"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+              {isShortcutsOpen && (
+                <div className="absolute left-0 mt-1 w-48 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-lg py-1.5 z-50 text-xs animate-in fade-in slide-in-from-top-1">
+                  <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Opções Rápidas
+                  </div>
+                  <button
+                    onClick={() => {
+                      setIsShortcutsOpen(false);
+                      const text = `Resultados Gerais LiviaCred (${dateRange.dataInicio} a ${dateRange.dataFim}):\n- Total de Vendas: ${formatCurrency(totalVendas)}\n- Total de Taxas: ${formatCurrency(totalTaxas)}`;
+                      navigator.clipboard.writeText(text);
+                      setCopiedResumo(true);
+                      setTimeout(() => setCopiedResumo(false), 2000);
+                    }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700/50 font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5"
+                  >
+                    {copiedResumo ? (
+                      <Check className="w-3.5 h-3.5 text-emerald-500" />
+                    ) : (
+                      <Copy className="w-3.5 h-3.5 text-purple-500" />
+                    )}
+                    <span>{copiedResumo ? 'Copiado!' : 'Copiar Resumo'}</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsShortcutsOpen(false);
+                      handleRangeChange({ dataInicio: '2026-09-01', dataFim: '2026-09-30' });
+                    }}
+                    className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700/50 font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5"
+                  >
+                    <Sliders className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Período Padrão</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
           <p className="text-xs text-slate-500 mt-0.5">
             Acompanhamento em tempo real de faturamento, comissões, ranking e rentabilidade.
           </p>
         </div>
 
-        {/* Period Filter Buttons */}
-        <div ref={filterContainerRef} className="flex items-center gap-1.5 overflow-visible relative">
-          {/* 1. Hoje */}
-          <button
-            type="button"
-            onClick={() => {
-              setPeriodo('hoje');
-              setOpenSubmenu(null);
-            }}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
-              periodo === 'hoje'
-                ? 'bg-[#0B2A4A] text-white shadow-xs'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-            }`}
-          >
-            Hoje
-          </button>
-
-          {/* 2. Semana */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => {
-                setOpenSubmenu(prev => (prev === 'semana' ? null : 'semana'));
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-                periodo === 'semana' || periodo === 'semana_anterior'
-                  ? 'bg-[#0B2A4A] text-white shadow-xs'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              <span>{periodo === 'semana_anterior' ? 'Semana Anterior' : 'Semana'}</span>
-              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${openSubmenu === 'semana' ? 'rotate-180' : ''}`} />
-            </button>
-
-            {openSubmenu === 'semana' && (
-              <div className="absolute top-full left-0 mt-1.5 z-[70] min-w-[160px] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-100">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPeriodo('semana');
-                    setOpenSubmenu(null);
-                  }}
-                  className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-between ${
-                    periodo === 'semana'
-                      ? 'bg-teal-600 text-white shadow-xs'
-                      : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
-                  }`}
-                >
-                  <span>Semana Atual</span>
-                  {periodo === 'semana' && <Check className="w-3.5 h-3.5" />}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPeriodo('semana_anterior');
-                    setOpenSubmenu(null);
-                  }}
-                  className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-between ${
-                    periodo === 'semana_anterior'
-                      ? 'bg-teal-600 text-white shadow-xs'
-                      : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
-                  }`}
-                >
-                  <span>Semana Anterior</span>
-                  {periodo === 'semana_anterior' && <Check className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* 3. Este Mês */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => {
-                setOpenSubmenu(prev => (prev === 'mes' ? null : 'mes'));
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-                periodo === 'mes' || periodo === 'mes_anterior' || periodo === 'ultimos_3_meses'
-                  ? 'bg-[#0B2A4A] text-white shadow-xs'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              <span>
-                {periodo === 'mes_anterior' ? 'Mês Anterior' : periodo === 'ultimos_3_meses' ? '3 Meses' : 'Este Mês'}
-              </span>
-              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${openSubmenu === 'mes' ? 'rotate-180' : ''}`} />
-            </button>
-
-            {openSubmenu === 'mes' && (
-              <div className="absolute top-full left-0 mt-1.5 z-[70] min-w-[170px] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-100">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPeriodo('mes');
-                    setOpenSubmenu(null);
-                  }}
-                  className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-between ${
-                    periodo === 'mes'
-                      ? 'bg-teal-600 text-white shadow-xs'
-                      : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
-                  }`}
-                >
-                  <span>Este Mês</span>
-                  {periodo === 'mes' && <Check className="w-3.5 h-3.5" />}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPeriodo('mes_anterior');
-                    setOpenSubmenu(null);
-                  }}
-                  className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-between ${
-                    periodo === 'mes_anterior'
-                      ? 'bg-teal-600 text-white shadow-xs'
-                      : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
-                  }`}
-                >
-                  <span>Mês Anterior</span>
-                  {periodo === 'mes_anterior' && <Check className="w-3.5 h-3.5" />}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPeriodo('ultimos_3_meses');
-                    setOpenSubmenu(null);
-                  }}
-                  className={`w-full text-left px-3 py-2 rounded-xl text-xs font-bold transition flex items-center justify-between ${
-                    periodo === 'ultimos_3_meses'
-                      ? 'bg-teal-600 text-white shadow-xs'
-                      : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
-                  }`}
-                >
-                  <span>Últimos 3 Meses</span>
-                  {periodo === 'ultimos_3_meses' && <Check className="w-3.5 h-3.5" />}
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* 4. Filtro de Ano */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => {
-                setOpenSubmenu(prev => (prev === 'ano' ? null : 'ano'));
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-                periodo === 'ano'
-                  ? 'bg-[#0B2A4A] text-white shadow-xs'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              <span>{periodo === 'ano' && anoSelecionado ? String(anoSelecionado) : '2026'}</span>
-              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${openSubmenu === 'ano' ? 'rotate-180' : ''}`} />
-            </button>
-
-            {openSubmenu === 'ano' && (
-              <div className="absolute top-full left-0 mt-1.5 z-[70] min-w-[130px] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-1.5 space-y-1 animate-in fade-in zoom-in-95 duration-100">
-                {[2026, 2025, 2024, 2023, 2022].map((yr) => (
-                  <button
-                    key={yr}
-                    type="button"
-                    onClick={() => {
-                      setAnoSelecionado(yr);
-                      setPeriodo('ano');
-                      setOpenSubmenu(null);
-                    }}
-                    className={`w-full text-left px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center justify-between ${
-                      periodo === 'ano' && (anoSelecionado === yr || (!anoSelecionado && yr === 2026))
-                        ? 'bg-teal-600 text-white shadow-xs'
-                        : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
-                    }`}
-                  >
-                    <span>{yr}</span>
-                    {periodo === 'ano' && (anoSelecionado === yr || (!anoSelecionado && yr === 2026)) && <Check className="w-3.5 h-3.5" />}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* 5. Personalizado */}
-          <button
-            type="button"
-            onClick={() => {
-              setPeriodo('personalizado');
-              setOpenSubmenu(null);
-            }}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-              periodo === 'personalizado'
-                ? 'bg-[#0B2A4A] text-white shadow-xs'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-            }`}
-          >
-            <Calendar className="w-3.5 h-3.5" />
-            <span>Personalizado</span>
-          </button>
+        {/* Smart Filter Component */}
+        <div className="w-full md:w-auto">
+          <SmartFilter
+            dataInicio={dateRange.dataInicio}
+            dataFim={dateRange.dataFim}
+            onChangeRange={handleRangeChange}
+          />
         </div>
-
-          {/* Inline Date Range Picker for "Personalizado" */}
-          {periodo === 'personalizado' && (
-            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-100 text-xs animate-in fade-in duration-150">
-              <span className="font-bold text-slate-700 flex items-center gap-1">
-                <Calendar className="w-3.5 h-3.5 text-[#0F5C63]" />
-                <span>Período:</span>
-              </span>
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] text-slate-500 font-semibold">De</span>
-                <input
-                  type="date"
-                  value={dataInicioPersonalizada}
-                  onChange={(e) => setDataInicioPersonalizada(e.target.value)}
-                  className="px-2 py-1 rounded-lg border border-slate-300 text-xs font-semibold text-slate-800 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                />
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] text-slate-500 font-semibold">Até</span>
-                <input
-                  type="date"
-                  value={dataFimPersonalizada}
-                  onChange={(e) => setDataFimPersonalizada(e.target.value)}
-                  className="px-2 py-1 rounded-lg border border-slate-300 text-xs font-semibold text-slate-800 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                />
-              </div>
-              <span className="text-[11px] text-slate-400 font-mono">
-                ({filteredPropostas.length} contratos localizados)
-              </span>
-            </div>
-          )}
       </div>
 
       {/* Global Month Target Progress Banner */}
@@ -1073,7 +819,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
           <p className="text-base font-extrabold text-rose-600 dark:text-rose-400 tabular-nums mt-0.5">
             {formatCurrency(totalDespesas)}
           </p>
-          <p className="text-[10px] text-slate-400">Contas + Folha</p>
+          <p className="text-[10px] text-slate-400">Contas e custos do período</p>
         </div>
 
         <div className="bg-emerald-50/50 dark:bg-emerald-950/20 p-3.5 rounded-2xl border border-emerald-200/60 dark:border-emerald-800/40">
@@ -1101,7 +847,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Ranking de Vendedoras (Top 3 Medals & Team Progress) */}
+      {/* Ranking de Vendedoras */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs">
         <div className="flex items-center justify-between mb-4">
           <div>
@@ -1132,15 +878,10 @@ export const ProprietariaDashboard: React.FC<Props> = ({
             const percentualVenda = metaVenda > 0 ? (vendedora.vendas / metaVenda) * 100 : 0;
             const percentualTaxaGoal = metaTaxa > 0 ? (vendedora.taxa / metaTaxa) * 100 : 0;
 
-            const formatCompactMeta = (val: number) => {
-              if (val === 0) return '0';
-              return val >= 1000 ? `${(val / 1000).toFixed(0)}k` : formatCurrency(val);
-            };
-
             const medalColors = [
-              'bg-amber-400 text-slate-950 font-black', // Ouro
-              'bg-slate-300 text-slate-900 font-bold',  // Prata
-              'bg-amber-700 text-amber-100 font-bold',  // Bronze
+              'bg-amber-400 text-slate-950 font-black',
+              'bg-slate-300 text-slate-900 font-bold',
+              'bg-amber-700 text-amber-100 font-bold',
             ];
 
             return (
@@ -1216,10 +957,8 @@ export const ProprietariaDashboard: React.FC<Props> = ({
                   </div>
                 </div>
 
-                {/* Progress bars (only for individual saleswomen with goals) */}
                 {vendedora.nome !== 'Outros' ? (
                   <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800/60">
-                    {/* Bar 1: Total Liberado */}
                     <div className="flex items-center gap-2 sm:gap-3">
                       <span className="text-[10px] font-bold text-teal-700 dark:text-teal-400 w-12 sm:w-16 shrink-0">Vendas</span>
                       <div className="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden relative">
@@ -1233,7 +972,6 @@ export const ProprietariaDashboard: React.FC<Props> = ({
                       </span>
                     </div>
 
-                    {/* Bar 2: Taxa Arrecadada */}
                     <div className="flex items-center gap-2 sm:gap-3">
                       <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 w-12 sm:w-16 shrink-0">Taxa</span>
                       <div className="flex-1 bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden relative">
@@ -1259,7 +997,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Produtividade de Digitação de Propostas & Simulações Realizadas */}
+      {/* Produtividade de Digitação */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
           <div>
@@ -1362,9 +1100,8 @@ export const ProprietariaDashboard: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* 12-Month Financial Evolution Charts - Stacked Rectangular Layout */}
+      {/* 12-Month Financial Evolution Charts */}
       <div className="flex flex-col gap-5">
-        {/* Chart 1: Vendas e Taxas */}
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-4">
             <div>
@@ -1390,12 +1127,12 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               <AreaChart data={evolutionVendasTaxas} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="vendasGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stop-color="#0F5C63" stopOpacity={0.4} />
-                    <stop offset="95%" stop-color="#0F5C63" stopOpacity={0.0} />
+                    <stop offset="5%" stopColor="#0F5C63" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#0F5C63" stopOpacity={0.0} />
                   </linearGradient>
                   <linearGradient id="taxasGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stop-color="#F5B700" stopOpacity={0.4} />
-                    <stop offset="95%" stop-color="#F5B700" stopOpacity={0.0} />
+                    <stop offset="5%" stopColor="#F5B700" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#F5B700" stopOpacity={0.0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148, 163, 184, 0.2)" />
@@ -1411,67 +1148,10 @@ export const ProprietariaDashboard: React.FC<Props> = ({
             </ResponsiveContainer>
           </div>
         </div>
-
-        {/* Chart 2: Receita, Despesa e Lucro Líquido */}
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1 mb-4">
-            <div>
-              <h2 className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white">
-                Evolução de Receitas, Despesas e Lucro
-              </h2>
-              <p className="text-[11px] text-slate-500">
-                Comparativo de Receita (Taxas + Comissões) x Despesas e Resultado Líquido
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2.5 text-[10px] sm:text-xs font-semibold">
-              <span className="flex items-center gap-1.5 text-blue-600">
-                <span className="w-2.5 h-2.5 rounded-full bg-blue-600" /> Receita
-              </span>
-              <span className="flex items-center gap-1.5 text-rose-500">
-                <span className="w-2.5 h-2.5 rounded-full bg-rose-500" /> Despesa
-              </span>
-              <span className="flex items-center gap-1.5 text-emerald-500">
-                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Lucro Líquido
-              </span>
-            </div>
-          </div>
-
-          <div className="h-96 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={evolutionFinanceiraReceitaDespesa} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="receitaGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stop-color="#3b82f6" stopOpacity={0.4} />
-                    <stop offset="95%" stop-color="#3b82f6" stopOpacity={0.0} />
-                  </linearGradient>
-                  <linearGradient id="despesasGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stop-color="#f43f5e" stopOpacity={0.4} />
-                    <stop offset="95%" stop-color="#f43f5e" stopOpacity={0.0} />
-                  </linearGradient>
-                  <linearGradient id="lucroGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stop-color="#10b981" stopOpacity={0.4} />
-                    <stop offset="95%" stop-color="#10b981" stopOpacity={0.0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148, 163, 184, 0.2)" />
-                <XAxis dataKey="mes" tick={{ fontSize: 11 }} stroke="#94a3b8" />
-                <YAxis tick={{ fontSize: 10 }} tickFormatter={(val) => `R$${(val / 1000).toFixed(0)}k`} stroke="#94a3b8" />
-                <Tooltip
-                  formatter={(value: any) => [formatCurrency(Number(value)), '']}
-                  contentStyle={{ borderRadius: '12px', fontSize: '12px' }}
-                />
-                <Area type="monotone" dataKey="receita" name="Receita" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#receitaGrad)" />
-                <Area type="monotone" dataKey="despesas" name="Despesa" stroke="#f43f5e" strokeWidth={1.5} fillOpacity={1} fill="url(#despesasGrad)" />
-                <Area type="monotone" dataKey="lucro" name="Lucro Líquido" stroke="#10b981" strokeWidth={2.5} fillOpacity={1} fill="url(#lucroGrad)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
       </div>
 
-      {/* Grid: Sales by Product/Operation & Promotoras Distribution */}
+      {/* Grid: Sales by Product & Promotoras Distribution */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Operations Breakdown */}
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs">
           <div className="flex items-center justify-between mb-3">
             <div>
@@ -1511,7 +1191,6 @@ export const ProprietariaDashboard: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Promotoras & Banks */}
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs">
           <div className="flex items-center justify-between mb-3">
             <div>
@@ -1545,100 +1224,138 @@ export const ProprietariaDashboard: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Rentabilidade por Funcionário (Taxa + Comissão - Custo) */}
+      {/* Card: Análise de Vendas por Operação × Vendedora */}
       <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs overflow-hidden">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
           <div>
-            <h3 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white">
-              Rentabilidade Líquida por Atendente
+            <h3 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+              <PieChart className="w-5 h-5 text-teal-600 dark:text-teal-400" />
+              <span>Análise de Vendas por Operação × Vendedora</span>
             </h3>
-            <p className="text-xs text-slate-500">
-              Taxa Arrecadada + Comissão de Promotora Gerada − Custo do Funcionário
+            <p className="text-xs text-slate-500 mt-0.5">
+              Volume contratado e taxas líquidas auferidas por linha de produto e atendente
             </p>
           </div>
+          <span className="text-[11px] font-bold px-3 py-1 rounded-full bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300 border border-teal-200 dark:border-teal-800 self-start sm:self-auto">
+            {matrixDataOperacoes.length} Vendedoras / Atendentes
+          </span>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left">
+          <table className="w-full text-xs text-left min-w-[700px]">
             <thead>
               <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 uppercase text-[10px] tracking-wider">
-                <th className="py-2.5 px-3">Atendente</th>
-                <th className="py-2.5 px-3 text-right">Vendas (R$)</th>
-                <th className="py-2.5 px-3 text-right">Taxas (R$)</th>
-                <th className="py-2.5 px-3 text-right">Comissão Prom.</th>
-                <th className="py-2.5 px-3 text-right">Custo Fixo</th>
-                <th className="py-2.5 px-3 text-right font-bold text-slate-800 dark:text-white">Lucro Gerado</th>
+                <th className="py-2.5 px-3 sticky left-0 bg-white dark:bg-slate-900 z-10 shadow-xs">Vendedora</th>
+                <th className="py-2.5 px-3 text-right">Total Vendas</th>
+                <th className="py-2.5 px-3 text-right">Taxas Pagas</th>
+                <th className="py-2.5 px-3 text-right">% Taxa</th>
+                {distinctOperations
+                  .filter(op => matrixDataOperacoes.some(m => (m.opsBreakdown[op]?.venda || 0) > 0) || ['FGTS', 'Portabilidade', 'Refin', 'Margem'].includes(op))
+                  .map(op => (
+                    <th key={op} className="py-2.5 px-3 text-right whitespace-nowrap">
+                      {op}
+                    </th>
+                  ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
-              {employeeProfitability.map((emp) => (
-                <tr key={emp.nome} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                  <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white">
-                    {emp.nome}
-                  </td>
-                  <td className="py-2.5 px-3 text-right tabular-nums">{formatCurrency(emp.vendas)}</td>
-                  <td className="py-2.5 px-3 text-right tabular-nums text-amber-600 dark:text-amber-400">{formatCurrency(emp.taxas)}</td>
-                  <td className="py-2.5 px-3 text-right tabular-nums text-blue-600 dark:text-blue-400">{formatCurrency(emp.comissaoPromotora)}</td>
-                  <td className="py-2.5 px-3 text-right tabular-nums text-rose-500">-{formatCurrency(emp.custo)}</td>
-                  <td className="py-2.5 px-3 text-right tabular-nums font-black text-emerald-600 dark:text-emerald-400 text-sm">
-                    {formatCurrency(emp.rentabilidadeLiquida)}
-                  </td>
-                </tr>
-              ))}
+              {matrixDataOperacoes.map((row) => {
+                const activeOps = distinctOperations.filter(op =>
+                  matrixDataOperacoes.some(m => (m.opsBreakdown[op]?.venda || 0) > 0) || ['FGTS', 'Portabilidade', 'Refin', 'Margem'].includes(op)
+                );
+
+                return (
+                  <tr key={row.repName} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                    <td className="py-2.5 px-3 font-bold text-slate-900 dark:text-white sticky left-0 bg-white dark:bg-slate-900 z-10">
+                      {row.repName}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-extrabold text-slate-900 dark:text-white tabular-nums">
+                      {formatCurrency(row.totalVendaRep)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-bold text-amber-600 dark:text-amber-400 tabular-nums">
+                      {formatCurrency(row.totalTaxaRep)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right tabular-nums font-semibold text-slate-600 dark:text-slate-300">
+                      {row.percentTaxaGeral > 0 ? `${row.percentTaxaGeral.toFixed(2)}%` : '—'}
+                    </td>
+                    {activeOps.map(op => {
+                      const data = row.opsBreakdown[op];
+                      const hasVenda = data && data.venda > 0;
+                      return (
+                        <td key={op} className="py-2.5 px-3 text-right tabular-nums whitespace-nowrap">
+                          {hasVenda ? (
+                            <div>
+                              <span className="font-bold text-slate-800 dark:text-slate-100 block">
+                                {formatCurrency(data.venda)}
+                              </span>
+                              <span className="text-[10px] text-amber-600 dark:text-amber-400">
+                                {data.percent > 0 ? `${data.percent.toFixed(2)}%` : ''}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-300 dark:text-slate-600">—</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
             </tbody>
+            <tfoot>
+              {(() => {
+                const activeOps = distinctOperations.filter(op =>
+                  matrixDataOperacoes.some(m => (m.opsBreakdown[op]?.venda || 0) > 0) || ['FGTS', 'Portabilidade', 'Refin', 'Margem'].includes(op)
+                );
+                const grandTotalVendas = matrixDataOperacoes.reduce((acc, m) => acc + m.totalVendaRep, 0);
+                const grandTotalTaxas = matrixDataOperacoes.reduce((acc, m) => acc + m.totalTaxaRep, 0);
+                const grandPercent = grandTotalVendas > 0 ? Number(((grandTotalTaxas / grandTotalVendas) * 100).toFixed(2)) : 0;
+
+                return (
+                  <tr className="border-t-2 border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/60 font-extrabold text-slate-900 dark:text-white">
+                    <td className="py-3 px-3 uppercase text-[10px] tracking-wider sticky left-0 bg-slate-50/80 dark:bg-slate-800/60 z-10">
+                      Total da Loja
+                    </td>
+                    <td className="py-3 px-3 text-right tabular-nums text-teal-700 dark:text-teal-400 font-black">
+                      {formatCurrency(grandTotalVendas)}
+                    </td>
+                    <td className="py-3 px-3 text-right tabular-nums text-amber-600 dark:text-amber-400 font-black">
+                      {formatCurrency(grandTotalTaxas)}
+                    </td>
+                    <td className="py-3 px-3 text-right tabular-nums font-black text-slate-700 dark:text-slate-300">
+                      {grandPercent > 0 ? `${grandPercent.toFixed(2)}%` : '—'}
+                    </td>
+                    {activeOps.map(op => {
+                      const opTotalVenda = matrixDataOperacoes.reduce((acc, m) => acc + (m.opsBreakdown[op]?.venda || 0), 0);
+                      const opTotalTaxa = matrixDataOperacoes.reduce((acc, m) => acc + (m.opsBreakdown[op]?.taxa || 0), 0);
+                      const opPercent = opTotalVenda > 0 ? Number(((opTotalTaxa / opTotalVenda) * 100).toFixed(2)) : 0;
+                      return (
+                        <td key={op} className="py-3 px-3 text-right tabular-nums whitespace-nowrap font-bold">
+                          {opTotalVenda > 0 ? (
+                            <div>
+                              <span>{formatCurrency(opTotalVenda)}</span>
+                              <span className="text-[10px] text-amber-600 dark:text-amber-400 block font-normal">
+                                {opPercent > 0 ? `${opPercent.toFixed(2)}%` : ''}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-300 dark:text-slate-600 font-normal">—</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })()}
+            </tfoot>
           </table>
         </div>
       </div>
 
-      {/* Bottom Row: Oportunidades de Portabilidade */}
-      <div className="grid grid-cols-1 gap-4">
-        {/* Oportunidades de Portabilidade Teaser */}
-        <div className="bg-gradient-to-br from-teal-50 to-emerald-50 dark:from-slate-900 dark:to-slate-800 rounded-3xl p-5 border border-teal-200/80 dark:border-slate-700 shadow-xs flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-teal-800 dark:text-teal-300 flex items-center gap-1.5">
-                <AlertTriangle className="w-4 h-4 text-amber-500" />
-                Motor de Oportunidades
-              </span>
-              <span className="text-xs font-extrabold text-amber-600 bg-amber-100 dark:bg-amber-950/60 px-2 py-0.5 rounded-full">
-                {alertas.length} Clientes Aptos
-              </span>
-            </div>
-            <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-              Oportunidades de Portabilidade & Refin
-            </h3>
-            <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 leading-relaxed">
-              O CRM monitorou automaticamente clientes com contratos consignados pagos há mais de 12 meses. Oportunidade de liberar troco em dinheiro e gerar novas taxas.
-            </p>
-
-            <div className="mt-4 p-3 rounded-2xl bg-white/80 dark:bg-slate-900/80 border border-teal-100 dark:border-slate-800">
-              <p className="text-xs font-bold text-slate-900 dark:text-white">
-                Potencial estimado de vendas nesta carteira:
-              </p>
-              <p className="text-xl font-black text-teal-700 dark:text-teal-400 tabular-nums">
-                R$ 148.500,00
-              </p>
-              <p className="text-[11px] text-slate-500">Estimativa de R$ 17.800,00 em novas taxas líquidas.</p>
-            </div>
-          </div>
-
-          <div className="mt-4 pt-3 border-t border-teal-100 dark:border-slate-700 flex items-center justify-end">
-            <button
-              onClick={onNavigateToAlertas}
-              className="flex items-center gap-1.5 text-xs font-bold text-teal-800 dark:text-teal-300 hover:underline"
-            >
-              <span>Ver todas as oportunidades</span>
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Detail Modal (When user taps ANY card or graphic to see the contracts list) */}
+      {/* Detail Modal */}
       {detailModalTitle && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="w-full max-w-4xl max-h-[85vh] rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden">
-            {/* Modal Header */}
             <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
               <div>
                 <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
@@ -1656,7 +1373,6 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               </button>
             </div>
 
-            {/* Modal Table Body */}
             <div className="flex-1 overflow-y-auto p-4 sm:p-5">
               <table className="w-full text-xs text-left">
                 <thead>
@@ -1705,7 +1421,6 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               </table>
             </div>
 
-            {/* Modal Footer */}
             <div className="p-4 border-t border-slate-200 dark:border-slate-800 flex justify-end">
               <button
                 onClick={() => setDetailModalTitle(null)}
@@ -1718,11 +1433,10 @@ export const ProprietariaDashboard: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Detail Modal (When user clicks a salesperson in the ranking list) */}
+      {/* Seller Modal */}
       {selectedSellerName && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
           <div className="w-full max-w-4xl max-h-[85vh] rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl flex flex-col overflow-hidden">
-            {/* Modal Header */}
             <div className="p-4 sm:p-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
               <div>
                 <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white">
@@ -1740,7 +1454,6 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               </button>
             </div>
 
-            {/* Modal Table Body */}
             <div className="flex-1 overflow-y-auto p-4 sm:p-5">
               <table className="w-full text-xs text-left">
                 <thead>
@@ -1774,10 +1487,10 @@ export const ProprietariaDashboard: React.FC<Props> = ({
                         </td>
                         <td className="py-2.5 px-2 text-slate-600 dark:text-slate-300">{prop.operacao}</td>
                         <td className="py-2.5 px-2 text-slate-600 dark:text-slate-300">{prop.banco}</td>
-                        <td className="py-2.5 px-2 text-right font-bold tabular-nums text-teal-600">{formatCurrency(prop.valorEmprestimo)}</td>
+                        <td className="py-2.5 px-2 text-right font-bold tabular-nums">{formatCurrency(prop.valorEmprestimo)}</td>
                         <td className="py-2.5 px-2 text-right font-bold text-amber-600 tabular-nums">{formatCurrency(prop.valorTaxa)}</td>
                         <td className="py-2.5 px-2 text-slate-700 dark:text-slate-300 font-semibold truncate max-w-[110px]">
-                          {prop.vendedora || selectedSellerName}
+                          {prop.vendedora || 'Não informado'}
                         </td>
                         <td className="py-2.5 px-2 text-center">
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -1795,7 +1508,6 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               </table>
             </div>
 
-            {/* Modal Footer */}
             <div className="p-4 border-t border-slate-200 dark:border-slate-800 flex justify-end">
               <button
                 onClick={() => setSelectedSellerName(null)}
@@ -1808,7 +1520,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
         </div>
       )}
 
-      {/* Proposal Detail Full Modal */}
+      {/* Proposal Detail View Modal */}
       {selectedProposalDetail && (
         <DetalhePropostaModal
           proposta={selectedProposalDetail}
@@ -1818,3 +1530,5 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     </div>
   );
 };
+
+export default ProprietariaDashboard;
