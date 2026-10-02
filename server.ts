@@ -1,6 +1,6 @@
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
-import { processControladoriaGoogleSheets } from './src/services/controladoriaSyncService.ts';
+import { processControladoriaGoogleSheets } from './src/services/controladoriaSyncService';
 import path from 'path';
 import fs from 'fs';
 
