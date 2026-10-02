@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import type { Proposta, ComissaoPromotora } from '../types/index.ts';
+import type { Proposta, ComissaoPromotora } from '../types';
 
 const SPREADSHEET_URL =
   (typeof process !== 'undefined' && process.env?.GOOGLE_SHEETS_CONTROLADORIA_URL) ||

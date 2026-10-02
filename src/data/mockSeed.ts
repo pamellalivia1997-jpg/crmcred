@@ -14,7 +14,7 @@ import {
   Convenio,
   StatusProposta
 } from '../types';
-import { SPREADSHEET_COMMISSIONS_SEED } from './controladoriaSeed.ts';
+import { SPREADSHEET_COMMISSIONS_SEED } from './controladoriaSeed';
 
 export const INITIAL_USERS: User[] = [
   {

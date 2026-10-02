@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import {
   FileSpreadsheet,
   Kanban,
@@ -16,7 +17,14 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Calendar
+  Calendar,
+  UploadCloud,
+  RotateCcw,
+  Sparkles,
+  X,
+  Database,
+  Trash2,
+  Loader2
 } from 'lucide-react';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
@@ -47,6 +55,208 @@ type SortField =
   | 'taxaPaga'
   | 'repasse';
 
+// Robust TSV/CSV text parser that handles multiline quoted fields
+function parseSpreadsheetRawText(rawText: string): string[][] {
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentField = '';
+  let inQuotes = false;
+
+  const isTab = rawText.includes('\t');
+  const delimiter = isTab ? '\t' : ',';
+
+  for (let i = 0; i < rawText.length; i++) {
+    const char = rawText[i];
+    const nextChar = rawText[i + 1];
+
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        currentField += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === delimiter && !inQuotes) {
+      currentRow.push(currentField.trim());
+      currentField = '';
+    } else if ((char === '\r' || char === '\n') && !inQuotes) {
+      if (char === '\r' && nextChar === '\n') {
+        i++;
+      }
+      currentRow.push(currentField.trim());
+      if (currentRow.some(cell => cell.length > 0)) {
+        rows.push(currentRow);
+      }
+      currentRow = [];
+      currentField = '';
+    } else {
+      currentField += char;
+    }
+  }
+
+  if (currentField.length > 0 || currentRow.length > 0) {
+    currentRow.push(currentField.trim());
+    if (currentRow.some(cell => cell.length > 0)) {
+      rows.push(currentRow);
+    }
+  }
+
+  return rows;
+}
+
+// Dynamic header and value column detector
+function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: string): any[] {
+  if (!allRows || allRows.length === 0) return [];
+
+  const firstLineStr = allRows[0].join(' ').toLowerCase();
+  let headerRow: string[] | null = null;
+  let dataRowsIndex = 0;
+
+  if (
+    firstLineStr.includes('cpf') ||
+    firstLineStr.includes('nome') ||
+    firstLineStr.includes('cliente') ||
+    firstLineStr.includes('carimbo') ||
+    firstLineStr.includes('vendedor') ||
+    firstLineStr.includes('contrato') ||
+    firstLineStr.includes('banco')
+  ) {
+    headerRow = allRows[0].map(h => String(h || '').toLowerCase().trim());
+    dataRowsIndex = 1;
+  }
+
+  let colCpf = -1;
+  let colNome = -1;
+  let colTel = -1;
+  let colDataDig = -1;
+  let colDataPag = -1;
+  let colConvenio = -1;
+  let colOperacao = -1;
+  let colBanco = -1;
+  let colPromotora = -1;
+  let colValorEmp = -1;
+  let colValorTaxa = -1;
+  let colClientePagou = -1;
+  let colVendedora = -1;
+  let colDigitador = -1;
+  let colContrato = -1;
+  let colLink = -1;
+  let colStatus = -1;
+
+  if (headerRow) {
+    headerRow.forEach((h, idx) => {
+      const cleanH = h.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
+
+      if (cleanH.includes('cpf') || cleanH.includes('documento')) {
+        colCpf = idx;
+      } else if ((cleanH.includes('nome') || cleanH.includes('cliente')) && !cleanH.includes('pagou') && !cleanH.includes('cpf')) {
+        if (colNome < 0) colNome = idx;
+      } else if (cleanH.includes('telefone') || cleanH.includes('fone') || cleanH.includes('celular') || cleanH.includes('whatsapp')) {
+        colTel = idx;
+      } else if (cleanH.includes('digitacao') || cleanH.includes('datadadigitacao')) {
+        colDataDig = idx;
+      } else if (cleanH.includes('pagamento') || cleanH.includes('datadopagamento') || cleanH.includes('pgto')) {
+        colDataPag = idx;
+      } else if (cleanH.includes('convenio') || cleanH.includes('conven')) {
+        colConvenio = idx;
+      } else if (cleanH.includes('operacao') || cleanH.includes('operac') || cleanH.includes('formadevenda')) {
+        colOperacao = idx;
+      } else if (cleanH.includes('banco')) {
+        colBanco = idx;
+      } else if (cleanH.includes('promotora')) {
+        colPromotora = idx;
+      } else if (
+        (cleanH.includes('emprestimo') || cleanH.includes('liberado') || cleanH.includes('bruto') || cleanH.includes('valor')) &&
+        !cleanH.includes('taxa') && !cleanH.includes('assessoria') && !cleanH.includes('comissao')
+      ) {
+        if (colValorEmp < 0) colValorEmp = idx;
+      } else if (cleanH.includes('valordataxa') || cleanH.includes('taxadaassessoria') || (cleanH.includes('taxa') && !cleanH.includes('cartao') && !cleanH.includes('pagou')) || cleanH.includes('assessoria')) {
+        if (colValorTaxa < 0) colValorTaxa = idx;
+      } else if (cleanH.includes('clientepagou') || cleanH.includes('pagou')) {
+        colClientePagou = idx;
+      } else if (cleanH.includes('vendedor') || cleanH.includes('vendedora') || cleanH.includes('consultor')) {
+        colVendedora = idx;
+      } else if (cleanH.includes('digitador')) {
+        colDigitador = idx;
+      } else if (cleanH.includes('contrato') || cleanH.includes('ndocontrato') || cleanH.includes('proposta') || cleanH.includes('numero')) {
+        colContrato = idx;
+      } else if (cleanH.includes('anexar') || cleanH.includes('capa') || cleanH.includes('print') || cleanH.includes('link') || cleanH.includes('drive')) {
+        colLink = idx;
+      } else if (cleanH.includes('status') || cleanH.includes('situacao')) {
+        colStatus = idx;
+      }
+    });
+  }
+
+  // Value-based fallback scanner if columns remain unmapped
+  const sampleDataRow = allRows[dataRowsIndex] || [];
+  sampleDataRow.forEach((valCell, cIdx) => {
+    const val = String(valCell || '').trim();
+    if (!val) return;
+    const cleanDigits = val.replace(/\D/g, '');
+
+    if (colCpf < 0 && (cleanDigits.length === 11 || /^\d{3}\.\d{3}\.\d{3}-\d{2}$/.test(val))) {
+      colCpf = cIdx;
+    } else if (colLink < 0 && val.toLowerCase().includes('http')) {
+      colLink = cIdx;
+    } else if (colDataDig < 0 && /^\d{2}\/\d{2}\/\d{4}$/.test(val)) {
+      colDataDig = cIdx;
+    } else if (colDataPag < 0 && /^\d{2}\/\d{2}\/\d{4}$/.test(val) && cIdx !== colDataDig) {
+      colDataPag = cIdx;
+    } else if (colConvenio < 0 && /INSS|FGTS|CARTÃO|CREDITO|GOVERNO|CAIXA/i.test(val)) {
+      colConvenio = cIdx;
+    } else if (colOperacao < 0 && /MARGEM|REFIN|PORTABILIDADE|Assessoria|SAQUE/i.test(val)) {
+      colOperacao = cIdx;
+    } else if (colBanco < 0 && /DAYCOVAL|C6|PAN|CREFAZ|BMG|FACTA|BRB|AGIBANK|DIGIO|ICRED|INBURSA|ITAÚ|SAFRA/i.test(val)) {
+      colBanco = cIdx;
+    } else if (colPromotora < 0 && /J2 PROMOTORA|SEMPRE PROMOTORA|GFT|DG PROMOTORA/i.test(val)) {
+      colPromotora = cIdx;
+    } else if (colStatus < 0 && /PAGO|PAGA|EM ANÁLISE|EM ANALISE|CANCELADA|SIMULADAS/i.test(val)) {
+      colStatus = cIdx;
+    } else if (colTel < 0 && /^\(?\d{2}\)?\s?\d{4,5}-?\d{4}$/.test(val) && cIdx !== colCpf) {
+      colTel = cIdx;
+    }
+  });
+
+  const resultRows = [];
+  for (let i = dataRowsIndex; i < allRows.length; i++) {
+    const cols = allRows[i];
+    if (!cols || cols.length < 2) continue;
+
+    const cpfVal = colCpf >= 0 ? String(cols[colCpf] || '').trim() : '';
+    const nomeVal = colNome >= 0 ? String(cols[colNome] || '').trim() : '';
+
+    if (!cpfVal && !nomeVal) continue;
+
+    resultRows.push({
+      cpf: cpfVal,
+      nomeCliente: nomeVal || 'Cliente',
+      telefone: colTel >= 0 ? String(cols[colTel] || '').trim() : '',
+      dataDigitacao: colDataDig >= 0 ? String(cols[colDataDig] || '').trim() : '',
+      dataPagamentoCliente: colDataPag >= 0 ? String(cols[colDataPag] || '').trim() : '',
+      convenio: colConvenio >= 0 ? String(cols[colConvenio] || '').trim() || 'INSS' : 'INSS',
+      operacao: colOperacao >= 0 ? String(cols[colOperacao] || '').trim() || 'Margem' : 'Margem',
+      banco: colBanco >= 0 ? String(cols[colBanco] || '').trim() || 'Daycoval' : 'Daycoval',
+      promotora: colPromotora >= 0 ? String(cols[colPromotora] || '').trim() || 'J2 Promotora' : 'J2 Promotora',
+      valorEmprestimo: colValorEmp >= 0 ? String(cols[colValorEmp] || '').trim() || '0' : '0',
+      valorTaxa: colValorTaxa >= 0 ? String(cols[colValorTaxa] || '').trim() || '0' : '0',
+      clientePagou: colClientePagou >= 0 ? String(cols[colClientePagou] || '').trim() || 'NÃO' : 'NÃO',
+      vendedora: colVendedora >= 0 ? String(cols[colVendedora] || '').trim() || defaultUser : defaultUser,
+      digitador: colDigitador >= 0 ? String(cols[colDigitador] || '').trim() || defaultUser : defaultUser,
+      numeroContrato: colContrato >= 0 ? String(cols[colContrato] || '').trim() : '',
+      linkDocumento: colLink >= 0 ? String(cols[colLink] || '').trim() : '',
+      status: colStatus >= 0 ? String(cols[colStatus] || '').trim() || 'PAGA' : 'PAGA'
+    });
+  }
+
+  return resultRows;
+}
+
+function parseTextToSpreadsheetInputRows(rawText: string, defaultUser: string): any[] {
+  const allRows = parseSpreadsheetRawText(rawText);
+  return parseArrayRowsToSpreadsheetInputRows(allRows, defaultUser);
+}
+
 export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = null, initialSearchTerm = '' }) => {
   const {
     propostas,
@@ -56,7 +266,9 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
     setDataInicioPersonalizada,
     dataFimPersonalizada,
     setDataFimPersonalizada,
-    comissoesPromotoras
+    comissoesPromotoras,
+    importFullSpreadsheetRows,
+    clearFunilData
   } = useCRM();
   const { currentUser } = useAuth();
 
@@ -64,8 +276,20 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
     currentUser && (currentUser.role === 'proprietaria' || currentUser.role === 'adm' || currentUser.role === 'financeiro')
   );
 
-  const [viewMode, setViewMode] = useState<'kanban' | 'tabela'>('tabela');
+  const isGeovanne = Boolean(currentUser && currentUser.name.toLowerCase().includes('geovanne'));
+
+  const [viewMode, setViewMode] = useState<'kanban' | 'tabela'>('kanban');
   const [searchTerm, setSearchTerm] = useState(initialSearchTerm);
+
+  // Modal State for Importing Portfolio
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importNotice, setImportNotice] = useState<string | null>(null);
+
+  // Modal State for Clearing Test Data (Funil)
+  const [isClearModalOpen, setIsClearModalOpen] = useState(false);
+  const [clearNotice, setClearNotice] = useState<string | null>(null);
+  const [isClearingData, setIsClearingData] = useState(false);
 
   // Column dropdown filters
   const [filterVendedora, setFilterVendedora] = useState('todas');
@@ -312,30 +536,51 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
           </p>
         </div>
 
-        {/* Kanban vs Table Mode */}
-        <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl self-start sm:self-auto shadow-2xs">
-          <button
-            onClick={() => setViewMode('tabela')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-              viewMode === 'tabela'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-            }`}
-          >
-            <TableIcon className="w-3.5 h-3.5" />
-            <span>Tabela</span>
-          </button>
-          <button
-            onClick={() => setViewMode('kanban')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-              viewMode === 'kanban'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-            }`}
-          >
-            <Kanban className="w-3.5 h-3.5" />
-            <span>Kanban</span>
-          </button>
+        {/* Kanban vs Table Mode & Geovanne Buttons */}
+        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+          {isGeovanne && (
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setIsImportModalOpen(true)}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-xs transition-all"
+              >
+                <UploadCloud className="w-3.5 h-3.5" />
+                <span>Importar</span>
+              </button>
+              <button
+                onClick={() => setIsClearModalOpen(true)}
+                title="Zerar Funil e Clientes"
+                className="p-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition-all flex items-center justify-center cursor-pointer"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl shadow-2xs">
+            <button
+              onClick={() => setViewMode('tabela')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                viewMode === 'tabela'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <TableIcon className="w-3.5 h-3.5" />
+              <span>Tabela</span>
+            </button>
+            <button
+              onClick={() => setViewMode('kanban')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                viewMode === 'kanban'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <Kanban className="w-3.5 h-3.5" />
+              <span>Kanban</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -897,6 +1142,196 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
         proposta={selectedProposta}
         onClose={() => setSelectedProposta(null)}
       />
+
+      {/* Import Modal */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-xl w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                <UploadCloud className="w-5 h-5 text-teal-600" />
+                <span>Importar Planilha de Contratos</span>
+              </h2>
+              <button
+                onClick={() => setIsImportModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Você pode enviar seu arquivo Excel diretamente (<strong>.xlsx, .xls, .csv</strong>) ou colar os dados da planilha abaixo. O sistema identifica automaticamente as colunas de CPF, Nome, Empréstimo, Banco, Operação, Status e Contrato.
+            </p>
+
+            {/* Direct File Selector */}
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-center">
+              <label className="cursor-pointer flex flex-col items-center justify-center gap-1.5 py-2">
+                <FileSpreadsheet className="w-7 h-7 text-teal-600" />
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                  Clique aqui para selecionar seu arquivo Excel (.xlsx, .xls, .csv)
+                </span>
+                <span className="text-[10px] text-slate-400">Suporta arquivos de qualquer tamanho</span>
+                <input
+                  type="file"
+                  accept=".xlsx, .xls, .csv"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (evt) => {
+                      try {
+                        const data = evt.target?.result;
+                        const workbook = XLSX.read(data, { type: 'binary' });
+                        const firstSheet = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheet];
+                        const arrayRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+                        if (!arrayRows || arrayRows.length === 0) {
+                          setImportNotice('Nenhuma linha encontrada na planilha.');
+                          return;
+                        }
+
+                        const mappedRows = parseArrayRowsToSpreadsheetInputRows(arrayRows, currentUser?.name || 'Hellen Vasconcelos');
+                        const res = importFullSpreadsheetRows(mappedRows);
+                        setImportNotice(`Importação concluída! ${res.totalRows - 1} linhas lidas do arquivo. ${res.clientsCreated + res.clientsUpdated} clientes localizados (${res.clientsCreated} novos criados) e ${res.proposalsCreated} propostas salvas no funil.`);
+                      } catch (err: any) {
+                        setImportNotice(`Erro ao ler arquivo Excel: ${err.message}`);
+                      }
+                    };
+                    reader.readAsBinaryString(file);
+                  }}
+                />
+              </label>
+            </div>
+
+            <div className="relative">
+              <span className="text-[11px] font-bold text-slate-500 block mb-1">
+                Ou cole o texto copiado da planilha abaixo:
+              </span>
+              <textarea
+                rows={8}
+                value={importText}
+                onChange={(e) => setImportText(e.target.value)}
+                placeholder="Cole aqui as linhas da sua planilha..."
+                className="w-full p-3 text-xs font-mono rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+            </div>
+
+            {importNotice && (
+              <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 text-xs font-bold leading-relaxed">
+                {importNotice}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setIsImportModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+              >
+                Fechar
+              </button>
+              <button
+                onClick={() => {
+                  try {
+                    const parsedRows = parseTextToSpreadsheetInputRows(importText, currentUser?.name || 'Hellen Vasconcelos');
+                    if (parsedRows.length === 0) {
+                      setImportNotice('Nenhuma linha válida encontrada. Selecione um arquivo Excel ou cole as linhas acima.');
+                      return;
+                    }
+
+                    const res = importFullSpreadsheetRows(parsedRows);
+                    setImportNotice(`Importação concluída! ${parsedRows.length} linhas lidas. ${res.clientsCreated + res.clientsUpdated} clientes localizados (${res.clientsCreated} novos criados) e ${res.proposalsCreated} propostas salvas no funil.`);
+                    setTimeout(() => {
+                      setIsImportModalOpen(false);
+                      setImportNotice(null);
+                      setImportText('');
+                    }, 3500);
+                  } catch (err: any) {
+                    setImportNotice(`Erro ao processar dados: ${err.message}`);
+                  }
+                }}
+                className="px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-md active:scale-95 transition-all"
+              >
+                Processar {importText.split('\n').filter(l => l.trim()).length} Linhas
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear Funil Confirmation Modal */}
+      {isClearModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 text-center">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-400 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+
+            <div className="space-y-1.5">
+              <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                Zerar Funil e Clientes?
+              </h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Deseja realmente zerar o funil? Esta ação apagará <strong>todas as propostas</strong> e <strong>todos os clientes cadastrados</strong> no banco de dados da nuvem.
+              </p>
+            </div>
+
+            {clearNotice && (
+              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 text-xs font-bold leading-relaxed">
+                {clearNotice}
+              </div>
+            )}
+
+            <div className="flex items-center justify-center gap-3 pt-2">
+              <button
+                disabled={isClearingData}
+                onClick={() => {
+                  setIsClearModalOpen(false);
+                  setClearNotice(null);
+                }}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all disabled:opacity-50 cursor-pointer"
+              >
+                Cancelar
+              </button>
+
+              <button
+                disabled={isClearingData}
+                onClick={async () => {
+                  try {
+                    setIsClearingData(true);
+                    setClearNotice('Limpando propostas, clientes e alertas no banco de dados...');
+                    await clearFunilData();
+                    setClearNotice('Funil e clientes zerados com sucesso!');
+                    setTimeout(() => {
+                      setIsClearModalOpen(false);
+                      setClearNotice(null);
+                      setIsClearingData(false);
+                    }, 1200);
+                  } catch (err: any) {
+                    setClearNotice(`Erro ao zerar: ${err.message}`);
+                    setIsClearingData(false);
+                  }
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+              >
+                {isClearingData ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Zerando...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" />
+                    <span>Sim, Zerar Tudo</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -610,29 +610,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               </h1>
               {/* Secret System Health Indicator Button */}
               <SystemHealthIndicator />
-              {currentUser && currentUser.name.toLowerCase().includes('geovanne') && currentUser.role === 'financeiro' && (
-                <button
-                  onClick={handlePurge}
-                  disabled={isPurging}
-                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50"
-                >
-                  {isPurging ? 'Apagando...' : 'Apagar Dados Fictícios'}
-                </button>
-              )}
             </div>
-            {/* Conference Strip for Geovanne (Financeiro) */}
-            {currentUser && currentUser.name.toLowerCase().includes('geovanne') && currentUser.role === 'financeiro' && (
-              <div className="space-y-2 mt-2">
-                <div className="text-[9px] font-mono text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                  Firebase: Conectado | Total: {propostas.length} | Setembro: {filteredPropostas.length} | Fictícias: {propostas.filter(p => p.id.startsWith('prop-sep26-')).length} | Doc Lidos: {localStorage.getItem('crm_cloud_reads') || 0}
-                </div>
-                {purgeResult && (
-                  <div className="text-[9px] font-bold text-rose-600 bg-rose-50 p-2 rounded-lg border border-rose-100 animate-in slide-in-from-top-1">
-                    Documentos apagados (#482500 a #482505): {purgeResult.join(', ')}
-                  </div>
-                )}
-              </div>
-            )}
             <p className="text-xs text-slate-500 mt-0.5">
               Acompanhamento em tempo real de faturamento, comissões, ranking e rentabilidade.
             </p>

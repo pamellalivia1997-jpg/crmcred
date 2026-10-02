@@ -70,6 +70,8 @@ interface CRMContextType {
   toggleLiberacaoLeadDigitador: (alertaId: string, liberado: boolean) => void;
   resetAllData: () => void;
   clearAllTestData: () => Promise<void>;
+  clearFunilData: () => Promise<void>;
+  clearControladoriaData: () => Promise<void>;
   purgeMockData: () => Promise<string[]>;
   restoreStore: (data: Partial<CRMDataStore>) => void;
   importClientPortfolio: (clientesList: Cliente[]) => { importedCount: number; updatedCount: number };
@@ -279,6 +281,14 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await crmStorage.clearAllTestData();
   };
 
+  const clearFunilData = async () => {
+    await crmStorage.clearFunilData();
+  };
+
+  const clearControladoriaData = async () => {
+    await crmStorage.clearControladoriaData();
+  };
+
   const purgeMockData = async () => {
     return await crmStorage.purgeMockData();
   };
@@ -407,6 +417,8 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toggleLiberacaoLeadDigitador,
         resetAllData,
         clearAllTestData,
+        clearFunilData,
+        clearControladoriaData,
         purgeMockData,
         restoreStore,
         importClientPortfolio,
