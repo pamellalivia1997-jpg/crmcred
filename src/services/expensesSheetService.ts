@@ -148,8 +148,17 @@ export async function fetchGoogleSheetsExpenses(forceRefresh = false): Promise<S
 
   fetchPromise = (async () => {
     try {
-      // Try fetching CSV from Google Sheets
-      const response = await fetch(CSV_URL);
+      // Try fetching CSV via local proxy first (bypasses CORS restrictions), fallback to direct CSV
+      let response: Response;
+      try {
+        response = await fetch('/api/expenses/sheet');
+        if (!response.ok) {
+          throw new Error(`Proxy status ${response.status}`);
+        }
+      } catch (_proxyErr) {
+        response = await fetch(CSV_URL);
+      }
+
       if (!response.ok) {
         throw new Error(`HTTP error ${response.status}`);
       }

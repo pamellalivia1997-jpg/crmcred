@@ -5,7 +5,7 @@ import { executeControladoriaSyncWithBackup } from '../../services/controladoria
 
 /**
  * DiagnosticTool / SystemHealthIndicator
- * Discreet internal system status diagnostic tool with restricted access for geovanne.arcelino@gmail.com.
+ * Ferramenta interna de integridade do sistema e sincronização para usuário Geovanne (Financeiro).
  */
 export const SystemHealthIndicator: React.FC = () => {
   const { currentUser } = useAuth();
@@ -14,9 +14,13 @@ export const SystemHealthIndicator: React.FC = () => {
   const [diagnosticStatus, setDiagnosticStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [lastResultMessage, setLastResultMessage] = useState<string | null>(null);
 
-  // Strict email check obfuscated with Base64 ('geovanne.arcelino@gmail.com')
-  const allowedUserEmail = atob('Z2VvdmFubmUuYXJjZWxpbm9AZ21haWwuY29t');
-  if (!currentUser?.email || currentUser.email.toLowerCase().trim() !== allowedUserEmail) {
+  // Acesso exclusivo: usuário Geovanne com função Financeiro
+  const isAuthorized = Boolean(
+    currentUser &&
+    currentUser.name.toLowerCase().includes('geovanne') &&
+    currentUser.role === 'financeiro'
+  );
+  if (!isAuthorized) {
     return null;
   }
 
@@ -64,7 +68,7 @@ export const SystemHealthIndicator: React.FC = () => {
       <button
         onClick={handleRunDiagnostic}
         disabled={isRunningDiagnostic}
-        title={lastResultMessage || "Sincronizador Oculto da Controladoria (Apenas para geovanne.arcelino@gmail.com)"}
+        title={lastResultMessage || "Sincronizador de Controladoria e Diagnóstico de Sistema"}
         className="inline-flex items-center justify-center w-3 h-3 rounded-full transition-all focus:outline-none opacity-50 hover:opacity-100 cursor-pointer"
         style={{
           backgroundColor:

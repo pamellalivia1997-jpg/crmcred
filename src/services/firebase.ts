@@ -20,8 +20,12 @@ export async function testFirestoreConnection(): Promise<boolean> {
     await getDocFromServer(testDoc);
     console.log('🔥 Conexão com Firebase Firestore estabelecida com sucesso!');
     return true;
-  } catch (error) {
-    console.warn('🔥 Firestore operando offline ou inicializando:', error);
+  } catch (error: any) {
+    if (error?.code === 'resource-exhausted' || error?.message?.includes('Quota exceeded')) {
+      console.warn('🔥 Limite diário de cota do Firestore atingido. O CRM continuará operando com armazenamento local seguro.');
+    } else {
+      console.warn('🔥 Firestore operando offline ou inicializando:', error);
+    }
     return false;
   }
 }
@@ -49,8 +53,15 @@ export interface FirestoreErrorInfo {
 }
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const err = error as any;
+  const errMsg = error instanceof Error ? error.message : String(error);
+  if (err?.code === 'resource-exhausted' || errMsg.includes('Quota exceeded')) {
+    console.warn(`[Firestore Cota Diária Atingida] Operação em ${path || 'raiz'} operando em modo offline local.`);
+    return;
+  }
+
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: errMsg,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,

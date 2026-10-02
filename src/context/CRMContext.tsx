@@ -10,7 +10,7 @@ import {
   AuditLog,
   StatusProposta
 } from '../types';
-import { crmStorage, subscribeToData, SpreadsheetRowInput } from '../services/crmStorage';
+import { crmStorage, subscribeToData, SpreadsheetRowInput, type CRMDataStore } from '../services/crmStorage';
 import { useAuth } from './AuthContext';
 import { fetchGoogleSheetsExpenses, SheetExpenseRow } from '../services/expensesSheetService';
 import { calculateDashboardMetrics, DashboardMetrics } from '../utils/dashboardCalculations';
@@ -70,7 +70,10 @@ interface CRMContextType {
   toggleLiberacaoLeadDigitador: (alertaId: string, liberado: boolean) => void;
   resetAllData: () => void;
   clearAllTestData: () => Promise<void>;
+  clearFunilData: () => Promise<void>;
+  clearControladoriaData: () => Promise<void>;
   purgeMockData: () => Promise<string[]>;
+  restoreStore: (data: Partial<CRMDataStore>) => void;
   importClientPortfolio: (clientesList: Cliente[]) => { importedCount: number; updatedCount: number };
   importFullSpreadsheetRows: (rows: SpreadsheetRowInput[]) => {
     totalRows: number;
@@ -278,8 +281,20 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await crmStorage.clearAllTestData();
   };
 
+  const clearFunilData = async () => {
+    await crmStorage.clearFunilData();
+  };
+
+  const clearControladoriaData = async () => {
+    await crmStorage.clearControladoriaData();
+  };
+
   const purgeMockData = async () => {
     return await crmStorage.purgeMockData();
+  };
+
+  const restoreStore = (data: Partial<CRMDataStore>) => {
+    crmStorage.restoreStore(data);
   };
 
   const importClientPortfolio = (clientesList: Cliente[]) => {
@@ -402,7 +417,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toggleLiberacaoLeadDigitador,
         resetAllData,
         clearAllTestData,
+        clearFunilData,
+        clearControladoriaData,
         purgeMockData,
+        restoreStore,
         importClientPortfolio,
         importFullSpreadsheetRows,
         logCpfAccess,

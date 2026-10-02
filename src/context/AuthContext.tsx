@@ -100,51 +100,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const cleanInput = loginInput.trim().toLowerCase();
     const cleanPass = passwordInput.trim();
 
-    // 1. MASTER PASSWORD '123' ALWAYS WORKS FOR GERENCIAL MASTER / ADM ACCESS
-    if (
-      cleanPass === '123' &&
-      (cleanInput === '' ||
-        cleanInput === '123' ||
-        cleanInput === 'gerencial' ||
-        cleanInput === 'livia' ||
-        cleanInput === 'admin' ||
-        cleanInput === 'proprietaria')
-    ) {
-      let livia = users.find(u => u.role === 'proprietaria') || users.find(u => u.name === 'Lívia');
-      if (!livia) {
-        livia = {
-          id: 'user-livia-master',
-          name: 'Lívia',
-          email: 'livia@liviacredsaude.com.br',
-          role: 'proprietaria',
-          status: 'ativo',
-          phone: '(81) 98000-0000',
-          monthlySalesGoal: 100000,
-          monthlyTaxPercentGoal: 12,
-          baseSalaryCost: 0
-        };
-        crmStorage.saveUser(livia);
-      } else if (livia.status !== 'ativo') {
-        livia.status = 'ativo';
-        crmStorage.saveUser(livia);
-      }
-
-      const norm = normalizeUser(livia)!;
-      setCurrentUser(norm);
-      localStorage.setItem(CURRENT_USER_KEY, norm.id);
-      crmStorage.logAudit({
-        usuarioId: norm.id,
-        usuarioNome: norm.name,
-        acao: 'visualizou',
-        tipoRecurso: 'usuario',
-        idRecurso: norm.id,
-        detalhes: 'Acesso Gerencial Mestre autorizado com senha 123.'
-      });
-      return { success: true };
+    if (!cleanInput && !cleanPass) {
+      return {
+        success: false,
+        message: 'Por favor, informe o usuário e senha para continuar.'
+      };
     }
 
-    // 2. Individual seller or team login (vendedoras, adm, financeiro cadastrados)
-    const found = users.find(
+    // 1. Identify user by email, name, id or alias
+    let found = users.find(
       u =>
         u.email.toLowerCase() === cleanInput ||
         u.name.toLowerCase() === cleanInput ||
@@ -152,8 +116,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         u.email.toLowerCase().split('@')[0] === cleanInput
     );
 
+    // Support quick alias for manager testing ('123', 'gerencial', 'admin') mapped to management account
+    if (!found && (cleanInput === '123' || cleanInput === 'gerencial' || cleanInput === 'admin' || cleanInput === 'proprietaria' || cleanInput === 'livia')) {
+      found = users.find(u => u.email.toLowerCase() === 'pamellalivia1997@gmail.com') ||
+              users.find(u => u.role === 'proprietaria') ||
+              users.find(u => u.role === 'adm');
+    }
+
     if (found) {
-      // Validate status: If inativo / pendente, DENY access with approval required notice!
+      // Validate status: If inativo / pendente, DENY access with approval required notice
       if (found.status === 'inativo') {
         return {
           success: false,
@@ -162,9 +133,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
       }
 
-      // Validate password (user's saved password or default '123')
-      const userExpectedPassword = found.password && found.password.trim() !== '' ? found.password.trim() : '123';
-      if (cleanPass === userExpectedPassword || cleanPass === '123') {
+      // Check password dynamically configured in the database / user profile
+      const storedPassword = found.password && found.password.trim() !== '' ? found.password.trim() : null;
+
+      let isAuthorized = false;
+      if (storedPassword) {
+        isAuthorized = cleanPass === storedPassword;
+      } else {
+        // If password is not yet configured in database, adopt the input password and persist to database
+        if (cleanPass.length > 0) {
+          isAuthorized = true;
+          found.password = cleanPass;
+          crmStorage.saveUser(found);
+        }
+      }
+
+      if (isAuthorized) {
         const norm = normalizeUser(found)!;
         setCurrentUser(norm);
         localStorage.setItem(CURRENT_USER_KEY, norm.id);
@@ -181,7 +165,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       return {
         success: false,
-        message: 'Senha de acesso incorreta. Verifique os dados digitados.'
+        message: 'Senha de acesso incorreta. Verifique os dados digitados ou altere a senha no painel de usuários.'
       };
     }
 

@@ -101,44 +101,46 @@ export const SmartFilter: React.FC<SmartFilterProps> = ({
   return (
     <div className="w-full flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
       {/* Selector Mode Tabs */}
-      <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-900 rounded-xl w-full sm:w-auto shrink-0">
+      <div className="flex items-center gap-1 sm:gap-1.5 p-1 bg-slate-100 dark:bg-slate-900 rounded-xl w-full sm:w-auto overflow-x-auto scrollbar-none shrink-0">
         <button
           type="button"
           onClick={() => handleModeChange('mes')}
-          className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+          className={`min-w-0 flex-1 sm:flex-initial flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
             mode === 'mes'
               ? 'bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-xs'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
           }`}
         >
-          <Calendar className="w-3.5 h-3.5" />
-          <span>Mês Fechado</span>
+          <Calendar className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">
+            Mês<span className="hidden sm:inline"> Fechado</span>
+          </span>
         </button>
 
         <button
           type="button"
           onClick={() => handleModeChange('semana')}
-          className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+          className={`min-w-0 flex-1 sm:flex-initial flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
             mode === 'semana'
               ? 'bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-xs'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
           }`}
         >
-          <Layers className="w-3.5 h-3.5" />
-          <span>Semanal</span>
+          <Layers className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">Semanal</span>
         </button>
 
         <button
           type="button"
           onClick={() => handleModeChange('personalizado')}
-          className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+          className={`min-w-0 flex-1 sm:flex-initial flex items-center justify-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
             mode === 'personalizado'
               ? 'bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-xs'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
           }`}
         >
-          <Clock className="w-3.5 h-3.5" />
-          <span>Personalizado</span>
+          <Clock className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">Personalizado</span>
         </button>
       </div>
 
@@ -153,7 +155,7 @@ export const SmartFilter: React.FC<SmartFilterProps> = ({
                 setSelectedMonth(m);
                 handleApplyMonth(selectedYear, m);
               }}
-              className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs rounded-xl px-3 py-2 font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none"
+              className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs rounded-xl px-3 py-2 font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none flex-1 sm:flex-initial"
             >
               {MONTH_NAMES.map((name, idx) => (
                 <option key={idx + 1} value={idx + 1}>
@@ -169,7 +171,7 @@ export const SmartFilter: React.FC<SmartFilterProps> = ({
                 setSelectedYear(y);
                 handleApplyMonth(y, selectedMonth);
               }}
-              className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs rounded-xl px-3 py-2 font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none"
+              className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs rounded-xl px-3 py-2 font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none flex-1 sm:flex-initial"
             >
               {availableYears.map((yr) => (
                 <option key={yr} value={yr}>
@@ -181,7 +183,7 @@ export const SmartFilter: React.FC<SmartFilterProps> = ({
         )}
 
         {mode === 'semana' && (
-          <div className="flex flex-wrap items-center gap-2 w-full">
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
             <select
               value={selectedMonth}
               onChange={(e) => {
@@ -189,7 +191,7 @@ export const SmartFilter: React.FC<SmartFilterProps> = ({
                 setSelectedMonth(m);
                 handleApplyWeek(selectedYear, m, selectedWeek);
               }}
-              className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs rounded-xl px-3 py-2 font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none"
+              className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs rounded-xl px-3 py-2 font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none flex-1 sm:flex-initial"
             >
               {MONTH_NAMES.map((name, idx) => (
                 <option key={idx + 1} value={idx + 1}>
@@ -205,7 +207,7 @@ export const SmartFilter: React.FC<SmartFilterProps> = ({
                 setSelectedYear(y);
                 handleApplyWeek(y, selectedMonth, selectedWeek);
               }}
-              className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs rounded-xl px-3 py-2 font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none"
+              className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs rounded-xl px-3 py-2 font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none flex-1 sm:flex-initial"
             >
               {availableYears.map((yr) => (
                 <option key={yr} value={yr}>
@@ -221,7 +223,7 @@ export const SmartFilter: React.FC<SmartFilterProps> = ({
                 setSelectedWeek(w);
                 handleApplyWeek(selectedYear, selectedMonth, w);
               }}
-              className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs rounded-xl px-3 py-2 font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none"
+              className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs rounded-xl px-3 py-2 font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none w-full sm:w-auto"
             >
               <option value={1}>Semana 1 (01 a 07)</option>
               <option value={2}>Semana 2 (08 a 14)</option>
@@ -234,9 +236,9 @@ export const SmartFilter: React.FC<SmartFilterProps> = ({
         )}
 
         {mode === 'personalizado' && (
-          <div className="flex flex-wrap items-center gap-2 w-full">
-            <div className="flex items-center gap-1">
-              <span className="text-[11px] font-medium text-slate-500">De:</span>
+          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+            <div className="flex-1 sm:flex-initial flex items-center gap-1.5 min-w-[130px]">
+              <span className="text-[11px] font-semibold text-slate-500 shrink-0">De:</span>
               <input
                 type="date"
                 value={customStart}
@@ -244,12 +246,12 @@ export const SmartFilter: React.FC<SmartFilterProps> = ({
                   setCustomStart(e.target.value);
                   onChangeRange({ dataInicio: e.target.value, dataFim: customEnd });
                 }}
-                className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs rounded-xl px-2.5 py-1.5 font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs rounded-xl px-2.5 py-1.5 font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none"
               />
             </div>
 
-            <div className="flex items-center gap-1">
-              <span className="text-[11px] font-medium text-slate-500">Até:</span>
+            <div className="flex-1 sm:flex-initial flex items-center gap-1.5 min-w-[130px]">
+              <span className="text-[11px] font-semibold text-slate-500 shrink-0">Até:</span>
               <input
                 type="date"
                 value={customEnd}
@@ -257,7 +259,7 @@ export const SmartFilter: React.FC<SmartFilterProps> = ({
                   setCustomEnd(e.target.value);
                   onChangeRange({ dataInicio: customStart, dataFim: e.target.value });
                 }}
-                className="bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs rounded-xl px-2.5 py-1.5 font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                className="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-200 text-xs rounded-xl px-2.5 py-1.5 font-medium focus:ring-2 focus:ring-teal-500 focus:outline-none"
               />
             </div>
           </div>

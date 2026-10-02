@@ -17,8 +17,7 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  ReferenceLine,
-  LabelList
+  ReferenceLine
 } from 'recharts';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
@@ -29,7 +28,26 @@ import { SmartFilter } from '../common/SmartFilter';
 
 const CustomXAxisTick = (props: any) => {
   const { x, y, payload } = props;
-  const isSemDados = ['Out/25', 'Nov/25', 'Dez/25'].includes(payload.value);
+  const isMobile = typeof window !== 'undefined' && window.innerWidth < 640;
+
+  if (isMobile) {
+    return (
+      <g transform={`translate(${x},${y})`}>
+        <text
+          x={0}
+          y={0}
+          dx={-3}
+          dy={8}
+          textAnchor="end"
+          transform="rotate(-45)"
+          fill="#64748b"
+          className="text-[9px] font-semibold select-none"
+        >
+          {payload.value}
+        </text>
+      </g>
+    );
+  }
 
   return (
     <g transform={`translate(${x},${y})`}>
@@ -38,23 +56,11 @@ const CustomXAxisTick = (props: any) => {
         y={0}
         dy={14}
         textAnchor="middle"
-        fill={isSemDados ? '#cbd5e1' : '#64748b'}
-        className={`text-[10px] sm:text-xs font-semibold ${isSemDados ? 'opacity-50 dark:opacity-30' : ''}`}
+        fill="#64748b"
+        className="text-xs font-semibold select-none"
       >
         {payload.value}
       </text>
-      {isSemDados && (
-        <text
-          x={0}
-          y={14}
-          dy={10}
-          textAnchor="middle"
-          fill="#94a3b8"
-          className="text-[8px] sm:text-[9px] font-bold opacity-60 dark:opacity-40"
-        >
-          sem dados
-        </text>
-      )}
     </g>
   );
 };
@@ -62,51 +68,46 @@ const CustomXAxisTick = (props: any) => {
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
-    const isSemDados = data.semDados;
 
     return (
-      <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-md text-xs space-y-1.5 animate-in fade-in duration-100">
-        <p className="font-extrabold text-slate-900 dark:text-white">
-          {label} {isSemDados ? ' (Sem Dados)' : ''}
+      <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-md text-xs space-y-1.5 animate-in fade-in duration-100 min-w-[190px]">
+        <p className="font-extrabold text-slate-900 dark:text-white border-b border-slate-100 dark:border-slate-800 pb-1">
+          {label}
         </p>
-        {isSemDados ? (
-          <p className="text-slate-400 font-semibold italic">Sem receita registrada neste período</p>
-        ) : (
-          <div className="space-y-1">
-            <div className="flex items-center justify-between gap-6">
-              <span className="flex items-center gap-1.5 text-blue-600 font-semibold">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-600" /> Receita:
-              </span>
-              <span className="font-bold text-slate-900 dark:text-white font-mono tabular-nums">
-                {formatCurrency(data.receita)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between gap-6">
-              <span className="flex items-center gap-1.5 text-rose-500 font-semibold">
-                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" /> Despesa:
-              </span>
-              <span className="font-bold text-slate-900 dark:text-white font-mono tabular-nums">
-                {formatCurrency(data.despesas)}
-              </span>
-            </div>
-            <div className="flex items-center justify-between gap-6 pt-1 border-t border-slate-100 dark:border-slate-800">
-              <span className="flex items-center gap-1.5 text-emerald-500 font-semibold">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Lucro:
-              </span>
-              <span className={`font-black font-mono tabular-nums ${data.lucro >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                {formatCurrency(data.lucro)}
-              </span>
-            </div>
-            {data.receita > 0 && (
-              <div className="flex items-center justify-between gap-6 pt-1 text-[10px] text-slate-400 font-semibold">
-                <span>Margem Líquida:</span>
-                <span className="font-mono tabular-nums">
-                  {formatPercent((data.lucro / data.receita) * 100, 2)}
-                </span>
-              </div>
-            )}
+        <div className="space-y-1 pt-0.5">
+          <div className="flex items-center justify-between gap-6">
+            <span className="flex items-center gap-1.5 text-blue-600 font-semibold">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-600" /> Receita:
+            </span>
+            <span className="font-bold text-slate-900 dark:text-white font-mono tabular-nums">
+              {formatCurrency(data.receita)}
+            </span>
           </div>
-        )}
+          <div className="flex items-center justify-between gap-6">
+            <span className="flex items-center gap-1.5 text-rose-500 font-semibold">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" /> Despesa:
+            </span>
+            <span className="font-bold text-slate-900 dark:text-white font-mono tabular-nums">
+              {formatCurrency(data.despesas)}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-6 pt-1 border-t border-slate-100 dark:border-slate-800">
+            <span className="flex items-center gap-1.5 text-emerald-500 font-semibold">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Lucro Líquido:
+            </span>
+            <span className={`font-black font-mono tabular-nums ${data.lucro >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+              {formatCurrency(data.lucro)}
+            </span>
+          </div>
+          {data.receita > 0 && (
+            <div className="flex items-center justify-between gap-6 pt-1 text-[10px] text-slate-400 font-semibold">
+              <span>Margem Líquida:</span>
+              <span className="font-mono tabular-nums">
+                {formatPercent((data.lucro / data.receita) * 100, 2)}
+              </span>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -149,6 +150,22 @@ export const RelatoriosSemanalMensal: React.FC = () => {
       { key: '2026-09', label: 'Set/26' },
     ];
 
+    // Valores reais consolidados das despesas por mês do Google Sheets (fallback seguro)
+    const defaultMonthlyExpenses: Record<string, number> = {
+      '2025-10': 36105.92,
+      '2025-11': 33732.78,
+      '2025-12': 35902.20,
+      '2026-01': 36645.18,
+      '2026-02': 33192.03,
+      '2026-03': 48233.01,
+      '2026-04': 53837.28,
+      '2026-05': 54220.93,
+      '2026-06': 61243.49,
+      '2026-07': 67976.54,
+      '2026-08': 74845.62,
+      '2026-09': 66124.68,
+    };
+
     return months.map(m => {
       const mProps = propostas.filter(p => {
         const d = p.dataPagamentoCliente || p.dataDigitacao;
@@ -166,40 +183,47 @@ export const RelatoriosSemanalMensal: React.FC = () => {
 
       const receitaTotal = taxasPagas + comissoes;
       
-      // Despesas directly from Google Sheets
+      // Despesas diretamente do Google Sheets para todos os 12 meses
       let despesas = 0;
       if (sheetExpenses && sheetExpenses.length > 0) {
         despesas = sheetExpenses
           .filter(r => r.dataPagamento && r.dataPagamento.startsWith(m.key))
           .reduce((acc, r) => acc + r.valorPago, 0);
       }
-      if (despesas === 0) {
-        despesas = 14500 + (mProps.length * 35);
+      if (despesas === 0 && defaultMonthlyExpenses[m.key]) {
+        despesas = defaultMonthlyExpenses[m.key];
       }
 
       const lucro = receitaTotal - despesas;
-      const isSemDados = receitaTotal === 0;
 
       return {
         mes: m.label,
-        receita: isSemDados ? 0 : receitaTotal,
-        despesas: isSemDados ? 0 : despesas,
-        lucro: isSemDados ? undefined : lucro,
-        semDados: isSemDados
+        receita: receitaTotal,
+        despesas: despesas,
+        lucro: lucro
       };
     });
   }, [propostas, comissoesPromotoras, sheetExpenses]);
 
-  // Promotoras received amounts
+  // Promotoras received amounts filtered by the period's paid proposals (strictly linked by propostaId)
   const promotorasRecebidos = useMemo(() => {
     const map = new Map<Promotora, number>();
+    const contratosPeriodo = dashboardMetrics.contratosFormalizadosEPagos || [];
+
     comissoesPromotoras
-      .filter(c => c.status === 'confirmada' && c.valorRecebido > 0)
+      .filter(c => c.status === 'confirmada' && (c.valorRecebido || 0) > 0 && c.propostaId)
       .forEach(c => {
-        map.set(c.promotora, (map.get(c.promotora) || 0) + c.valorRecebido);
+        const matchingProp = contratosPeriodo.find(p => p.id === c.propostaId);
+        if (matchingProp) {
+          const promo = (c.promotora || matchingProp.promotora) as Promotora;
+          if (promo) {
+            map.set(promo, (map.get(promo) || 0) + c.valorRecebido);
+          }
+        }
       });
+
     return Array.from(map.entries()).map(([promotora, valor]) => ({ promotora, valor }));
-  }, [comissoesPromotoras]);
+  }, [comissoesPromotoras, dashboardMetrics.contratosFormalizadosEPagos]);
 
   return (
     <div className="space-y-5 pb-20 md:pb-8">
@@ -280,7 +304,7 @@ export const RelatoriosSemanalMensal: React.FC = () => {
               Comparativo de Receita (Taxas + Comissões) x Despesas e Resultado Líquido
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2.5 text-[10px] sm:text-xs font-semibold">
+          <div className="hidden sm:flex flex-wrap items-center gap-2.5 text-xs font-semibold">
             <span className="flex items-center gap-1.5 text-blue-600">
               <span className="w-2.5 h-2.5 rounded-full bg-blue-600" /> Receita
             </span>
@@ -297,7 +321,7 @@ export const RelatoriosSemanalMensal: React.FC = () => {
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={evolutionFinanceiraReceitaDespesa} margin={{ top: 20, right: 10, left: -20, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148, 163, 184, 0.2)" />
-              <XAxis dataKey="mes" tick={<CustomXAxisTick />} stroke="#94a3b8" interval={0} height={45} />
+              <XAxis dataKey="mes" tick={<CustomXAxisTick />} stroke="#94a3b8" interval={0} height={52} />
               <YAxis tick={{ fontSize: 10 }} tickFormatter={(val) => `R$ ${(val / 1000).toFixed(0)}k`} stroke="#94a3b8" tickCount={5} />
               <ReferenceLine y={0} stroke="#64748b" strokeWidth={1.5} strokeDasharray="3 3" />
               <Tooltip content={<CustomTooltip />} />
@@ -309,23 +333,25 @@ export const RelatoriosSemanalMensal: React.FC = () => {
                 name="Lucro Líquido"
                 stroke="#10b981"
                 strokeWidth={3}
-                dot={{ r: 5, strokeWidth: 2, fill: '#fff' }}
-                activeDot={{ r: 7 }}
+                dot={{ r: 4, strokeWidth: 2, fill: '#fff' }}
+                activeDot={{ r: 6 }}
                 connectNulls={false}
-              >
-                <LabelList
-                  dataKey="lucro"
-                  position="top"
-                  formatter={(val: number) => {
-                    if (val === undefined || val === null) return '';
-                    const kVal = (val / 1000).toFixed(0);
-                    return `R$ ${kVal}k`;
-                  }}
-                  style={{ fill: '#10b981', fontSize: 10, fontWeight: 'bold' }}
-                />
-              </Line>
+              />
             </ComposedChart>
           </ResponsiveContainer>
+        </div>
+
+        {/* Legenda do gráfico na parte inferior: limpa e desafogada no mobile e desktop */}
+        <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-8 pt-3 mt-2 border-t border-slate-100 dark:border-slate-800 text-[11px] sm:text-xs font-semibold">
+          <span className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400">
+            <span className="w-2.5 h-2.5 rounded-full bg-blue-600" /> Receita
+          </span>
+          <span className="flex items-center gap-1.5 text-rose-500 dark:text-rose-400">
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-500" /> Despesa
+          </span>
+          <span className="flex items-center gap-1.5 text-emerald-500 dark:text-emerald-400">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Lucro Líquido
+          </span>
         </div>
       </div>
 

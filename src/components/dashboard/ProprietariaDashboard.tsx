@@ -24,7 +24,6 @@ import {
   Check,
   X
 } from 'lucide-react';
-import { BackupButton } from '../common/BackupButton';
 import { SystemHealthIndicator } from '../common/SystemHealthIndicator';
 import { SmartFilter } from '../common/SmartFilter';
 import { useCRM } from '../../context/CRMContext';
@@ -375,16 +374,19 @@ export const ProprietariaDashboard: React.FC<Props> = ({
       .sort((a, b) => b.vendas - a.vendas);
   }, [filteredPropostas]);
 
-  // Promotoras breakdown - strictly paid sales
+  // Promotoras breakdown - strictly paid sales (exclusively hiding assessoria)
   const promotorasChartData = useMemo(() => {
-    const map = new Map<Promotora, { promotora: Promotora; vendas: number; count: number }>();
+    const map = new Map<string, { promotora: string; vendas: number; count: number }>();
     filteredPropostas.filter(p => p.status === 'Paga').forEach(p => {
       if (!p.promotora) return;
-      const promLower = p.promotora.toLowerCase();
+      const promLower = p.promotora.toLowerCase().trim();
+      const opLower = (p.operacao || '').toLowerCase().trim();
       if (
         promLower.includes('maquineta') ||
         promLower.includes('pessoal de livia') ||
-        promLower.includes('pessoal da livia')
+        promLower.includes('pessoal da livia') ||
+        promLower.includes('assessoria') ||
+        opLower.includes('assessoria')
       ) {
         return;
       }
@@ -608,30 +610,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               </h1>
               {/* Secret System Health Indicator Button */}
               <SystemHealthIndicator />
-              <BackupButton />
-              {currentUser?.email === atob('Z2VvdmFubmUuYXJjZWxpbm9AZ21haWwuY29t') && (
-                <button
-                  onClick={handlePurge}
-                  disabled={isPurging}
-                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50"
-                >
-                  {isPurging ? 'Apagando...' : 'Apagar Dados Fictícios'}
-                </button>
-              )}
             </div>
-            {/* Conference Strip for geovanne.arcelino@gmail.com */}
-            {currentUser?.email === atob('Z2VvdmFubmUuYXJjZWxpbm9AZ21haWwuY29t') && (
-              <div className="space-y-2 mt-2">
-                <div className="text-[9px] font-mono text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                  Firebase: Conectado | Total: {propostas.length} | Setembro: {filteredPropostas.length} | Fictícias: {propostas.filter(p => p.id.startsWith('prop-sep26-')).length} | Doc Lidos: {localStorage.getItem('crm_cloud_reads') || 0}
-                </div>
-                {purgeResult && (
-                  <div className="text-[9px] font-bold text-rose-600 bg-rose-50 p-2 rounded-lg border border-rose-100 animate-in slide-in-from-top-1">
-                    Documentos apagados (#482500 a #482505): {purgeResult.join(', ')}
-                  </div>
-                )}
-              </div>
-            )}
             <p className="text-xs text-slate-500 mt-0.5">
               Acompanhamento em tempo real de faturamento, comissões, ranking e rentabilidade.
             </p>
@@ -860,13 +839,34 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               <div
                 key={vendedora.nome}
                 onClick={() => {
-                  const recognizedRepsSet = new Set(activeSellers.map(u => normalizeSellerName(u.name)).filter(n => n && n !== 'Outros'));
-                  const propsForSeller = vendedora.nome === 'Outros'
-                    ? filteredPropostas.filter(p => {
-                        const norm = normalizeSellerName(p.vendedora);
-                        return !norm || norm === 'Outros' || !recognizedRepsSet.has(norm);
-                      })
-                    : filteredPropostas.filter(p => normalizeSellerName(p.vendedora) === vendedora.nome);
+                  const sellerUser = allUsers.find(
+                    u =>
+                      (u.salesName && u.salesName === vendedora.nome) ||
+                      u.name === vendedora.nome ||
+                      normalizeSellerName(u.name) === normalizeSellerName(vendedora.nome) ||
+                      (u.salesName && normalizeSellerName(u.salesName) === normalizeSellerName(vendedora.nome))
+                  );
+
+                  let propsForSeller: Proposta[];
+                  if (vendedora.nome === 'Outros') {
+                    propsForSeller = filteredPropostas.filter(p => !allUsers.some(emp => matchesSeller(p.vendedora, emp)));
+                  } else if (sellerUser) {
+                    propsForSeller = filteredPropostas.filter(
+                      p => matchesSeller(p.vendedora, sellerUser) || (!p.vendedora && matchesSeller(p.digitador, sellerUser))
+                    );
+                  } else {
+                    propsForSeller = filteredPropostas.filter(
+                      p => isSameSeller(p.vendedora, vendedora.nome) || normalizeSellerName(p.vendedora) === normalizeSellerName(vendedora.nome)
+                    );
+                  }
+
+                  // Sort proposals with paid first, then by date descending
+                  propsForSeller.sort((a, b) => {
+                    if (a.status === 'Paga' && b.status !== 'Paga') return -1;
+                    if (a.status !== 'Paga' && b.status === 'Paga') return 1;
+                    return (b.dataDigitacao || '').localeCompare(a.dataDigitacao || '');
+                  });
+
                   setSelectedSellerName(vendedora.nome);
                   setSelectedSellerProposals(propsForSeller);
                 }}

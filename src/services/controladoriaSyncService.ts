@@ -1,7 +1,10 @@
 import * as XLSX from 'xlsx';
-import { Proposta, ComissaoPromotora } from '../types';
+import type { Proposta, ComissaoPromotora } from '../types/index.ts';
 
-const SPREADSHEET_URL = 'https://docs.google.com/spreadsheets/d/1cjVYDhH1U6tP7ou81bZmUp_XUhcqgpvPjWT3QIbWQhE/export?format=xlsx';
+const SPREADSHEET_URL =
+  (typeof process !== 'undefined' && process.env?.GOOGLE_SHEETS_CONTROLADORIA_URL) ||
+  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GOOGLE_SHEETS_CONTROLADORIA_URL) ||
+  'https://docs.google.com/spreadsheets/d/1cjVYDhH1U6tP7ou81bZmUp_XUhcqgpvPjWT3QIbWQhE/export?format=xlsx';
 
 function parseMoney(val: any): number {
   if (val === null || val === undefined || val === '') return 0;
@@ -43,6 +46,24 @@ function parseDate(val: any): string {
   return str.split('T')[0] || '';
 }
 
+function matchesPromotora(propPromotora: string | undefined, target: 'J2' | 'Sempre' | 'DG' | 'GFT'): boolean {
+  if (!propPromotora) return false;
+  const p = propPromotora.toLowerCase().trim();
+  if (target === 'J2') {
+    return p.includes('j2');
+  }
+  if (target === 'Sempre') {
+    return p.includes('sempre');
+  }
+  if (target === 'DG') {
+    return p.includes('dg');
+  }
+  if (target === 'GFT') {
+    return p.includes('gft');
+  }
+  return false;
+}
+
 export interface ProcessResult {
   commissions: ComissaoPromotora[];
   totalRowsRead: number;
@@ -61,10 +82,12 @@ export async function processControladoriaGoogleSheetsWithStats(propostas: Propo
   const matchedProposalIds = new Set<string>();
   let totalRowsRead = 0;
 
-  // 1. Process J2 Sheet
+  // 1. Process J2 Sheet - Filtrando apenas propostas J2 do CRM
   if (workbook.Sheets['J2']) {
+    const j2Propostas = propostas.filter(p => matchesPromotora(p.promotora, 'J2'));
     const j2Rows: any[] = XLSX.utils.sheet_to_json(workbook.Sheets['J2'], { header: 1 });
     totalRowsRead += Math.max(0, j2Rows.length - 1);
+
     for (let i = 1; i < j2Rows.length; i++) {
       const r = j2Rows[i];
       if (!r || r.length === 0) continue;
@@ -80,14 +103,14 @@ export async function processControladoriaGoogleSheetsWithStats(propostas: Propo
 
       let matchedProp: Proposta | undefined = undefined;
 
-      // Rule 1: Exact Contract Number
+      // Regra 1: Número do Contrato Exato (dentro das propostas J2)
       if (contrato && contrato.length >= 4) {
-        matchedProp = propostas.find(p => !matchedProposalIds.has(p.id) && cleanDigits(p.numeroContrato) === contrato);
+        matchedProp = j2Propostas.find(p => !matchedProposalIds.has(p.id) && cleanDigits(p.numeroContrato) === contrato);
       }
 
-      // Fallback 1: CPF + Data Digitação + Valor Liberado
+      // Regra 2 (Fallback 1): CPF + Data Digitação + Valor Liberado (dentro das propostas J2)
       if (!matchedProp && cpf && cpf.length === 11) {
-        matchedProp = propostas.find(p => {
+        matchedProp = j2Propostas.find(p => {
           if (matchedProposalIds.has(p.id)) return false;
           const pCpf = cleanDigits(p.cpf);
           const pData = parseDate(p.dataDigitacao);
@@ -96,9 +119,9 @@ export async function processControladoriaGoogleSheetsWithStats(propostas: Propo
         });
       }
 
-      // Fallback 2: CPF + Data Digitação + Operação/Banco
+      // Regra 3 (Fallback 2): CPF + Data Digitação + Operação/Banco (dentro das propostas J2)
       if (!matchedProp && cpf && cpf.length === 11) {
-        matchedProp = propostas.find(p => {
+        matchedProp = j2Propostas.find(p => {
           if (matchedProposalIds.has(p.id)) return false;
           const pCpf = cleanDigits(p.cpf);
           const pData = parseDate(p.dataDigitacao);
@@ -130,10 +153,12 @@ export async function processControladoriaGoogleSheetsWithStats(propostas: Propo
     }
   }
 
-  // 2. Process Sempre Sheet
+  // 2. Process Sempre Sheet - Filtrando apenas propostas Sempre do CRM
   if (workbook.Sheets['Sempre']) {
+    const semprePropostas = propostas.filter(p => matchesPromotora(p.promotora, 'Sempre'));
     const sempreRows: any[] = XLSX.utils.sheet_to_json(workbook.Sheets['Sempre'], { header: 1 });
     totalRowsRead += Math.max(0, sempreRows.length - 1);
+
     for (let i = 1; i < sempreRows.length; i++) {
       const r = sempreRows[i];
       if (!r || r.length === 0) continue;
@@ -149,9 +174,9 @@ export async function processControladoriaGoogleSheetsWithStats(propostas: Propo
 
       let matchedProp: Proposta | undefined = undefined;
 
-      // 1ª Tentativa: Nome do Cliente + Valor
+      // 1ª Tentativa: Nome do Cliente + Valor (dentro das propostas Sempre)
       if (nomeCliente && nomeCliente.length >= 3) {
-        matchedProp = propostas.find(p => {
+        matchedProp = semprePropostas.find(p => {
           if (matchedProposalIds.has(p.id)) return false;
           const pNome = String(p.nomeCliente || '').toLowerCase().trim();
           const pVal = p.valorEmprestimo || 0;
@@ -159,9 +184,9 @@ export async function processControladoriaGoogleSheetsWithStats(propostas: Propo
         });
       }
 
-      // 2ª Tentativa: CPF + Valor
+      // 2ª Tentativa: CPF + Valor (dentro das propostas Sempre)
       if (!matchedProp && cpf && cpf.length === 11) {
-        matchedProp = propostas.find(p => {
+        matchedProp = semprePropostas.find(p => {
           if (matchedProposalIds.has(p.id)) return false;
           const pCpf = cleanDigits(p.cpf);
           const pVal = p.valorEmprestimo || 0;
@@ -169,9 +194,9 @@ export async function processControladoriaGoogleSheetsWithStats(propostas: Propo
         });
       }
 
-      // 3ª Tentativa: Data + Valor + Taxa (últimos 3 caracteres)
+      // 3ª Tentativa: Data + Valor + Taxa (últimos 3 caracteres) (dentro das propostas Sempre)
       if (!matchedProp && dataPag) {
-        matchedProp = propostas.find(p => {
+        matchedProp = semprePropostas.find(p => {
           if (matchedProposalIds.has(p.id)) return false;
           const pData = parseDate(p.dataPagamentoCliente || p.dataDigitacao);
           const pVal = p.valorEmprestimo || 0;
@@ -180,9 +205,9 @@ export async function processControladoriaGoogleSheetsWithStats(propostas: Propo
         });
       }
 
-      // 4ª Tentativa: Data + Valor
+      // 4ª Tentativa: Data + Valor (dentro das propostas Sempre)
       if (!matchedProp && dataPag) {
-        matchedProp = propostas.find(p => {
+        matchedProp = semprePropostas.find(p => {
           if (matchedProposalIds.has(p.id)) return false;
           const pData = parseDate(p.dataPagamentoCliente || p.dataDigitacao);
           const pVal = p.valorEmprestimo || 0;
@@ -213,9 +238,10 @@ export async function processControladoriaGoogleSheetsWithStats(propostas: Propo
     }
   }
 
-  // 3. Process DG & GFT Sheets (Summing duplicates by Contract Col C)
-  for (const promotoraName of ['DG', 'GFT']) {
+  // 3. Process DG & GFT Sheets - Filtrando apenas propostas DG e GFT do CRM
+  for (const promotoraName of ['DG', 'GFT'] as const) {
     if (workbook.Sheets[promotoraName]) {
+      const targetPropostas = propostas.filter(p => matchesPromotora(p.promotora, promotoraName));
       const rows: any[] = XLSX.utils.sheet_to_json(workbook.Sheets[promotoraName], { header: 1 });
       totalRowsRead += Math.max(0, rows.length - 1);
       const contractSumMap = new Map<string, { sum: number; clientName: string }>();
@@ -236,7 +262,7 @@ export async function processControladoriaGoogleSheetsWithStats(propostas: Propo
       }
 
       contractSumMap.forEach((val, contrato) => {
-        const matchedProp = propostas.find(p => !matchedProposalIds.has(p.id) && cleanDigits(p.numeroContrato) === contrato);
+        const matchedProp = targetPropostas.find(p => !matchedProposalIds.has(p.id) && cleanDigits(p.numeroContrato) === contrato);
         const deterministicId = matchedProp
           ? `com-${promotoraName.toLowerCase()}-${matchedProp.id}`
           : `com-${promotoraName.toLowerCase()}-ctr-${contrato}`;
@@ -293,39 +319,24 @@ export async function executeControladoriaSyncWithBackup(
   // 2. Ler planilha (se falhar, lança erro e nada muda)
   const { commissions: sheetCommissions, totalRowsRead } = await processControladoriaGoogleSheetsWithStats(propostas);
 
-  // 3. Mesclar novos e atualizados mantendo existentes
-  const commissionsMap = new Map<string, ComissaoPromotora>();
-  currentCommissions.forEach(c => commissionsMap.set(c.id, c));
+  // 3. Substituir a sincronização anterior pela nova lista com matching estrito por promotora, mantendo apenas lançamentos manuais
+  const manualCommissions = currentCommissions.filter(c => !c.observacao?.includes('Sincronizado via Google Sheets'));
 
-  let novos = 0;
-  let atualizados = 0;
+  const finalCommissionsMap = new Map<string, ComissaoPromotora>();
+  manualCommissions.forEach(c => finalCommissionsMap.set(c.id, c));
+  sheetCommissions.forEach(c => finalCommissionsMap.set(c.id, c));
 
-  sheetCommissions.forEach(incoming => {
-    if (commissionsMap.has(incoming.id)) {
-      atualizados++;
-      const existing = commissionsMap.get(incoming.id)!;
-      commissionsMap.set(incoming.id, {
-        ...existing,
-        ...incoming,
-        id: incoming.id
-      });
-    } else {
-      novos++;
-      commissionsMap.set(incoming.id, incoming);
-    }
-  });
+  const finalCommissionsList = Array.from(finalCommissionsMap.values());
 
-  const mergedList = Array.from(commissionsMap.values());
-
-  // 4. Salvar lista completa mesclada sem perdas
-  saveComissaoBatchFn(mergedList);
+  // 4. Salvar nova lista reprocessada
+  saveComissaoBatchFn(finalCommissionsList);
 
   return {
     success: true,
     lidos: totalRowsRead,
-    novos,
-    atualizados,
-    totalFinal: mergedList.length,
-    mensagem: `Sincronização concluída com sucesso! Linhas lidas: ${totalRowsRead} | Novos registros adicionados: ${novos} | Registros atualizados: ${atualizados} | Total no sistema: ${mergedList.length}`
+    novos: sheetCommissions.length,
+    atualizados: 0,
+    totalFinal: finalCommissionsList.length,
+    mensagem: `Sincronização reprocessada com sucesso! Linhas lidas: ${totalRowsRead} | Repasses reclassificados por promotora: ${sheetCommissions.length} | Total no sistema: ${finalCommissionsList.length}`
   };
 }

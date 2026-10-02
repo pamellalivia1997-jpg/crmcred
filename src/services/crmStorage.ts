@@ -21,7 +21,7 @@ import { normalizeSellerName, getLocalDateString } from '../utils/formatters';
 
 const STORAGE_KEY = 'livia_credsaude_crm_data_v1';
 
-interface CRMDataStore {
+export interface CRMDataStore {
   users: User[];
   clientes: Cliente[];
   propostas: Proposta[];
@@ -175,18 +175,49 @@ function cleanPayloadForFirestore(data: any): any {
   return clean(json);
 }
 
+let quotaExceededState = false;
+let activeUnsubscribes: Array<() => void> = [];
+
+export function isFirestoreQuotaExceeded(): boolean {
+  return (
+    quotaExceededState ||
+    (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('crm_firestore_quota_exceeded') === 'true')
+  );
+}
+
+export function setFirestoreQuotaExceeded() {
+  if (quotaExceededState) return;
+  quotaExceededState = true;
+  if (typeof sessionStorage !== 'undefined') {
+    sessionStorage.setItem('crm_firestore_quota_exceeded', 'true');
+  }
+  // Immediately unsubscribe all active listeners to stop retry storms and backend backoff delays
+  activeUnsubscribes.forEach(unsub => {
+    try {
+      unsub();
+    } catch (_) {}
+  });
+  activeUnsubscribes = [];
+  console.warn('⚡ [Firestore] Cota diária do plano gratuito atingida. Sincronização remota pausada para evitar sobrecarga. Os dados continuam operando normalmente via armazenamento local.');
+}
+
 async function syncItemToFirestore(collectionName: string, id: string, data: any) {
+  if (isFirestoreQuotaExceeded()) return;
   try {
     const docRef = doc(db, collectionName, id);
     const cleaned = cleanPayloadForFirestore(data);
     await setDoc(docRef, cleaned, { merge: true });
-  } catch (err) {
-    console.warn(`Firestore sync warning on ${collectionName}/${id}:`, err);
+  } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota exceeded')) {
+      setFirestoreQuotaExceeded();
+    } else {
+      console.warn(`Firestore sync warning on ${collectionName}/${id}:`, err);
+    }
   }
 }
 
 async function syncBatchToFirestore(collectionName: string, items: any[]) {
-  if (!items || items.length === 0) return;
+  if (!items || items.length === 0 || isFirestoreQuotaExceeded()) return;
   try {
     const batch = writeBatch(db);
     // Limit to 400 operations per batch for Firestore safety
@@ -198,22 +229,36 @@ async function syncBatchToFirestore(collectionName: string, items: any[]) {
       }
     });
     await batch.commit();
-  } catch (err) {
-    console.warn(`Firestore batch sync warning on ${collectionName}:`, err);
+  } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota exceeded')) {
+      setFirestoreQuotaExceeded();
+    } else {
+      console.warn(`Firestore batch sync warning on ${collectionName}:`, err);
+    }
   }
 }
 
 async function deleteItemFromFirestore(collectionName: string, id: string) {
+  if (isFirestoreQuotaExceeded()) return;
   try {
     const docRef = doc(db, collectionName, id);
     await deleteDoc(docRef);
-  } catch (err) {
-    console.warn(`Firestore delete warning on ${collectionName}/${id}:`, err);
+  } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota exceeded')) {
+      setFirestoreQuotaExceeded();
+    } else {
+      console.warn(`Firestore delete warning on ${collectionName}/${id}:`, err);
+    }
   }
 }
 
 // Listen to Firestore real-time snapshots with smart cache reconciliation
 export function initFirestoreRealtimeSync() {
+  if (isFirestoreQuotaExceeded()) {
+    console.info('ℹ️ Modo Offline Local ativo: cota diária do Firestore atingida anteriormente. O CRM permanece 100% funcional localmente.');
+    return;
+  }
+
   const collectionsToSync: Array<keyof CRMDataStore> = [
     'users',
     'clientes',
@@ -229,7 +274,7 @@ export function initFirestoreRealtimeSync() {
   collectionsToSync.forEach((coll) => {
     try {
       const collRef = collection(db, coll);
-      onSnapshot(
+      const unsub = onSnapshot(
         collRef,
         (snapshot) => {
           const items: any[] = [];
@@ -255,12 +300,21 @@ export function initFirestoreRealtimeSync() {
             saveLocalStore(currentStore);
           }
         },
-        (error) => {
-          handleFirestoreError(error, OperationType.GET, coll);
+        (error: any) => {
+          if (error?.code === 'resource-exhausted' || error?.message?.includes('Quota exceeded')) {
+            setFirestoreQuotaExceeded();
+          } else {
+            handleFirestoreError(error, OperationType.GET, coll);
+          }
         }
       );
-    } catch (e) {
-      console.warn(`Erro ao registrar listener onSnapshot para ${coll}:`, e);
+      activeUnsubscribes.push(unsub);
+    } catch (e: any) {
+      if (e?.code === 'resource-exhausted' || e?.message?.includes('Quota exceeded')) {
+        setFirestoreQuotaExceeded();
+      } else {
+        console.warn(`Erro ao registrar listener onSnapshot para ${coll}:`, e);
+      }
     }
   });
 }
@@ -410,27 +464,70 @@ export const crmStorage = {
     };
     saveLocalStore(currentStore);
 
-    const collectionsToClear = ['clientes', 'propostas', 'comissoesPromotoras', 'contasPagar', 'metas', 'alertas', 'feedbacks', 'auditLogs'];
-    for (const collName of collectionsToClear) {
-      // Repeat until empty so a large collection or a concurrent snapshot cannot leave leftovers.
-      for (;;) {
-        const querySnap = await getDocs(collection(db, collName));
-        if (querySnap.empty) break;
-        for (let i = 0; i < querySnap.docs.length; i += 400) {
-          const batch = writeBatch(db);
-          querySnap.docs.slice(i, i + 400).forEach(docSnap => batch.delete(docSnap.ref));
-          await batch.commit();
+    if (isFirestoreQuotaExceeded()) {
+      return;
+    }
+
+    try {
+      const collectionsToClear = ['clientes', 'propostas', 'comissoesPromotoras', 'contasPagar', 'metas', 'alertas', 'feedbacks', 'auditLogs'];
+      for (const collName of collectionsToClear) {
+        // Repeat until empty so a large collection or a concurrent snapshot cannot leave leftovers.
+        for (;;) {
+          const querySnap = await getDocs(collection(db, collName));
+          if (querySnap.empty) break;
+          for (let i = 0; i < querySnap.docs.length; i += 400) {
+            const batch = writeBatch(db);
+            querySnap.docs.slice(i, i + 400).forEach(docSnap => batch.delete(docSnap.ref));
+            await batch.commit();
+          }
+        }
+        const remaining = await getDocs(collection(db, collName));
+        if (!remaining.empty) {
+          throw new Error(`A coleção ${collName} ainda possui ${remaining.size} documento(s).`);
         }
       }
-      const remaining = await getDocs(collection(db, collName));
-      if (!remaining.empty) {
-        throw new Error(`A coleção ${collName} ainda possui ${remaining.size} documento(s).`);
+    } catch (e: any) {
+      if (e?.code === 'resource-exhausted' || e?.message?.includes('Quota exceeded')) {
+        setFirestoreQuotaExceeded();
+      } else {
+        console.warn('Erro ao limpar coleções remotas do Firestore:', e);
       }
     }
   },
 
+  async clearFunilData(): Promise<void> {
+    currentStore = {
+      ...currentStore,
+      propostas: []
+    };
+    saveLocalStore(currentStore);
+    try {
+      const querySnap = await getDocs(collection(db, 'propostas'));
+      const batch = writeBatch(db);
+      querySnap.docs.forEach(docSnap => batch.delete(docSnap.ref));
+      await batch.commit();
+    } catch (e) {
+      console.warn('Erro ao limpar propostas do Firestore:', e);
+    }
+  },
+
+  async clearControladoriaData(): Promise<void> {
+    currentStore = {
+      ...currentStore,
+      comissoesPromotoras: []
+    };
+    saveLocalStore(currentStore);
+    try {
+      const querySnap = await getDocs(collection(db, 'comissoesPromotoras'));
+      const batch = writeBatch(db);
+      querySnap.docs.forEach(docSnap => batch.delete(docSnap.ref));
+      await batch.commit();
+    } catch (e) {
+      console.warn('Erro ao limpar comissoesPromotoras do Firestore:', e);
+    }
+  },
+
   async purgeMockData(): Promise<string[]> {
-    const deletedIds: string[] = [];
     currentStore.propostas = currentStore.propostas.filter(p => {
       if (p.id && (p.id.startsWith('prop-sep26-') || p.id.startsWith('mock-') || p.id.startsWith('seed-'))) {
         deletedIds.push(p.id);
@@ -448,6 +545,19 @@ export const crmStorage = {
       }
     }
     return deletedIds;
+  },
+
+  // Restaurar store completo a partir de arquivo de backup JSON
+  restoreStore(data: Partial<CRMDataStore>): void {
+    if (!data) return;
+    const merged: CRMDataStore = {
+      ...currentStore,
+      ...data,
+      users: data.users && data.users.length > 0 ? data.users : currentStore.users
+    };
+    const { sanitized } = sanitizeStore(merged);
+    currentStore = sanitized;
+    saveLocalStore(currentStore);
   },
 
   // Importar Carteira de Clientes em Lote
@@ -518,8 +628,8 @@ export const crmStorage = {
     let commissionsCreated = 0;
     let cpfsCorrectedCount = 0;
 
-    // Build a secure Firestore Write Batch
-    const batch = writeBatch(db);
+    // Buffer write operations for chunked Firestore batching (prevents 500 writes limit per batch for 2k+ rows)
+    const writeOperations: { ref: any; data: any }[] = [];
 
     rows.forEach((row, index) => {
       if (!row.nomeCliente || !row.nomeCliente.trim()) return;
@@ -576,9 +686,9 @@ export const crmStorage = {
         clientsUpdated++;
       }
 
-      // Buffer Client write in the Firestore Batch
+      // Buffer Client write
       const clientDocRef = doc(db, 'clientes', clientRecord.id);
-      batch.set(clientDocRef, JSON.parse(JSON.stringify(clientRecord)), { merge: true });
+      writeOperations.push({ ref: clientDocRef, data: JSON.parse(JSON.stringify(clientRecord)) });
 
       // 4. Map Status
       let statusProp: StatusProposta = 'Paga';
@@ -596,7 +706,20 @@ export const crmStorage = {
         isTaxaRealmentePaga = statusProp === 'Paga';
       }
 
-      // 5. Create Proposta for this specific row (Supports repeated clients across multiple rows!)
+      // Deduplication check: CPF + Contrato + Valor + Data (todos juntos)
+      const isDuplicate = currentStore.propostas.some(p => {
+        const sameCpf = p.cpf.replace(/\D/g, '') === cleanCpf;
+        const sameContract = p.numeroContrato.trim().toLowerCase() === cleanContract.trim().toLowerCase();
+        const sameValor = Math.abs((p.valorEmprestimo || 0) - parsedEmp) < 0.01;
+        const sameData = (p.dataDigitacao === dateDigitacao) || (p.dataPagamentoCliente === datePagamento);
+        return sameCpf && sameContract && sameValor && sameData;
+      });
+
+      if (isDuplicate) {
+        return; // Skip duplicate row
+      }
+
+      // 5. Create Proposta for this specific row
       const proposalId = `prop-${cleanCpf}-${cleanContract.replace(/\W/g, '')}-${index}`;
       const hasLink = row.linkDocumento && row.linkDocumento.trim() && row.linkDocumento.trim() !== '0' ? row.linkDocumento.trim() : undefined;
       const newProposta: Proposta = {
@@ -633,11 +756,11 @@ export const crmStorage = {
       currentStore.propostas.unshift(newProposta);
       proposalsCreated++;
 
-      // Buffer Proposal write in the Firestore Batch
+      // Buffer Proposal write
       const proposalDocRef = doc(db, 'propostas', newProposta.id);
-      batch.set(proposalDocRef, JSON.parse(JSON.stringify(newProposta)), { merge: true });
+      writeOperations.push({ ref: proposalDocRef, data: JSON.parse(JSON.stringify(newProposta)) });
 
-      // 6. Handle Promoter Commission (J2, Sempre, DG, GFT, Faturado) if present
+      // 6. Handle Promoter Commission
       const comVal =
         parseBrazilianCurrency(row.faturado) ||
         parseBrazilianCurrency(row.comissaoJ2) ||
@@ -662,16 +785,24 @@ export const crmStorage = {
         currentStore.comissoesPromotoras.unshift(comRecord);
         commissionsCreated++;
 
-        // Buffer Commission write in the Firestore Batch
+        // Buffer Commission write
         const commissionDocRef = doc(db, 'comissoesPromotoras', comRecord.id);
-        batch.set(commissionDocRef, JSON.parse(JSON.stringify(comRecord)), { merge: true });
+        writeOperations.push({ ref: commissionDocRef, data: JSON.parse(JSON.stringify(comRecord)) });
       }
     });
 
-    // Commit Firestore Write Batch immediately as an atomic transaction (prevents multiple asynchronous calls overhead!)
-    batch.commit().catch(err => {
-      console.error('Erro ao salvar lote no Firestore:', err);
-    });
+    // Commit Firestore writes in batches of 400 items
+    const chunkSize = 400;
+    for (let i = 0; i < writeOperations.length; i += chunkSize) {
+      const currentBatch = writeBatch(db);
+      const chunk = writeOperations.slice(i, i + chunkSize);
+      chunk.forEach(op => {
+        currentBatch.set(op.ref, op.data, { merge: true });
+      });
+      currentBatch.commit().catch(err => {
+        console.error('Erro ao salvar lote no Firestore:', err);
+      });
+    }
 
     this.logAudit({
       usuarioId: actor.id,
@@ -996,25 +1127,16 @@ export const crmStorage = {
   },
 
   saveComissaoPromotoraBatch(comissoes: ComissaoPromotora[], currentUser: { id: string; name: string }): void {
-    if (!comissoes || comissoes.length === 0) return;
+    if (!comissoes) return;
 
-    const updatedComissoes = [...currentStore.comissoesPromotoras];
+    currentStore.comissoesPromotoras = comissoes;
+    saveLocalStore(currentStore);
+
     const batch = writeBatch(db);
-
     comissoes.forEach(comissao => {
-      const index = updatedComissoes.findIndex(c => c.id === comissao.id);
-      if (index >= 0) {
-        updatedComissoes[index] = comissao;
-      } else {
-        updatedComissoes.unshift(comissao);
-      }
-
       const commissionDocRef = doc(db, 'comissoesPromotoras', comissao.id);
       batch.set(commissionDocRef, JSON.parse(JSON.stringify(comissao)), { merge: true });
     });
-
-    currentStore.comissoesPromotoras = updatedComissoes;
-    saveLocalStore(currentStore);
 
     batch.commit().catch(err => {
       console.error('Erro ao salvar lote de comissões no Firestore:', err);

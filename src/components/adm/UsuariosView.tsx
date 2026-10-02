@@ -51,7 +51,7 @@ export const UsuariosView: React.FC = () => {
     setEditingUserId(null);
     setFormName('');
     setFormEmail('');
-    setFormPassword('123');
+    setFormPassword('');
     setFormShowPassword(false);
     setFormRole('vendedora');
     setFormPhone('');
@@ -66,7 +66,7 @@ export const UsuariosView: React.FC = () => {
     setEditingUserId(user.id);
     setFormName(user.name);
     setFormEmail(user.email);
-    setFormPassword(user.password || '123');
+    setFormPassword(user.password || '');
     setFormShowPassword(false);
     setFormRole(user.role);
     setFormPhone(user.phone || '');
@@ -82,7 +82,7 @@ export const UsuariosView: React.FC = () => {
     if (!formName.trim() || !formEmail.trim()) return;
 
     const targetId = editingUserId || `user-${Date.now()}`;
-    let finalPassword = formPassword.trim() || '123';
+    let finalPassword = formPassword.trim();
 
     const updatedUser: User = {
       id: targetId,
@@ -362,7 +362,7 @@ export const UsuariosView: React.FC = () => {
                       <td className="py-3 px-3">
                         <div className="flex items-center gap-1.5">
                           <span className="font-mono text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded text-[11px]">
-                            {isVisiblePass ? user.password || '123' : '••••••••'}
+                            {isVisiblePass ? user.password || '(Não definida)' : '••••••••'}
                           </span>
                           <button
                             type="button"
@@ -496,7 +496,7 @@ export const UsuariosView: React.FC = () => {
                   <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type={formShowPassword ? 'text' : 'password'}
-                    placeholder="Senha de acesso (Padrão: 123)"
+                    placeholder="Defina a senha de acesso"
                     value={formPassword}
                     onChange={(e) => setFormPassword(e.target.value)}
                     className="w-full pl-9 pr-10 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 font-medium font-mono"

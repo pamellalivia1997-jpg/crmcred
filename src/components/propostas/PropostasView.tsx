@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import {
   FileSpreadsheet,
   Kanban,
@@ -16,7 +17,13 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Calendar
+  Calendar,
+  UploadCloud,
+  RotateCcw,
+  Sparkles,
+  X,
+  Database,
+  Trash2
 } from 'lucide-react';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
@@ -44,7 +51,8 @@ type SortField =
   | 'percentualTaxa'
   | 'vendedora'
   | 'status'
-  | 'taxaPaga';
+  | 'taxaPaga'
+  | 'repasse';
 
 export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = null, initialSearchTerm = '' }) => {
   const {
@@ -54,12 +62,30 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
     dataInicioPersonalizada,
     setDataInicioPersonalizada,
     dataFimPersonalizada,
-    setDataFimPersonalizada
+    setDataFimPersonalizada,
+    comissoesPromotoras,
+    importFullSpreadsheetRows,
+    clearFunilData
   } = useCRM();
   const { currentUser } = useAuth();
 
-  const [viewMode, setViewMode] = useState<'kanban' | 'tabela'>('tabela');
+  const canViewRepasse = Boolean(
+    currentUser && (currentUser.role === 'proprietaria' || currentUser.role === 'adm' || currentUser.role === 'financeiro')
+  );
+
+  const isGeovanne = Boolean(currentUser && currentUser.name.toLowerCase().includes('geovanne'));
+
+  const [viewMode, setViewMode] = useState<'kanban' | 'tabela'>('kanban');
   const [searchTerm, setSearchTerm] = useState(initialSearchTerm);
+
+  // Modal State for Importing Portfolio
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importNotice, setImportNotice] = useState<string | null>(null);
+
+  // Modal State for Clearing Test Data (Funil)
+  const [isClearModalOpen, setIsClearModalOpen] = useState(false);
+  const [clearNotice, setClearNotice] = useState<string | null>(null);
 
   // Column dropdown filters
   const [filterVendedora, setFilterVendedora] = useState('todas');
@@ -68,6 +94,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
   const [filterPromotora, setFilterPromotora] = useState('todas');
   const [filterStatus, setFilterStatus] = useState('todos');
   const [filterTaxaPaga, setFilterTaxaPaga] = useState<'todas' | 'sim' | 'nao'>('todas');
+  const [filterRepasse, setFilterRepasse] = useState<'todos' | 'sim' | 'nao'>('todos');
 
   // Sorting
   const [sortField, setSortField] = useState<SortField>('dataDigitacao');
@@ -75,6 +102,24 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
 
   // Modal state
   const [selectedProposta, setSelectedProposta] = useState<Proposta | null>(initialProposta);
+
+  // Map proposal IDs to their confirmed commission amount (strictly linked by propostaId)
+  const commissionByProposta = useMemo(() => {
+    const map = new Map<string, number>();
+    (comissoesPromotoras || [])
+      .filter(c => c.status === 'confirmada' && (c.valorRecebido || 0) > 0 && c.propostaId)
+      .forEach(c => {
+        map.set(c.propostaId, (map.get(c.propostaId) || 0) + c.valorRecebido);
+      });
+    return map;
+  }, [comissoesPromotoras]);
+
+  const getRepasseValue = (prop: Proposta): number => {
+    if (prop.id && commissionByProposta.has(prop.id)) {
+      return commissionByProposta.get(prop.id) || 0;
+    }
+    return 0;
+  };
 
   React.useEffect(() => {
     if (initialProposta) {
@@ -127,7 +172,15 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
       if (filterTaxaPaga === 'sim') matchTaxa = isPaidTax;
       if (filterTaxaPaga === 'nao') matchTaxa = !isPaidTax;
 
-      return matchSearch && matchVendedora && matchOperacao && matchBanco && matchPromotora && matchStatus && matchTaxa;
+      // Repasse filter (Apenas ADMs, Gerência e Financeiro)
+      let matchRepasse = true;
+      if (canViewRepasse) {
+        const hasRepasse = getRepasseValue(p) > 0;
+        if (filterRepasse === 'sim') matchRepasse = hasRepasse;
+        if (filterRepasse === 'nao') matchRepasse = !hasRepasse;
+      }
+
+      return matchSearch && matchVendedora && matchOperacao && matchBanco && matchPromotora && matchStatus && matchTaxa && matchRepasse;
     });
   }, [
     dashboardMetrics.filteredPropostas,
@@ -138,6 +191,9 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
     filterPromotora,
     filterStatus,
     filterTaxaPaga,
+    filterRepasse,
+    canViewRepasse,
+    commissionByProposta,
     isDigitador,
     currentUser
   ]);
@@ -201,13 +257,17 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
           valA = (a.taxaPaga === true || a.clientePagouTaxa === true) ? 1 : 0;
           valB = (b.taxaPaga === true || b.clientePagouTaxa === true) ? 1 : 0;
           break;
+        case 'repasse':
+          valA = getRepasseValue(a);
+          valB = getRepasseValue(b);
+          break;
       }
 
       if (valA < valB) return sortDirection === 'asc' ? -1 : 1;
       if (valA > valB) return sortDirection === 'asc' ? 1 : -1;
       return 0;
     });
-  }, [filteredPropostas, sortField, sortDirection]);
+  }, [filteredPropostas, sortField, sortDirection, commissionByProposta]);
 
   // Unique lists for filter dropdowns
   const vendedorasList = useMemo(() => Array.from(new Set(propostas.map(p => p.vendedora).filter(Boolean))), [propostas]);
@@ -272,30 +332,55 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
           </p>
         </div>
 
-        {/* Kanban vs Table Mode */}
-        <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl self-start sm:self-auto shadow-2xs">
-          <button
-            onClick={() => setViewMode('tabela')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-              viewMode === 'tabela'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-            }`}
-          >
-            <TableIcon className="w-3.5 h-3.5" />
-            <span>Tabela</span>
-          </button>
-          <button
-            onClick={() => setViewMode('kanban')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
-              viewMode === 'kanban'
-                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-            }`}
-          >
-            <Kanban className="w-3.5 h-3.5" />
-            <span>Kanban</span>
-          </button>
+        {/* Kanban vs Table Mode & Geovanne Buttons */}
+        <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+          {isGeovanne && (
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setIsImportModalOpen(true)}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-xs transition-all"
+              >
+                <UploadCloud className="w-3.5 h-3.5" />
+                <span>Importar</span>
+              </button>
+              <button
+                onClick={() => {
+                  if (confirm('Deseja realmente zerar apenas o funil de propostas? Esta ação não pode ser desfeita.')) {
+                    clearFunilData();
+                  }
+                }}
+                title="Zerar Funil"
+                className="p-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition-all flex items-center justify-center"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          <div className="flex p-1 bg-slate-100 dark:bg-slate-800 rounded-xl shadow-2xs">
+            <button
+              onClick={() => setViewMode('tabela')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                viewMode === 'tabela'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <TableIcon className="w-3.5 h-3.5" />
+              <span>Tabela</span>
+            </button>
+            <button
+              onClick={() => setViewMode('kanban')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                viewMode === 'kanban'
+                  ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-xs'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
+              }`}
+            >
+              <Kanban className="w-3.5 h-3.5" />
+              <span>Kanban</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -337,7 +422,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
         </div>
 
         {/* Secondary Clean Filter Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs">
+        <div className={`grid grid-cols-2 sm:grid-cols-3 ${canViewRepasse ? 'lg:grid-cols-7' : 'lg:grid-cols-6'} gap-2 text-xs`}>
           {/* Vendedora Filter */}
           <select
             value={filterVendedora}
@@ -409,6 +494,19 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
             <option value="sim">Taxa: Paga (Sim)</option>
             <option value="nao">Taxa: Pendente (Não)</option>
           </select>
+
+          {/* Repasse Filter (Apenas ADMs, Gerência e Financeiro) */}
+          {canViewRepasse && (
+            <select
+              value={filterRepasse}
+              onChange={(e) => setFilterRepasse(e.target.value as any)}
+              className="px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 text-teal-800 dark:text-teal-300 font-bold focus:outline-none focus:ring-1 focus:ring-teal-500"
+            >
+              <option value="todos">Repasse: Todos</option>
+              <option value="sim">Repasse: Recebido (Sim)</option>
+              <option value="nao">Repasse: Não Recebido (Não)</option>
+            </select>
+          )}
         </div>
 
         {/* Aggregate Stats Bar */}
@@ -419,7 +517,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
               {filteredPropostas.length > filteredPropostas.filter(p => p.status === 'Paga').length && 
                 ` (${filteredPropostas.length} no total)`}
             </span>
-            {(filterVendedora !== 'todas' || filterOperacao !== 'todas' || filterBanco !== 'todos' || filterPromotora !== 'todas' || filterStatus !== 'todos' || filterTaxaPaga !== 'todas' || searchTerm) && (
+            {(filterVendedora !== 'todas' || filterOperacao !== 'todas' || filterBanco !== 'todos' || filterPromotora !== 'todas' || filterStatus !== 'todos' || filterTaxaPaga !== 'todas' || (canViewRepasse && filterRepasse !== 'todos') || searchTerm) && (
               <button
                 onClick={() => {
                   setFilterVendedora('todas');
@@ -428,6 +526,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                   setFilterPromotora('todas');
                   setFilterStatus('todos');
                   setFilterTaxaPaga('todas');
+                  setFilterRepasse('todos');
                   setSearchTerm('');
                 }}
                 className="text-[11px] font-bold text-teal-600 hover:text-teal-700 underline"
@@ -684,12 +783,23 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                     <span>Status</span>
                     {renderSortIcon('status')}
                   </th>
+
+                  {/* Repasse (Apenas ADMs, Gerência e Financeiro) */}
+                  {canViewRepasse && (
+                    <th
+                      onClick={() => toggleSort('repasse')}
+                      className="py-2.5 px-3 text-right cursor-pointer hover:text-slate-700 dark:hover:text-slate-200"
+                    >
+                      <span>Repasse</span>
+                      {renderSortIcon('repasse')}
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
                 {sortedPropostas.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="py-12 text-center text-slate-400">
+                    <td colSpan={canViewRepasse ? 13 : 12} className="py-12 text-center text-slate-400">
                       Nenhuma proposta encontrada com os filtros selecionados.
                     </td>
                   </tr>
@@ -697,6 +807,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                   sortedPropostas.map((prop) => {
                     const isTaxPaid = prop.taxaPaga === true || prop.clientePagouTaxa === true;
                     const pctTax = Number(prop.percentualTaxa || 0).toFixed(2);
+                    const repasseVal = getRepasseValue(prop);
 
                     return (
                       <tr
@@ -796,6 +907,26 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                             {prop.status}
                           </span>
                         </td>
+
+                        {/* Repasse (Apenas ADMs, Gerência e Financeiro) */}
+                        {canViewRepasse && (
+                          <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                            {repasseVal > 0 ? (
+                              <div>
+                                <span className="font-extrabold text-teal-700 dark:text-teal-400 tabular-nums">
+                                  {formatCurrency(repasseVal)}
+                                </span>
+                                <span className="block text-[9px] text-emerald-600 dark:text-emerald-400 font-bold">
+                                  Recebido (Sim)
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                Não Recebido
+                              </span>
+                            )}
+                          </td>
+                        )}
                       </tr>
                     );
                   })
@@ -811,6 +942,167 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
         proposta={selectedProposta}
         onClose={() => setSelectedProposta(null)}
       />
+
+      {/* Import Modal */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-xl w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
+                <UploadCloud className="w-5 h-5 text-teal-600" />
+                <span>Importar Planilha de Contratos (sem limite de linhas)</span>
+              </h2>
+              <button
+                onClick={() => setIsImportModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Você pode enviar seu arquivo Excel diretamente (<strong>.xlsx, .xls, .csv</strong>) ou colar os dados de milhares de linhas na caixa abaixo. Linhas duplicadas com mesmo CPF, Contrato, Valor e Data serão ignoradas.
+            </p>
+
+            {/* Direct File Selector */}
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/80 rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 text-center">
+              <label className="cursor-pointer flex flex-col items-center justify-center gap-1.5 py-2">
+                <FileSpreadsheet className="w-7 h-7 text-teal-600" />
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
+                  Clique aqui para selecionar seu arquivo Excel (.xlsx, .xls, .csv)
+                </span>
+                <span className="text-[10px] text-slate-400">Suporta arquivos grandes de mais de 2.000 linhas</span>
+                <input
+                  type="file"
+                  accept=".xlsx, .xls, .csv"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (evt) => {
+                      try {
+                        const data = evt.target?.result;
+                        const workbook = XLSX.read(data, { type: 'binary' });
+                        const firstSheet = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheet];
+                        const jsonRows: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+
+                        if (!jsonRows || jsonRows.length === 0) {
+                          setImportNotice('Nenhuma linha encontrada na planilha.');
+                          return;
+                        }
+
+                        const mappedRows = jsonRows.map((r: any) => {
+                          const keys = Object.keys(r);
+                          const getVal = (colNames: string[]) => {
+                            for (const name of colNames) {
+                              const match = keys.find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '').includes(name.toLowerCase()));
+                              if (match && r[match] !== undefined && r[match] !== null) return String(r[match]).trim();
+                            }
+                            return '';
+                          };
+
+                          return {
+                            cpf: getVal(['cpf', 'documento']),
+                            nomeCliente: getVal(['nome', 'cliente']) || 'Cliente',
+                            telefone: getVal(['fone', 'tel', 'whatsapp', 'celular']),
+                            valorEmprestimo: getVal(['emprestimo', 'valor', 'bruto', 'liberado']),
+                            valorTaxa: getVal(['taxa', 'comissao']),
+                            percentualTaxa: getVal(['percentual', 'pct']),
+                            banco: getVal(['banco']),
+                            operacao: getVal(['operacao', 'tipo']),
+                            promotora: getVal(['promotora']),
+                            status: getVal(['status', 'situacao']),
+                            vendedora: getVal(['vendedora', 'vendedor', 'consultor']),
+                            numeroContrato: getVal(['contrato', 'numero', 'proposta'])
+                          };
+                        });
+
+                        const res = importFullSpreadsheetRows(mappedRows);
+                        setImportNotice(`Sucesso! ${res.totalRows} linhas lidas do arquivo. ${res.clientsCreated} clientes e ${res.proposalsCreated} propostas processadas.`);
+                      } catch (err: any) {
+                        setImportNotice(`Erro ao ler arquivo Excel: ${err.message}`);
+                      }
+                    };
+                    reader.readAsBinaryString(file);
+                  }}
+                />
+              </label>
+            </div>
+
+            <div className="relative">
+              <span className="text-[11px] font-bold text-slate-500 block mb-1">
+                Ou cole o texto da planilha abaixo (sem limite de linhas):
+              </span>
+              <textarea
+                rows={8}
+                value={importText}
+                onChange={(e) => setImportText(e.target.value)}
+                placeholder="CPF, Nome, Telefone, Valor Empréstimo, Valor Taxa, Banco, Operação, Promotora, Status, Vendedora, Contrato..."
+                className="w-full p-3 text-xs font-mono rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+            </div>
+
+            {importNotice && (
+              <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/80 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 text-xs font-bold leading-relaxed">
+                {importNotice}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => setIsImportModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+              >
+                Fechar
+              </button>
+              <button
+                onClick={() => {
+                  try {
+                    const lines = importText.split('\n').filter(l => l.trim());
+                    if (lines.length === 0) {
+                      setImportNotice('Cole pelo menos 1 linha ou selecione um arquivo Excel acima.');
+                      return;
+                    }
+
+                    const rows = lines.map(line => {
+                      const cols = line.includes('\t') ? line.split('\t') : line.split(',');
+                      return {
+                        cpf: cols[0]?.trim() || '',
+                        nomeCliente: cols[1]?.trim() || cols[0]?.trim() || 'Cliente',
+                        telefone: cols[2]?.trim() || '',
+                        valorEmprestimo: cols[3]?.trim() || '0',
+                        valorTaxa: cols[4]?.trim() || '0',
+                        percentualTaxa: cols[5]?.trim() || '0',
+                        banco: cols[6]?.trim() || 'Daycoval',
+                        operacao: cols[7]?.trim() || 'Margem',
+                        promotora: cols[8]?.trim() || 'J2 Promotora',
+                        status: cols[9]?.trim() || 'Paga',
+                        vendedora: cols[10]?.trim() || currentUser?.name || 'Hellen Vasconcelos',
+                        numeroContrato: cols[11]?.trim() || `CONT-${Math.floor(1000 + Math.random() * 9000)}`
+                      };
+                    });
+
+                    const res = importFullSpreadsheetRows(rows);
+                    setImportNotice(`Importação de ${rows.length} linhas concluída: ${res.clientsCreated} clientes e ${res.proposalsCreated} propostas salvas.`);
+                    setTimeout(() => {
+                      setIsImportModalOpen(false);
+                      setImportNotice(null);
+                      setImportText('');
+                    }, 3000);
+                  } catch (err: any) {
+                    setImportNotice(`Erro ao processar dados: ${err.message}`);
+                  }
+                }}
+                className="px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-md active:scale-95 transition-all"
+              >
+                Processar {importText.split('\n').filter(l => l.trim()).length} Linhas
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

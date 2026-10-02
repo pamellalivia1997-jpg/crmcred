@@ -7,16 +7,28 @@ import {
   History,
   AlertCircle,
   RefreshCw,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Trash2
 } from 'lucide-react';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency, formatDate, formatCPF } from '../../utils/formatters';
 import { Proposta } from '../../types';
 import { processControladoriaGoogleSheets, executeControladoriaSyncWithBackup } from '../../services/controladoriaSyncService';
+import { SmartFilter } from '../common/SmartFilter';
 
 export const FinanceiroView: React.FC = () => {
-  const { propostas, comissoesPromotoras, saveComissaoPromotora, saveComissaoPromotoraBatch } = useCRM();
+  const {
+    propostas,
+    comissoesPromotoras,
+    saveComissaoPromotora,
+    saveComissaoPromotoraBatch,
+    clearControladoriaData,
+    dataInicioPersonalizada,
+    setDataInicioPersonalizada,
+    dataFimPersonalizada,
+    setDataFimPersonalizada
+  } = useCRM();
   const { currentUser, canAccessFinancial } = useAuth();
 
   const [activeTab, setActiveTab] = useState<'pendentes' | 'conciliados'>('pendentes');
@@ -28,29 +40,40 @@ export const FinanceiroView: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [filterPromotora, setFilterPromotora] = useState('todas');
 
-  const hasFinancialAccess = canAccessFinancial();
-  const isAllowedSyncUser = currentUser?.email && currentUser.email.toLowerCase().trim() === atob('Z2VvdmFubmUuYXJjZWxpbm9AZ21haWwuY29t');
+  // Column specific filters for Pendentes
+  const [filterPendContrato, setFilterPendContrato] = useState('');
+  const [filterPendCliente, setFilterPendCliente] = useState('');
+  const [filterPendPromotora, setFilterPendPromotora] = useState('todas');
+  const [filterPendBanco, setFilterPendBanco] = useState('todos');
+  const [filterPendOperacao, setFilterPendOperacao] = useState('todas');
 
-  // Set of proposal IDs with confirmed commission repasse
+  const hasFinancialAccess = canAccessFinancial();
+  const isAllowedSyncUser = Boolean(
+    currentUser &&
+    currentUser.name.toLowerCase().includes('geovanne') &&
+    currentUser.role === 'financeiro'
+  );
+
+  // Set of proposal IDs with confirmed commission repasse (strictly linked by propostaId)
   const confirmedPropostaIds = useMemo(() => {
     const setIds = new Set<string>();
     comissoesPromotoras
-      .filter(c => c.status === 'confirmada' && c.valorRecebido > 0)
+      .filter(c => c.status === 'confirmada' && c.valorRecebido > 0 && c.propostaId)
       .forEach(c => {
-        if (c.propostaId) setIds.add(c.propostaId);
-        if (c.numeroContrato) setIds.add(c.numeroContrato.trim().toLowerCase());
+        setIds.add(c.propostaId);
       });
     return setIds;
   }, [comissoesPromotoras]);
+
+  const bancosList = useMemo(() => Array.from(new Set(propostas.map(p => p.banco).filter(Boolean))), [propostas]);
+  const operacoesList = useMemo(() => Array.from(new Set(propostas.map(p => p.operacao).filter(Boolean))), [propostas]);
 
   // Contratos EXCLUSIVAMENTE SEM repasse de comissão da promotora, excluindo Assessoria
   const contratosPendentesRepasse = useMemo(() => {
     return propostas
       .filter(p => p.status === 'Paga')
       .filter(p => {
-        const hasCommission =
-          confirmedPropostaIds.has(p.id) ||
-          (p.numeroContrato && confirmedPropostaIds.has(p.numeroContrato.trim().toLowerCase()));
+        const hasCommission = confirmedPropostaIds.has(p.id);
         return !hasCommission;
       })
       .filter(p => {
@@ -58,6 +81,11 @@ export const FinanceiroView: React.FC = () => {
         return promUpper !== 'ASSESSORIA' && !promUpper.includes('ASSESSORIA');
       })
       .filter(p => {
+        // Period filter
+        const pDate = p.dataPagamentoCliente || p.dataDigitacao || '';
+        if (dataInicioPersonalizada && pDate && pDate < dataInicioPersonalizada) return false;
+        if (dataFimPersonalizada && pDate && pDate > dataFimPersonalizada) return false;
+
         const term = searchTerm.toLowerCase().trim();
         const cleanTerm = term.replace(/\D/g, '');
         const matchSearch =
@@ -69,14 +97,20 @@ export const FinanceiroView: React.FC = () => {
           (cleanTerm && p.cpf.replace(/\D/g, '').includes(cleanTerm));
 
         const matchPromotora = filterPromotora === 'todas' || p.promotora === filterPromotora;
-        return matchSearch && matchPromotora;
+        const matchPendPromotora = filterPendPromotora === 'todas' || p.promotora === filterPendPromotora;
+        const matchPendBanco = filterPendBanco === 'todos' || p.banco === filterPendBanco;
+        const matchPendOperacao = filterPendOperacao === 'todas' || p.operacao === filterPendOperacao;
+        const matchPendContrato = !filterPendContrato || p.numeroContrato.toLowerCase().includes(filterPendContrato.toLowerCase());
+        const matchPendCliente = !filterPendCliente || p.nomeCliente.toLowerCase().includes(filterPendCliente.toLowerCase()) || p.cpf.includes(filterPendCliente.replace(/\D/g, ''));
+
+        return matchSearch && matchPromotora && matchPendPromotora && matchPendBanco && matchPendOperacao && matchPendContrato && matchPendCliente;
       })
       .sort((a, b) => {
         const dateA = a.dataPagamentoCliente || a.dataDigitacao || '';
         const dateB = b.dataPagamentoCliente || b.dataDigitacao || '';
         return dateB.localeCompare(dateA);
       });
-  }, [propostas, confirmedPropostaIds, searchTerm, filterPromotora]);
+  }, [propostas, confirmedPropostaIds, searchTerm, filterPromotora, filterPendPromotora, filterPendBanco, filterPendOperacao, filterPendContrato, filterPendCliente, dataInicioPersonalizada, dataFimPersonalizada]);
 
   // Histórico de Repasses Conciliados
   const repassesConciliados = useMemo(() => {
@@ -163,20 +197,31 @@ export const FinanceiroView: React.FC = () => {
             <span>Controladoria</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Sincronização automatizada de extratos e conciliação de repasses via Google Sheets
+            Sincronização de extratos e conciliação de repasses
           </p>
         </div>
 
-        {/* Action Button: Automated Google Sheets Sync (Restricted) */}
+        {/* Action Button: Automated Google Sheets Sync & Zerar Controladoria (Restricted) */}
         {isAllowedSyncUser && (
           <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={handleGoogleSheetsSync}
               disabled={isSyncing}
-              className="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold shadow-sm transition-all active:scale-95 flex items-center gap-2"
+              title="Sincronizar Extratos Google Sheets"
+              className="p-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white shadow-sm transition-all active:scale-95 flex items-center justify-center"
             >
               <RefreshCw className={`w-4 h-4 text-emerald-200 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span>{isSyncing ? 'Sincronizando Planilha...' : 'Sincronizar Extratos Google Sheets'}</span>
+            </button>
+            <button
+              onClick={() => {
+                if (confirm('Deseja realmente zerar apenas a controladoria (repasses e comissões)? Esta ação não pode ser desfeita.')) {
+                  clearControladoriaData();
+                }
+              }}
+              title="Zerar Controladoria"
+              className="p-2.5 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white shadow-sm transition-all active:scale-95 flex items-center justify-center"
+            >
+              <Trash2 className="w-4 h-4 text-rose-200" />
             </button>
           </div>
         )}
@@ -225,7 +270,7 @@ export const FinanceiroView: React.FC = () => {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
           <span className="text-xs font-semibold text-slate-500">Contratos Aguardando Repasse</span>
           <p className="text-2xl font-black text-amber-600 dark:text-amber-400 tabular-nums mt-0.5">
@@ -245,40 +290,30 @@ export const FinanceiroView: React.FC = () => {
             Total de {comissoesPromotoras.length} contratos baixados
           </p>
         </div>
-
-        <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex items-center justify-between">
-          <div>
-            <span className="text-xs font-semibold text-slate-500">Integração Google Sheets</span>
-            <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-1">
-              Abas: J2, Sempre, DG, GFT
-            </p>
-            <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-0.5">
-              Cruzamento automático por contrato, CPF e fallbacks
-            </p>
-          </div>
-          {isAllowedSyncUser && (
-            <button
-              onClick={handleGoogleSheetsSync}
-              disabled={isSyncing}
-              className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 transition-colors shrink-0 disabled:opacity-50"
-              title="Sincronizar Planilha"
-            >
-              <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
-            </button>
-          )}
-        </div>
       </div>
 
-      {/* Filter Bar */}
-      <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-2.5">
-        <div className="relative w-full sm:w-80">
+      {/* Filter Bar with Period Filter & Promotora */}
+      <div className="bg-white dark:bg-slate-900 p-3.5 sm:p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col lg:flex-row items-center justify-between gap-3">
+        <div className="relative w-full sm:w-72">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
           <input
             type="text"
-            placeholder="Buscar por cliente, CPF, contrato ou promotora..."
+            placeholder="Buscar por cliente, CPF, contrato..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 font-medium"
+          />
+        </div>
+
+        {/* Period Selector */}
+        <div className="flex-1 w-full max-w-xl">
+          <SmartFilter
+            dataInicio={dataInicioPersonalizada}
+            dataFim={dataFimPersonalizada}
+            onChangeRange={(range) => {
+              setDataInicioPersonalizada(range.dataInicio);
+              setDataFimPersonalizada(range.dataFim);
+            }}
           />
         </div>
 
@@ -312,6 +347,54 @@ export const FinanceiroView: React.FC = () => {
             <span className="text-xs font-extrabold px-3 py-1 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200 self-start sm:self-auto">
               {contratosPendentesRepasse.length} Pendências
             </span>
+          </div>
+
+          {/* Column Filters Bar for Pendentes */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 text-xs pt-1 pb-2 border-b border-slate-100 dark:border-slate-800">
+            <input
+              type="text"
+              placeholder="Filtrar Contrato..."
+              value={filterPendContrato}
+              onChange={(e) => setFilterPendContrato(e.target.value)}
+              className="px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+            <input
+              type="text"
+              placeholder="Filtrar Cliente / CPF..."
+              value={filterPendCliente}
+              onChange={(e) => setFilterPendCliente(e.target.value)}
+              className="px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            />
+            <select
+              value={filterPendPromotora}
+              onChange={(e) => setFilterPendPromotora(e.target.value)}
+              className="px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            >
+              <option value="todas">Promotora: Todas</option>
+              {promotorasList.map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+            <select
+              value={filterPendBanco}
+              onChange={(e) => setFilterPendBanco(e.target.value)}
+              className="px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            >
+              <option value="todos">Banco: Todos</option>
+              {bancosList.map(b => (
+                <option key={b} value={b}>{b}</option>
+              ))}
+            </select>
+            <select
+              value={filterPendOperacao}
+              onChange={(e) => setFilterPendOperacao(e.target.value)}
+              className="px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            >
+              <option value="todos">Operação: Todas</option>
+              {operacoesList.map(op => (
+                <option key={op} value={op}>{op}</option>
+              ))}
+            </select>
           </div>
 
           <div className="overflow-x-auto">
