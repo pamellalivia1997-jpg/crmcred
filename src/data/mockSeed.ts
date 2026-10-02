@@ -1,3 +1,4 @@
+import { CONTROLADORIA_SEED } from './controladoriaSeed';
 import {
   User,
   Cliente,
@@ -14,7 +15,6 @@ import {
   Convenio,
   StatusProposta
 } from '../types';
-import { SPREADSHEET_COMMISSIONS_SEED } from './controladoriaSeed.ts';
 
 export const INITIAL_USERS: User[] = [
   {
@@ -185,7 +185,7 @@ function generateCPF(i: number): string {
 export function generateSeedData() {
   const clientes: Cliente[] = [];
   const propostas: Proposta[] = [];
-  const comissoesPromotoras: ComissaoPromotora[] = [...SPREADSHEET_COMMISSIONS_SEED];
+  const comissoesPromotoras: ComissaoPromotora[] = [];
   const alertas: AlertaOportunidade[] = [];
   const auditLogs: AuditLog[] = [];
 
