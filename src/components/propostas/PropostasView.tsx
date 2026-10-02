@@ -54,29 +54,73 @@ type SortField =
   | 'taxaPaga'
   | 'repasse';
 
-// Helper function to dynamically map spreadsheet text or Google Forms TSV/CSV rows
-function parseTextToSpreadsheetInputRows(rawText: string, defaultUser: string): any[] {
-  const lines = rawText.split('\n').filter(l => l.trim());
-  if (lines.length === 0) return [];
+// Robust TSV/CSV text parser that handles multiline quoted fields
+function parseSpreadsheetRawText(rawText: string): string[][] {
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentField = '';
+  let inQuotes = false;
 
-  const allRows = lines.map(line => {
-    return line.includes('\t')
-      ? line.split('\t').map(c => c.trim().replace(/^"|"$/g, ''))
-      : line.split(',').map(c => c.trim().replace(/^"|"$/g, ''));
-  });
+  const isTab = rawText.includes('\t');
+  const delimiter = isTab ? '\t' : ',';
 
-  const firstLineText = lines[0].toLowerCase();
+  for (let i = 0; i < rawText.length; i++) {
+    const char = rawText[i];
+    const nextChar = rawText[i + 1];
+
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        currentField += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === delimiter && !inQuotes) {
+      currentRow.push(currentField.trim());
+      currentField = '';
+    } else if ((char === '\r' || char === '\n') && !inQuotes) {
+      if (char === '\r' && nextChar === '\n') {
+        i++;
+      }
+      currentRow.push(currentField.trim());
+      if (currentRow.some(cell => cell.length > 0)) {
+        rows.push(currentRow);
+      }
+      currentRow = [];
+      currentField = '';
+    } else {
+      currentField += char;
+    }
+  }
+
+  if (currentField.length > 0 || currentRow.length > 0) {
+    currentRow.push(currentField.trim());
+    if (currentRow.some(cell => cell.length > 0)) {
+      rows.push(currentRow);
+    }
+  }
+
+  return rows;
+}
+
+// Dynamic header and value column detector
+function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: string): any[] {
+  if (!allRows || allRows.length === 0) return [];
+
+  const firstLineStr = allRows[0].join(' ').toLowerCase();
   let headerRow: string[] | null = null;
   let dataRowsIndex = 0;
 
   if (
-    firstLineText.includes('cpf') ||
-    firstLineText.includes('nome') ||
-    firstLineText.includes('cliente') ||
-    firstLineText.includes('carimbo') ||
-    firstLineText.includes('vendedor')
+    firstLineStr.includes('cpf') ||
+    firstLineStr.includes('nome') ||
+    firstLineStr.includes('cliente') ||
+    firstLineStr.includes('carimbo') ||
+    firstLineStr.includes('vendedor') ||
+    firstLineStr.includes('contrato') ||
+    firstLineStr.includes('banco')
   ) {
-    headerRow = allRows[0].map(h => h.toLowerCase().trim());
+    headerRow = allRows[0].map(h => String(h || '').toLowerCase().trim());
     dataRowsIndex = 1;
   }
 
@@ -100,100 +144,116 @@ function parseTextToSpreadsheetInputRows(rawText: string, defaultUser: string): 
 
   if (headerRow) {
     headerRow.forEach((h, idx) => {
-      const cleanH = h.replace(/[^a-z0-9]/g, '');
-      if (cleanH.includes('cpf')) colCpf = idx;
-      else if (cleanH.includes('nome') || cleanH.includes('cliente')) { if (colNome < 0) colNome = idx; }
-      else if (cleanH.includes('telefone') || cleanH.includes('fone') || cleanH.includes('celular')) colTel = idx;
-      else if (cleanH.includes('digitacao') || cleanH.includes('datadadigitacao')) colDataDig = idx;
-      else if (cleanH.includes('pagamento') || cleanH.includes('datadopagamento')) colDataPag = idx;
-      else if (cleanH.includes('convenio') || cleanH.includes('conven')) colConvenio = idx;
-      else if (cleanH.includes('operacao') || cleanH.includes('operac')) colOperacao = idx;
-      else if (cleanH.includes('banco')) colBanco = idx;
-      else if (cleanH.includes('promotora')) colPromotora = idx;
-      else if (cleanH.includes('valor') || cleanH.includes('emprestimo') || cleanH.includes('liberado')) {
-        if (cleanH.includes('taxa') || cleanH.includes('assessoria')) colValorTaxa = idx;
-        else if (colValorEmp < 0) colValorEmp = idx;
+      const cleanH = h.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
+
+      if (cleanH.includes('cpf') || cleanH.includes('documento')) {
+        colCpf = idx;
+      } else if ((cleanH.includes('nome') || cleanH.includes('cliente')) && !cleanH.includes('pagou') && !cleanH.includes('cpf')) {
+        if (colNome < 0) colNome = idx;
+      } else if (cleanH.includes('telefone') || cleanH.includes('fone') || cleanH.includes('celular') || cleanH.includes('whatsapp')) {
+        colTel = idx;
+      } else if (cleanH.includes('digitacao') || cleanH.includes('datadadigitacao')) {
+        colDataDig = idx;
+      } else if (cleanH.includes('pagamento') || cleanH.includes('datadopagamento') || cleanH.includes('pgto')) {
+        colDataPag = idx;
+      } else if (cleanH.includes('convenio') || cleanH.includes('conven')) {
+        colConvenio = idx;
+      } else if (cleanH.includes('operacao') || cleanH.includes('operac') || cleanH.includes('formadevenda')) {
+        colOperacao = idx;
+      } else if (cleanH.includes('banco')) {
+        colBanco = idx;
+      } else if (cleanH.includes('promotora')) {
+        colPromotora = idx;
+      } else if (
+        (cleanH.includes('emprestimo') || cleanH.includes('liberado') || cleanH.includes('bruto') || cleanH.includes('valor')) &&
+        !cleanH.includes('taxa') && !cleanH.includes('assessoria') && !cleanH.includes('comissao')
+      ) {
+        if (colValorEmp < 0) colValorEmp = idx;
+      } else if (cleanH.includes('valordataxa') || cleanH.includes('taxadaassessoria') || (cleanH.includes('taxa') && !cleanH.includes('cartao') && !cleanH.includes('pagou')) || cleanH.includes('assessoria')) {
+        if (colValorTaxa < 0) colValorTaxa = idx;
+      } else if (cleanH.includes('clientepagou') || cleanH.includes('pagou')) {
+        colClientePagou = idx;
+      } else if (cleanH.includes('vendedor') || cleanH.includes('vendedora') || cleanH.includes('consultor')) {
+        colVendedora = idx;
+      } else if (cleanH.includes('digitador')) {
+        colDigitador = idx;
+      } else if (cleanH.includes('contrato') || cleanH.includes('ndocontrato') || cleanH.includes('proposta') || cleanH.includes('numero')) {
+        colContrato = idx;
+      } else if (cleanH.includes('anexar') || cleanH.includes('capa') || cleanH.includes('print') || cleanH.includes('link') || cleanH.includes('drive')) {
+        colLink = idx;
+      } else if (cleanH.includes('status') || cleanH.includes('situacao')) {
+        colStatus = idx;
       }
-      else if (cleanH.includes('taxa') || cleanH.includes('assessoria')) colValorTaxa = idx;
-      else if (cleanH.includes('pagou')) colClientePagou = idx;
-      else if (cleanH.includes('vendedor') || cleanH.includes('vendedora')) colVendedora = idx;
-      else if (cleanH.includes('digitador')) colDigitador = idx;
-      else if (cleanH.includes('contrato') || cleanH.includes('numero') || cleanH.includes('proposta')) colContrato = idx;
-      else if (cleanH.includes('anexar') || cleanH.includes('capa') || cleanH.includes('print') || cleanH.includes('link')) colLink = idx;
-      else if (cleanH.includes('status') || cleanH.includes('situacao')) colStatus = idx;
     });
   }
 
+  // Value-based fallback scanner if columns remain unmapped
   const sampleDataRow = allRows[dataRowsIndex] || [];
+  sampleDataRow.forEach((valCell, cIdx) => {
+    const val = String(valCell || '').trim();
+    if (!val) return;
+    const cleanDigits = val.replace(/\D/g, '');
 
-  // Fallbacks if header wasn't detected or columns missing
-  if (colCpf < 0) {
-    const col3Clean = (sampleDataRow[3] || '').replace(/\D/g, '');
-    if (col3Clean.length >= 10 && col3Clean.length <= 11) {
-      colCpf = 3;
-      if (colNome < 0) colNome = 4;
-      if (colTel < 0) colTel = 5;
-      if (colDataDig < 0) colDataDig = 6;
-      if (colDataPag < 0) colDataPag = 7;
-      if (colConvenio < 0) colConvenio = 8;
-      if (colOperacao < 0) colOperacao = 9;
-      if (colBanco < 0) colBanco = 10;
-      if (colPromotora < 0) colPromotora = 11;
-      if (colValorEmp < 0) colValorEmp = 12;
-      if (colValorTaxa < 0) colValorTaxa = 13;
-      if (colClientePagou < 0) colClientePagou = 14;
-      if (colVendedora < 0) colVendedora = 16;
-      if (colDigitador < 0) colDigitador = 17;
-      if (colContrato < 0) colContrato = 18;
-      if (colLink < 0) colLink = 19;
-      if (colStatus < 0) colStatus = 20;
-    } else {
-      colCpf = 0;
-      if (colNome < 0) colNome = 1;
-      if (colTel < 0) colTel = 2;
-      if (colValorEmp < 0) colValorEmp = 3;
-      if (colValorTaxa < 0) colValorTaxa = 4;
-      if (colBanco < 0) colBanco = 6;
-      if (colOperacao < 0) colOperacao = 7;
-      if (colPromotora < 0) colPromotora = 8;
-      if (colStatus < 0) colStatus = 9;
-      if (colVendedora < 0) colVendedora = 10;
-      if (colContrato < 0) colContrato = 11;
+    if (colCpf < 0 && (cleanDigits.length === 11 || /^\d{3}\.\d{3}\.\d{3}-\d{2}$/.test(val))) {
+      colCpf = cIdx;
+    } else if (colLink < 0 && val.toLowerCase().includes('http')) {
+      colLink = cIdx;
+    } else if (colDataDig < 0 && /^\d{2}\/\d{2}\/\d{4}$/.test(val)) {
+      colDataDig = cIdx;
+    } else if (colDataPag < 0 && /^\d{2}\/\d{2}\/\d{4}$/.test(val) && cIdx !== colDataDig) {
+      colDataPag = cIdx;
+    } else if (colConvenio < 0 && /INSS|FGTS|CARTÃO|CREDITO|GOVERNO|CAIXA/i.test(val)) {
+      colConvenio = cIdx;
+    } else if (colOperacao < 0 && /MARGEM|REFIN|PORTABILIDADE|Assessoria|SAQUE/i.test(val)) {
+      colOperacao = cIdx;
+    } else if (colBanco < 0 && /DAYCOVAL|C6|PAN|CREFAZ|BMG|FACTA|BRB|AGIBANK|DIGIO|ICRED|INBURSA|ITAÚ|SAFRA/i.test(val)) {
+      colBanco = cIdx;
+    } else if (colPromotora < 0 && /J2 PROMOTORA|SEMPRE PROMOTORA|GFT|DG PROMOTORA/i.test(val)) {
+      colPromotora = cIdx;
+    } else if (colStatus < 0 && /PAGO|PAGA|EM ANÁLISE|EM ANALISE|CANCELADA|SIMULADAS/i.test(val)) {
+      colStatus = cIdx;
+    } else if (colTel < 0 && /^\(?\d{2}\)?\s?\d{4,5}-?\d{4}$/.test(val) && cIdx !== colCpf) {
+      colTel = cIdx;
     }
-  }
+  });
 
   const resultRows = [];
   for (let i = dataRowsIndex; i < allRows.length; i++) {
     const cols = allRows[i];
     if (!cols || cols.length < 2) continue;
 
-    const cpfVal = cols[colCpf] || '';
-    const nomeVal = cols[colNome] || '';
+    const cpfVal = colCpf >= 0 ? String(cols[colCpf] || '').trim() : '';
+    const nomeVal = colNome >= 0 ? String(cols[colNome] || '').trim() : '';
 
     if (!cpfVal && !nomeVal) continue;
 
     resultRows.push({
-      cpf: cpfVal.trim(),
-      nomeCliente: nomeVal.trim() || 'Cliente',
-      telefone: colTel >= 0 ? cols[colTel]?.trim() || '' : '',
-      dataDigitacao: colDataDig >= 0 ? cols[colDataDig]?.trim() || '' : '',
-      dataPagamentoCliente: colDataPag >= 0 ? cols[colDataPag]?.trim() || '' : '',
-      convenio: colConvenio >= 0 ? cols[colConvenio]?.trim() || 'INSS' : 'INSS',
-      operacao: colOperacao >= 0 ? cols[colOperacao]?.trim() || 'Margem' : 'Margem',
-      banco: colBanco >= 0 ? cols[colBanco]?.trim() || 'Daycoval' : 'Daycoval',
-      promotora: colPromotora >= 0 ? cols[colPromotora]?.trim() || 'J2 Promotora' : 'J2 Promotora',
-      valorEmprestimo: colValorEmp >= 0 ? cols[colValorEmp]?.trim() || '0' : '0',
-      valorTaxa: colValorTaxa >= 0 ? cols[colValorTaxa]?.trim() || '0' : '0',
-      clientePagou: colClientePagou >= 0 ? cols[colClientePagou]?.trim() || 'NÃO' : 'NÃO',
-      vendedora: colVendedora >= 0 ? cols[colVendedora]?.trim() || defaultUser : defaultUser,
-      digitador: colDigitador >= 0 ? cols[colDigitador]?.trim() || defaultUser : defaultUser,
-      numeroContrato: colContrato >= 0 ? cols[colContrato]?.trim() || '' : '',
-      linkDocumento: colLink >= 0 ? cols[colLink]?.trim() || '' : '',
-      status: colStatus >= 0 ? cols[colStatus]?.trim() || 'PAGA' : 'PAGA'
+      cpf: cpfVal,
+      nomeCliente: nomeVal || 'Cliente',
+      telefone: colTel >= 0 ? String(cols[colTel] || '').trim() : '',
+      dataDigitacao: colDataDig >= 0 ? String(cols[colDataDig] || '').trim() : '',
+      dataPagamentoCliente: colDataPag >= 0 ? String(cols[colDataPag] || '').trim() : '',
+      convenio: colConvenio >= 0 ? String(cols[colConvenio] || '').trim() || 'INSS' : 'INSS',
+      operacao: colOperacao >= 0 ? String(cols[colOperacao] || '').trim() || 'Margem' : 'Margem',
+      banco: colBanco >= 0 ? String(cols[colBanco] || '').trim() || 'Daycoval' : 'Daycoval',
+      promotora: colPromotora >= 0 ? String(cols[colPromotora] || '').trim() || 'J2 Promotora' : 'J2 Promotora',
+      valorEmprestimo: colValorEmp >= 0 ? String(cols[colValorEmp] || '').trim() || '0' : '0',
+      valorTaxa: colValorTaxa >= 0 ? String(cols[colValorTaxa] || '').trim() || '0' : '0',
+      clientePagou: colClientePagou >= 0 ? String(cols[colClientePagou] || '').trim() || 'NÃO' : 'NÃO',
+      vendedora: colVendedora >= 0 ? String(cols[colVendedora] || '').trim() || defaultUser : defaultUser,
+      digitador: colDigitador >= 0 ? String(cols[colDigitador] || '').trim() || defaultUser : defaultUser,
+      numeroContrato: colContrato >= 0 ? String(cols[colContrato] || '').trim() : '',
+      linkDocumento: colLink >= 0 ? String(cols[colLink] || '').trim() : '',
+      status: colStatus >= 0 ? String(cols[colStatus] || '').trim() || 'PAGA' : 'PAGA'
     });
   }
 
   return resultRows;
+}
+
+function parseTextToSpreadsheetInputRows(rawText: string, defaultUser: string): any[] {
+  const allRows = parseSpreadsheetRawText(rawText);
+  return parseArrayRowsToSpreadsheetInputRows(allRows, defaultUser);
 }
 
 export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = null, initialSearchTerm = '' }) => {
@@ -486,12 +546,12 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                 <span>Importar</span>
               </button>
               <button
-                onClick={() => {
-                  if (confirm('Deseja realmente zerar apenas o funil de propostas? Esta ação não pode ser desfeita.')) {
-                    clearFunilData();
+                onClick={async () => {
+                  if (confirm('Deseja realmente zerar o funil, apagar todas as propostas e todos os clientes cadastrados? Esta ação não pode ser desfeita.')) {
+                    await clearFunilData();
                   }
                 }}
-                title="Zerar Funil"
+                title="Zerar Funil e Clientes"
                 className="p-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition-all flex items-center justify-center"
               >
                 <Trash2 className="w-4 h-4" />
@@ -1128,46 +1188,16 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                         const workbook = XLSX.read(data, { type: 'binary' });
                         const firstSheet = workbook.SheetNames[0];
                         const worksheet = workbook.Sheets[firstSheet];
-                        const jsonRows: any[] = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+                        const arrayRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
 
-                        if (!jsonRows || jsonRows.length === 0) {
+                        if (!arrayRows || arrayRows.length === 0) {
                           setImportNotice('Nenhuma linha encontrada na planilha.');
                           return;
                         }
 
-                        const mappedRows = jsonRows.map((r: any) => {
-                          const keys = Object.keys(r);
-                          const getVal = (keywords: string[]) => {
-                            for (const kw of keywords) {
-                              const match = keys.find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '').includes(kw.toLowerCase().replace(/[^a-z0-9]/g, '')));
-                              if (match && r[match] !== undefined && r[match] !== null) return String(r[match]).trim();
-                            }
-                            return '';
-                          };
-
-                          return {
-                            cpf: getVal(['cpf', 'documento']),
-                            nomeCliente: getVal(['nome', 'cliente']) || 'Cliente',
-                            telefone: getVal(['telefone', 'fone', 'tel', 'whatsapp', 'celular']),
-                            dataDigitacao: getVal(['digitacao', 'data da digitacao']),
-                            dataPagamentoCliente: getVal(['pagamento', 'data do pagamento']),
-                            convenio: getVal(['convenio', 'conven']),
-                            operacao: getVal(['operacao', 'operac']),
-                            banco: getVal(['banco']),
-                            promotora: getVal(['promotora']),
-                            valorEmprestimo: getVal(['emprestimo', 'liberado', 'bruto', 'valor do emprestimo']),
-                            valorTaxa: getVal(['taxa', 'assessoria', 'comissao']),
-                            clientePagou: getVal(['pagou', 'cliente pagou']),
-                            vendedora: getVal(['vendedor', 'vendedora', 'consultor']) || currentUser?.name || 'Hellen Vasconcelos',
-                            digitador: getVal(['digitador']) || currentUser?.name || 'Hellen Vasconcelos',
-                            numeroContrato: getVal(['contrato', 'numero', 'proposta']),
-                            linkDocumento: getVal(['anexar', 'capa', 'print', 'link']),
-                            status: getVal(['status', 'situacao']) || 'PAGO'
-                          };
-                        });
-
+                        const mappedRows = parseArrayRowsToSpreadsheetInputRows(arrayRows, currentUser?.name || 'Hellen Vasconcelos');
                         const res = importFullSpreadsheetRows(mappedRows);
-                        setImportNotice(`Sucesso! ${res.totalRows} linhas lidas do arquivo. ${res.clientsCreated} clientes e ${res.proposalsCreated} propostas salvas na nuvem.`);
+                        setImportNotice(`Importação concluída! ${res.totalRows - 1} linhas lidas do arquivo. ${res.clientsCreated + res.clientsUpdated} clientes localizados (${res.clientsCreated} novos criados) e ${res.proposalsCreated} propostas salvas no funil.`);
                       } catch (err: any) {
                         setImportNotice(`Erro ao ler arquivo Excel: ${err.message}`);
                       }
@@ -1214,7 +1244,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                     }
 
                     const res = importFullSpreadsheetRows(parsedRows);
-                    setImportNotice(`Importação concluída! ${parsedRows.length} linhas processadas. ${res.clientsCreated} clientes criados/atualizados e ${res.proposalsCreated} propostas inseridas.`);
+                    setImportNotice(`Importação concluída! ${parsedRows.length} linhas lidas. ${res.clientsCreated + res.clientsUpdated} clientes localizados (${res.clientsCreated} novos criados) e ${res.proposalsCreated} propostas salvas no funil.`);
                     setTimeout(() => {
                       setIsImportModalOpen(false);
                       setImportNotice(null);

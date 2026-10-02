@@ -123,14 +123,22 @@ function sanitizeStore(store: CRMDataStore): { sanitized: CRMDataStore; modified
 
 // Load store from LocalStorage fallback
 function loadStore(): CRMDataStore {
+  const isFunilCleared = typeof localStorage !== 'undefined' && localStorage.getItem('lviacred_funil_cleared_v1') === 'true';
+  const isControladoriaCleared = typeof localStorage !== 'undefined' && localStorage.getItem('lviacred_controladoria_cleared_v1') === 'true';
+
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      const { sanitized, modified } = sanitizeStore(parsed);
-      if (modified) {
-        saveLocalStore(sanitized);
+      if (isFunilCleared) {
+        parsed.propostas = [];
+        parsed.clientes = [];
       }
+      if (isControladoriaCleared) {
+        parsed.comissoesPromotoras = [];
+      }
+      const { sanitized, modified } = sanitizeStore(parsed);
+      saveLocalStore(sanitized);
       return sanitized;
     }
   } catch (e) {
@@ -138,6 +146,13 @@ function loadStore(): CRMDataStore {
   }
 
   const seed = generateSeedData();
+  if (isFunilCleared) {
+    seed.propostas = [];
+    seed.clientes = [];
+  }
+  if (isControladoriaCleared) {
+    seed.comissoesPromotoras = [];
+  }
   saveLocalStore(seed);
   return seed;
 }
@@ -496,27 +511,44 @@ export const crmStorage = {
   },
 
   async clearFunilData(): Promise<void> {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('lviacred_funil_cleared_v1', 'true');
+    }
     currentStore = {
       ...currentStore,
-      propostas: []
+      propostas: [],
+      clientes: []
     };
     saveLocalStore(currentStore);
     notifySubscribers();
     try {
-      const querySnap = await getDocs(collection(db, 'propostas'));
-      const docs = querySnap.docs;
-      for (let i = 0; i < docs.length; i += 400) {
+      // Clear propostas collection
+      const propSnap = await getDocs(collection(db, 'propostas'));
+      const propDocs = propSnap.docs;
+      for (let i = 0; i < propDocs.length; i += 400) {
         const batch = writeBatch(db);
-        docs.slice(i, i + 400).forEach(docSnap => batch.delete(docSnap.ref));
+        propDocs.slice(i, i + 400).forEach(docSnap => batch.delete(docSnap.ref));
+        await batch.commit();
+      }
+
+      // Clear clientes collection
+      const cliSnap = await getDocs(collection(db, 'clientes'));
+      const cliDocs = cliSnap.docs;
+      for (let i = 0; i < cliDocs.length; i += 400) {
+        const batch = writeBatch(db);
+        cliDocs.slice(i, i + 400).forEach(docSnap => batch.delete(docSnap.ref));
         await batch.commit();
       }
     } catch (e) {
-      console.warn('Erro ao limpar propostas do Firestore:', e);
+      console.warn('Erro ao limpar propostas e clientes do Firestore:', e);
     }
     notifySubscribers();
   },
 
   async clearControladoriaData(): Promise<void> {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('lviacred_controladoria_cleared_v1', 'true');
+    }
     currentStore = {
       ...currentStore,
       comissoesPromotoras: []
@@ -632,6 +664,11 @@ export const crmStorage = {
     commissionsCreated: number;
     cpfsCorrectedCount: number;
   } {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('lviacred_funil_cleared_v1');
+      localStorage.removeItem('lviacred_controladoria_cleared_v1');
+    }
+
     let clientsCreated = 0;
     let clientsUpdated = 0;
     let proposalsCreated = 0;
