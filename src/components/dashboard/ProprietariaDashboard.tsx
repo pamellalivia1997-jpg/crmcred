@@ -1,15 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
-  Award,
-  FileSpreadsheet,
-  Calculator,
-  ChevronDown,
-  Settings,
-  Sliders,
   TrendingUp,
   DollarSign,
   Receipt,
   Users,
+  Award,
   Share2,
   Calendar,
   Percent,
@@ -22,31 +17,35 @@ import {
   PieChart as PieChartIcon,
   Copy,
   Check,
-  X
+  X,
+  FileSpreadsheet,
+  Calculator,
+  ChevronDown,
+  Settings,
+  Sliders
 } from 'lucide-react';
-import { BackupButton } from '../common/BackupButton';
-import { SystemHealthIndicator } from '../common/SystemHealthIndicator';
-import { SmartFilter } from '../common/SmartFilter';
-import { useCRM } from '../../context/CRMContext';
-import { useAuth } from '../../context/AuthContext';
-import { formatCurrency, formatPercent, formatDate, normalizeSellerName, getMonthYearLabel } from '../../utils/formatters';
-import type { Proposta, StatusProposta, Operacao, Banco, Promotora } from '../../types/models';
 import {
   ResponsiveContainer,
   AreaChart,
   Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   Tooltip,
   CartesianGrid,
   Cell,
   PieChart,
-  Pie,
-  BarChart,
-  Bar
+  Pie
 } from 'recharts';
+import { useCRM, PeriodoFiltro } from '../../context/CRMContext';
+import { useAuth } from '../../context/AuthContext';
+import { Proposta, Operacao, Promotora } from '../../types';
+import { formatCurrency, formatPercent, formatDate, normalizeSellerName, getMonthYearLabel } from '../../utils/formatters';
 import { DetalhePropostaModal } from '../propostas/DetalhePropostaModal';
 import { calculateTotalExpensesFromSheet } from '../../services/expensesSheetService';
+import { SmartFilter } from '../common/SmartFilter';
+import { SystemHealthIndicator } from '../common/SystemHealthIndicator';
 
 interface Props {
   onNavigateToPropostas?: (filter?: any) => void;
@@ -76,26 +75,9 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     setDataInicioPersonalizada,
     dataFimPersonalizada,
     setDataFimPersonalizada,
-    dashboardMetrics,
-    purgeMockData
+    dashboardMetrics
   } = useCRM();
-  const { currentUser, allUsers } = useAuth();
-
-  const [purgeResult, setPurgeResult] = useState<string[] | null>(null);
-  const [isPurging, setIsPurging] = useState(false);
-
-  const handlePurge = async () => {
-    if (!window.confirm('Tem certeza que deseja apagar permanentemente as 6 propostas fictícias do banco de dados?')) return;
-    setIsPurging(true);
-    try {
-      const deleted = await purgeMockData();
-      setPurgeResult(deleted);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setIsPurging(false);
-    }
-  };
+  const { allUsers } = useAuth();
 
   // 1. Single Source of Truth for Date Filtering Range (Defaults strictly to September 2026 to avoid race conditions)
   const [dateRange, setDateRange] = useState<{ dataInicio: string; dataFim: string }>(() => ({
@@ -220,7 +202,9 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   const prevMonthPropostas = useMemo(() => {
     return propostas.filter(p => {
       const dataDigi = p.dataDigitacao ? p.dataDigitacao.substring(0, 10) : '';
-      return dataDigi.startsWith(baseDateInfo.prevMonthStr) && p.status === 'Paga';
+      const promotoraUpper = (p.promotora || '').toUpperCase().trim();
+      const naoEhAssessoria = promotoraUpper !== 'ASSESSORIA' && !promotoraUpper.includes('ASSESSORIA');
+      return dataDigi.startsWith(baseDateInfo.prevMonthStr) && p.status === 'Paga' && naoEhAssessoria;
     });
   }, [propostas, baseDateInfo]);
 
@@ -376,6 +360,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
       if (!p.promotora) return;
       const promLower = p.promotora.toLowerCase();
       if (
+        promLower.includes('assessoria') ||
         promLower.includes('maquineta') ||
         promLower.includes('pessoal de livia') ||
         promLower.includes('pessoal da livia')
@@ -411,7 +396,8 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     return months.map(m => {
       const mProps = propostas.filter(p => {
         const d = p.dataDigitacao;
-        return d && d.startsWith(m.key) && p.status === 'Paga';
+        const promUpper = (p.promotora || '').toUpperCase();
+        return d && d.startsWith(m.key) && p.status === 'Paga' && !promUpper.includes('ASSESSORIA');
       });
       const vendas = mProps.reduce((acc, p) => acc + p.valorEmprestimo, 0);
       const taxas = mProps
@@ -611,30 +597,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               </h1>
               {/* Secret System Health Indicator Button */}
               <SystemHealthIndicator />
-              <BackupButton />
-              {currentUser?.email === atob('Z2VvdmFubmUuYXJjZWxpbm9AZ21haWwuY29t') && (
-                <button
-                  onClick={handlePurge}
-                  disabled={isPurging}
-                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50"
-                >
-                  {isPurging ? 'Apagando...' : 'Apagar Dados Fictícios'}
-                </button>
-              )}
             </div>
-            {/* Conference Strip for geovanne.arcelino@gmail.com */}
-            {currentUser?.email === atob('Z2VvdmFubmUuYXJjZWxpbm9AZ21haWwuY29t') && (
-              <div className="space-y-2 mt-2">
-                <div className="text-[9px] font-mono text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                  Firebase: Conectado | Total: {propostas.length} | Setembro: {filteredPropostas.length} | Fictícias: {propostas.filter(p => p.id.startsWith('prop-sep26-')).length} | Doc Lidos: {localStorage.getItem('crm_cloud_reads') || 0}
-                </div>
-                {purgeResult && (
-                  <div className="text-[9px] font-bold text-rose-600 bg-rose-50 p-2 rounded-lg border border-rose-100 animate-in slide-in-from-top-1">
-                    Documentos apagados (#482500 a #482505): {purgeResult.join(', ')}
-                  </div>
-                )}
-              </div>
-            )}
             <p className="text-xs text-slate-500 mt-0.5">
               Acompanhamento em tempo real de faturamento, comissões, ranking e rentabilidade.
             </p>

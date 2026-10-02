@@ -70,7 +70,6 @@ interface CRMContextType {
   toggleLiberacaoLeadDigitador: (alertaId: string, liberado: boolean) => void;
   resetAllData: () => void;
   clearAllTestData: () => void;
-  purgeMockData: () => Promise<string[]>;
   importClientPortfolio: (clientesList: Cliente[]) => { importedCount: number; updatedCount: number };
   importFullSpreadsheetRows: (rows: SpreadsheetRowInput[]) => {
     totalRows: number;
@@ -278,10 +277,6 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     crmStorage.clearAllTestData();
   };
 
-  const purgeMockData = async () => {
-    return await crmStorage.purgeMockData();
-  };
-
   const importClientPortfolio = (clientesList: Cliente[]) => {
     return crmStorage.importClientPortfolio(clientesList, currentActor);
   };
@@ -402,7 +397,6 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toggleLiberacaoLeadDigitador,
         resetAllData,
         clearAllTestData,
-        purgeMockData,
         importClientPortfolio,
         importFullSpreadsheetRows,
         logCpfAccess,
