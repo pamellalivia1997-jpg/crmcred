@@ -239,14 +239,11 @@ export function initFirestoreRealtimeSync() {
 
           if (snapshot.empty) {
             const localItems = (currentStore as any)[coll];
-            if (Array.isArray(localItems) && localItems.length > 0) {
-              // Upload in efficient batches instead of single concurrent requests
-              syncBatchToFirestore(coll, localItems);
-            } else {
-              if (localItems && localItems.length > 0) {
-                (currentStore as any)[coll] = [];
-                saveLocalStore(currentStore);
-              }
+            // Empty operational collections are authoritative. Never upload
+            // generated demo data back to the cloud; clear the local cache.
+            if (coll !== 'users' && Array.isArray(localItems) && localItems.length > 0) {
+              (currentStore as any)[coll] = [];
+              saveLocalStore(currentStore);
             }
           } else {
             (currentStore as any)[coll] = items;
