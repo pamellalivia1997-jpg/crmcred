@@ -957,7 +957,7 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
                   );
 
                   let dataDigitaIdx = headerCells.findIndex((c, idx) =>
-                    idx !== dataPagtoIdx && (
+                    idx !== dataPagtoIdx && idx !== carimboIdx && !c.includes('CARIMBO') && !c.includes('HORA') && (
                       c.includes('DIGITAÇ') ||
                       c.includes('DIGITAC') ||
                       c.includes('DIGITACAO') ||
