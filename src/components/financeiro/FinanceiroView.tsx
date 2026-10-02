@@ -7,8 +7,7 @@ import {
   History,
   AlertCircle,
   RefreshCw,
-  FileSpreadsheet,
-  Trash2
+  FileSpreadsheet
 } from 'lucide-react';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
@@ -23,7 +22,6 @@ export const FinanceiroView: React.FC = () => {
     comissoesPromotoras,
     saveComissaoPromotora,
     saveComissaoPromotoraBatch,
-    clearControladoriaData,
     dataInicioPersonalizada,
     setDataInicioPersonalizada,
     dataFimPersonalizada,
@@ -38,8 +36,6 @@ export const FinanceiroView: React.FC = () => {
   const [sucessoNotice, setSucessoNotice] = useState<string | null>(null);
   const [erroNotice, setErroNotice] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
-  const [isConfirmClearControladoriaOpen, setIsConfirmClearControladoriaOpen] = useState(false);
-  const [clearNotice, setClearNotice] = useState<string | null>(null);
   const [filterPromotora, setFilterPromotora] = useState('todas');
 
   // Column specific filters for Pendentes
@@ -199,27 +195,20 @@ export const FinanceiroView: React.FC = () => {
             <span>Controladoria</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Sincronização de extratos e conciliação de repasses
+            Sincronização automatizada de extratos e conciliação de repasses via Google Sheets
           </p>
         </div>
 
-        {/* Action Button: Automated Google Sheets Sync & Zerar Controladoria (Restricted) */}
+        {/* Action Button: Automated Google Sheets Sync (Restricted) */}
         {isAllowedSyncUser && (
           <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={handleGoogleSheetsSync}
               disabled={isSyncing}
-              title="Sincronizar Extratos Google Sheets"
-              className="p-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white shadow-sm transition-all active:scale-95 flex items-center justify-center"
+              className="px-4 py-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold shadow-sm transition-all active:scale-95 flex items-center gap-2"
             >
               <RefreshCw className={`w-4 h-4 text-emerald-200 ${isSyncing ? 'animate-spin' : ''}`} />
-            </button>
-            <button
-              onClick={() => setIsConfirmClearControladoriaOpen(true)}
-              title="Zerar Controladoria"
-              className="p-2.5 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white shadow-sm transition-all active:scale-95 flex items-center justify-center"
-            >
-              <Trash2 className="w-4 h-4 text-rose-200" />
+              <span>{isSyncing ? 'Sincronizando Planilha...' : 'Sincronizar Extratos Google Sheets'}</span>
             </button>
           </div>
         )}
@@ -268,7 +257,7 @@ export const FinanceiroView: React.FC = () => {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
           <span className="text-xs font-semibold text-slate-500">Contratos Aguardando Repasse</span>
           <p className="text-2xl font-black text-amber-600 dark:text-amber-400 tabular-nums mt-0.5">
@@ -287,6 +276,28 @@ export const FinanceiroView: React.FC = () => {
           <p className="text-[11px] text-slate-400 mt-1">
             Total de {comissoesPromotoras.length} contratos baixados
           </p>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex items-center justify-between">
+          <div>
+            <span className="text-xs font-semibold text-slate-500">Integração Google Sheets</span>
+            <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-1">
+              Abas: J2, Sempre, DG, GFT
+            </p>
+            <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-0.5">
+              Cruzamento automático por contrato, CPF e fallbacks
+            </p>
+          </div>
+          {isAllowedSyncUser && (
+            <button
+              onClick={handleGoogleSheetsSync}
+              disabled={isSyncing}
+              className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-100 transition-colors shrink-0 disabled:opacity-50"
+              title="Sincronizar Planilha"
+            >
+              <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -572,62 +583,6 @@ export const FinanceiroView: React.FC = () => {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Clear Controladoria Confirmation Modal */}
-      {isConfirmClearControladoriaOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-rose-200 dark:border-rose-900 space-y-4">
-            <div className="flex items-center gap-3 text-rose-600">
-              <div className="p-3 bg-rose-100 dark:bg-rose-950 rounded-2xl">
-                <Trash2 className="w-6 h-6 text-rose-600" />
-              </div>
-              <div>
-                <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
-                  Zerar Controladoria?
-                </h3>
-                <p className="text-xs text-rose-600 dark:text-rose-400 font-bold mt-0.5">
-                  Ação Irreversível!
-                </p>
-              </div>
-            </div>
-
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              Deseja realmente zerar a controladoria? Esta ação excluirá <strong>TODOS OS REPASSES E COMISSÕES DA CONTROLADORIA</strong> do banco de dados na nuvem e do dispositivo.
-            </p>
-
-            {clearNotice && (
-              <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200 text-xs font-bold">
-                {clearNotice}
-              </div>
-            )}
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setIsConfirmClearControladoriaOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  setClearNotice('Limpando dados da controladoria...');
-                  await clearControladoriaData();
-                  setClearNotice('Controladoria zerada com sucesso!');
-                  setTimeout(() => {
-                    setIsConfirmClearControladoriaOpen(false);
-                    setClearNotice(null);
-                  }, 1200);
-                }}
-                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md active:scale-95 transition-all"
-              >
-                Sim, Zerar Controladoria
-              </button>
-            </div>
           </div>
         </div>
       )}

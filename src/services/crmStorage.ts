@@ -123,22 +123,14 @@ function sanitizeStore(store: CRMDataStore): { sanitized: CRMDataStore; modified
 
 // Load store from LocalStorage fallback
 function loadStore(): CRMDataStore {
-  const isFunilCleared = typeof localStorage !== 'undefined' && localStorage.getItem('lviacred_funil_cleared_v1') === 'true';
-  const isControladoriaCleared = typeof localStorage !== 'undefined' && localStorage.getItem('lviacred_controladoria_cleared_v1') === 'true';
-
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (isFunilCleared) {
-        parsed.propostas = [];
-        parsed.clientes = [];
-      }
-      if (isControladoriaCleared) {
-        parsed.comissoesPromotoras = [];
-      }
       const { sanitized, modified } = sanitizeStore(parsed);
-      saveLocalStore(sanitized);
+      if (modified) {
+        saveLocalStore(sanitized);
+      }
       return sanitized;
     }
   } catch (e) {
@@ -146,13 +138,6 @@ function loadStore(): CRMDataStore {
   }
 
   const seed = generateSeedData();
-  if (isFunilCleared) {
-    seed.propostas = [];
-    seed.clientes = [];
-  }
-  if (isControladoriaCleared) {
-    seed.comissoesPromotoras = [];
-  }
   saveLocalStore(seed);
   return seed;
 }
@@ -510,66 +495,8 @@ export const crmStorage = {
     }
   },
 
-  async clearFunilData(): Promise<void> {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('lviacred_funil_cleared_v1', 'true');
-    }
-    currentStore = {
-      ...currentStore,
-      propostas: [],
-      clientes: []
-    };
-    saveLocalStore(currentStore);
-    notifySubscribers();
-    try {
-      // Clear propostas collection
-      const propSnap = await getDocs(collection(db, 'propostas'));
-      const propDocs = propSnap.docs;
-      for (let i = 0; i < propDocs.length; i += 400) {
-        const batch = writeBatch(db);
-        propDocs.slice(i, i + 400).forEach(docSnap => batch.delete(docSnap.ref));
-        await batch.commit();
-      }
-
-      // Clear clientes collection
-      const cliSnap = await getDocs(collection(db, 'clientes'));
-      const cliDocs = cliSnap.docs;
-      for (let i = 0; i < cliDocs.length; i += 400) {
-        const batch = writeBatch(db);
-        cliDocs.slice(i, i + 400).forEach(docSnap => batch.delete(docSnap.ref));
-        await batch.commit();
-      }
-    } catch (e) {
-      console.warn('Erro ao limpar propostas e clientes do Firestore:', e);
-    }
-    notifySubscribers();
-  },
-
-  async clearControladoriaData(): Promise<void> {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('lviacred_controladoria_cleared_v1', 'true');
-    }
-    currentStore = {
-      ...currentStore,
-      comissoesPromotoras: []
-    };
-    saveLocalStore(currentStore);
-    notifySubscribers();
-    try {
-      const querySnap = await getDocs(collection(db, 'comissoesPromotoras'));
-      const docs = querySnap.docs;
-      for (let i = 0; i < docs.length; i += 400) {
-        const batch = writeBatch(db);
-        docs.slice(i, i + 400).forEach(docSnap => batch.delete(docSnap.ref));
-        await batch.commit();
-      }
-    } catch (e) {
-      console.warn('Erro ao limpar comissoesPromotoras do Firestore:', e);
-    }
-    notifySubscribers();
-  },
-
   async purgeMockData(): Promise<string[]> {
+    const deletedIds: string[] = [];
     currentStore.propostas = currentStore.propostas.filter(p => {
       if (p.id && (p.id.startsWith('prop-sep26-') || p.id.startsWith('mock-') || p.id.startsWith('seed-'))) {
         deletedIds.push(p.id);
@@ -664,19 +591,14 @@ export const crmStorage = {
     commissionsCreated: number;
     cpfsCorrectedCount: number;
   } {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem('lviacred_funil_cleared_v1');
-      localStorage.removeItem('lviacred_controladoria_cleared_v1');
-    }
-
     let clientsCreated = 0;
     let clientsUpdated = 0;
     let proposalsCreated = 0;
     let commissionsCreated = 0;
     let cpfsCorrectedCount = 0;
 
-    // Buffer write operations for chunked Firestore batching (prevents 500 writes limit per batch for 2k+ rows)
-    const writeOperations: { ref: any; data: any }[] = [];
+    // Build a secure Firestore Write Batch
+    const batch = writeBatch(db);
 
     rows.forEach((row, index) => {
       if (!row.nomeCliente || !row.nomeCliente.trim()) return;
@@ -733,9 +655,9 @@ export const crmStorage = {
         clientsUpdated++;
       }
 
-      // Buffer Client write
+      // Buffer Client write in the Firestore Batch
       const clientDocRef = doc(db, 'clientes', clientRecord.id);
-      writeOperations.push({ ref: clientDocRef, data: JSON.parse(JSON.stringify(clientRecord)) });
+      batch.set(clientDocRef, JSON.parse(JSON.stringify(clientRecord)), { merge: true });
 
       // 4. Map Status
       let statusProp: StatusProposta = 'Paga';
@@ -753,20 +675,7 @@ export const crmStorage = {
         isTaxaRealmentePaga = statusProp === 'Paga';
       }
 
-      // Deduplication check: CPF + Contrato + Valor + Data (todos juntos)
-      const isDuplicate = currentStore.propostas.some(p => {
-        const sameCpf = p.cpf.replace(/\D/g, '') === cleanCpf;
-        const sameContract = p.numeroContrato.trim().toLowerCase() === cleanContract.trim().toLowerCase();
-        const sameValor = Math.abs((p.valorEmprestimo || 0) - parsedEmp) < 0.01;
-        const sameData = (p.dataDigitacao === dateDigitacao) || (p.dataPagamentoCliente === datePagamento);
-        return sameCpf && sameContract && sameValor && sameData;
-      });
-
-      if (isDuplicate) {
-        return; // Skip duplicate row
-      }
-
-      // 5. Create Proposta for this specific row
+      // 5. Create Proposta for this specific row (Supports repeated clients across multiple rows!)
       const proposalId = `prop-${cleanCpf}-${cleanContract.replace(/\W/g, '')}-${index}`;
       const hasLink = row.linkDocumento && row.linkDocumento.trim() && row.linkDocumento.trim() !== '0' ? row.linkDocumento.trim() : undefined;
       const newProposta: Proposta = {
@@ -803,11 +712,11 @@ export const crmStorage = {
       currentStore.propostas.unshift(newProposta);
       proposalsCreated++;
 
-      // Buffer Proposal write
+      // Buffer Proposal write in the Firestore Batch
       const proposalDocRef = doc(db, 'propostas', newProposta.id);
-      writeOperations.push({ ref: proposalDocRef, data: JSON.parse(JSON.stringify(newProposta)) });
+      batch.set(proposalDocRef, JSON.parse(JSON.stringify(newProposta)), { merge: true });
 
-      // 6. Handle Promoter Commission
+      // 6. Handle Promoter Commission (J2, Sempre, DG, GFT, Faturado) if present
       const comVal =
         parseBrazilianCurrency(row.faturado) ||
         parseBrazilianCurrency(row.comissaoJ2) ||
@@ -832,24 +741,16 @@ export const crmStorage = {
         currentStore.comissoesPromotoras.unshift(comRecord);
         commissionsCreated++;
 
-        // Buffer Commission write
+        // Buffer Commission write in the Firestore Batch
         const commissionDocRef = doc(db, 'comissoesPromotoras', comRecord.id);
-        writeOperations.push({ ref: commissionDocRef, data: JSON.parse(JSON.stringify(comRecord)) });
+        batch.set(commissionDocRef, JSON.parse(JSON.stringify(comRecord)), { merge: true });
       }
     });
 
-    // Commit Firestore writes in batches of 400 items
-    const chunkSize = 400;
-    for (let i = 0; i < writeOperations.length; i += chunkSize) {
-      const currentBatch = writeBatch(db);
-      const chunk = writeOperations.slice(i, i + chunkSize);
-      chunk.forEach(op => {
-        currentBatch.set(op.ref, op.data, { merge: true });
-      });
-      currentBatch.commit().catch(err => {
-        console.error('Erro ao salvar lote no Firestore:', err);
-      });
-    }
+    // Commit Firestore Write Batch immediately as an atomic transaction (prevents multiple asynchronous calls overhead!)
+    batch.commit().catch(err => {
+      console.error('Erro ao salvar lote no Firestore:', err);
+    });
 
     this.logAudit({
       usuarioId: actor.id,
