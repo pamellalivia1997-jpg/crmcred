@@ -29,26 +29,24 @@ import { SystemHealthIndicator } from '../common/SystemHealthIndicator';
 import { SmartFilter } from '../common/SmartFilter';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
-import { formatCurrency, formatPercent, getMonthYearLabel } from '../../utils/formatters';
-import { Proposta, StatusProposta } from '../../types';
+import { formatCurrency, formatPercent, formatDate, normalizeSellerName, getMonthYearLabel } from '../../utils/formatters';
+import type { Proposta, StatusProposta, Operacao, Banco, Promotora } from '../../types/models';
 import {
   ResponsiveContainer,
   AreaChart,
+  Area,
+  XAxis,
   YAxis,
   Tooltip,
   CartesianGrid,
   Cell,
   PieChart,
-  Pie
+  Pie,
+  BarChart,
+  Bar
 } from 'recharts';
-import { useCRM, PeriodoFiltro } from '../../context/CRMContext';
-import { useAuth } from '../../context/AuthContext';
-import { Proposta, StatusProposta } from '../../types';
-import { formatCurrency, formatPercent, formatDate, normalizeSellerName, getMonthYearLabel } from '../../utils/formatters';
 import { DetalhePropostaModal } from '../propostas/DetalhePropostaModal';
 import { calculateTotalExpensesFromSheet } from '../../services/expensesSheetService';
-import { SmartFilter } from '../common/SmartFilter';
-import { SystemHealthIndicator } from '../common/SystemHealthIndicator';
 
 interface Props {
   onNavigateToPropostas?: (filter?: any) => void;
@@ -78,9 +76,26 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     setDataInicioPersonalizada,
     dataFimPersonalizada,
     setDataFimPersonalizada,
-    dashboardMetrics
+    dashboardMetrics,
+    purgeMockData
   } = useCRM();
-  const { allUsers } = useAuth();
+  const { currentUser, allUsers } = useAuth();
+
+  const [purgeResult, setPurgeResult] = useState<string[] | null>(null);
+  const [isPurging, setIsPurging] = useState(false);
+
+  const handlePurge = async () => {
+    if (!window.confirm('Tem certeza que deseja apagar permanentemente as 6 propostas fictícias do banco de dados?')) return;
+    setIsPurging(true);
+    try {
+      const deleted = await purgeMockData();
+      setPurgeResult(deleted);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsPurging(false);
+    }
+  };
 
   // 1. Single Source of Truth for Date Filtering Range (Defaults strictly to September 2026 to avoid race conditions)
   const [dateRange, setDateRange] = useState<{ dataInicio: string; dataFim: string }>(() => ({
@@ -205,9 +220,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   const prevMonthPropostas = useMemo(() => {
     return propostas.filter(p => {
       const dataDigi = p.dataDigitacao ? p.dataDigitacao.substring(0, 10) : '';
-      const promotoraUpper = (p.promotora || '').toUpperCase().trim();
-      const naoEhAssessoria = promotoraUpper !== 'ASSESSORIA' && !promotoraUpper.includes('ASSESSORIA');
-      return dataDigi.startsWith(baseDateInfo.prevMonthStr) && p.status === 'Paga' && naoEhAssessoria;
+      return dataDigi.startsWith(baseDateInfo.prevMonthStr) && p.status === 'Paga';
     });
   }, [propostas, baseDateInfo]);
 
@@ -363,7 +376,6 @@ export const ProprietariaDashboard: React.FC<Props> = ({
       if (!p.promotora) return;
       const promLower = p.promotora.toLowerCase();
       if (
-        promLower.includes('assessoria') ||
         promLower.includes('maquineta') ||
         promLower.includes('pessoal de livia') ||
         promLower.includes('pessoal da livia')
@@ -399,8 +411,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     return months.map(m => {
       const mProps = propostas.filter(p => {
         const d = p.dataDigitacao;
-        const promUpper = (p.promotora || '').toUpperCase();
-        return d && d.startsWith(m.key) && p.status === 'Paga' && !promUpper.includes('ASSESSORIA');
+        return d && d.startsWith(m.key) && p.status === 'Paga';
       });
       const vendas = mProps.reduce((acc, p) => acc + p.valorEmprestimo, 0);
       const taxas = mProps
@@ -589,15 +600,6 @@ export const ProprietariaDashboard: React.FC<Props> = ({
 
   return (
     <div className="space-y-5 pb-20 md:pb-8">
-import { Award, FileSpreadsheet, Calculator, ChevronDown, Settings, Sliders } from 'lucide-react';
-import { BackupButton } from '../common/BackupButton';
-import { SystemHealthIndicator } from '../common/SystemHealthIndicator';
-import { SmartFilter } from '../common/SmartFilter';
-import { useCRM } from '../../context/CRMContext';
-import { useAuth } from '../../context/AuthContext';
-import { formatCurrency, formatPercent, getMonthYearLabel } from '../../utils/formatters';
-import { Proposta, StatusProposta } from '../../types';
-import React, { useState, useEffect, useMemo } from 'react';
       {/* Top Header Controls: Title, Secret Button & Smart Period Filter */}
       <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
         <div className="flex items-center justify-between">
@@ -610,11 +612,27 @@ import React, { useState, useEffect, useMemo } from 'react';
               {/* Secret System Health Indicator Button */}
               <SystemHealthIndicator />
               <BackupButton />
+              {currentUser?.email === atob('Z2VvdmFubmUuYXJjZWxpbm9AZ21haWwuY29t') && (
+                <button
+                  onClick={handlePurge}
+                  disabled={isPurging}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+                >
+                  {isPurging ? 'Apagando...' : 'Apagar Dados Fictícios'}
+                </button>
+              )}
             </div>
             {/* Conference Strip for geovanne.arcelino@gmail.com */}
             {currentUser?.email === atob('Z2VvdmFubmUuYXJjZWxpbm9AZ21haWwuY29t') && (
-              <div className="text-[9px] font-mono text-slate-500 mt-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
-                Firebase: Conectado | Total: {propostas.length} | Setembro: {filteredPropostas.length} | Fictícias: 0 | Doc Lidos: {localStorage.getItem('crm_cloud_reads') || 0} / Cache: {localStorage.getItem('crm_cache_reads') || 0}
+              <div className="space-y-2 mt-2">
+                <div className="text-[9px] font-mono text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                  Firebase: Conectado | Total: {propostas.length} | Setembro: {filteredPropostas.length} | Fictícias: {propostas.filter(p => p.id.startsWith('prop-sep26-')).length} | Doc Lidos: {localStorage.getItem('crm_cloud_reads') || 0}
+                </div>
+                {purgeResult && (
+                  <div className="text-[9px] font-bold text-rose-600 bg-rose-50 p-2 rounded-lg border border-rose-100 animate-in slide-in-from-top-1">
+                    Documentos apagados (#482500 a #482505): {purgeResult.join(', ')}
+                  </div>
+                )}
               </div>
             )}
             <p className="text-xs text-slate-500 mt-0.5">

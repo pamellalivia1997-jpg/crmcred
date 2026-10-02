@@ -146,17 +146,12 @@ export function calculateDashboardMetrics(
   const cleanStart = dataInicio.substring(0, 10);
   const cleanEnd = dataFim.substring(0, 10);
 
-  // 1. Filter proposals strictly within dateRange by dataDigitacao and excluding "ASSESSORIA" promotora
+  // 1. Filter proposals strictly within dateRange by dataDigitacao
   const filteredPropostas = propostas.filter(p => {
     const dataDigi = p.dataDigitacao ? p.dataDigitacao.substring(0, 10) : '';
     if (!dataDigi) return false;
 
-    const dentroDoPeriodo = dataDigi >= cleanStart && dataDigi <= cleanEnd;
-
-    const promotoraUpper = (p.promotora || '').toUpperCase().trim();
-    const naoEhAssessoria = promotoraUpper !== 'ASSESSORIA' && !promotoraUpper.includes('ASSESSORIA');
-
-    return dentroDoPeriodo && naoEhAssessoria;
+    return dataDigi >= cleanStart && dataDigi <= cleanEnd;
   });
 
   // 2. Total sales (Sum of valorEmprestimo)
@@ -350,6 +345,8 @@ export function calculateDashboardMetrics(
       .filter(c => empProps.some(p => p.id === c.propostaId) && c.status === 'confirmada')
       .reduce((acc, c) => acc + c.valorRecebido, 0);
 
+    const repasseVendedora = taxas * 0.15; // 15% of collected fees
+    
     let custo = 0;
     if (sheetExpenses && sheetExpenses.length > 0) {
       custo = calculateSellerCostFromSheet(sheetExpenses, emp, cleanStart, cleanEnd);
@@ -358,14 +355,14 @@ export function calculateDashboardMetrics(
       custo = emp.baseSalaryCost;
     }
 
-    const rentabilidadeLiquida = (taxas + comissaoPromotora) - custo;
+    const rentabilidadeLiquida = (taxas + comissaoPromotora) - (custo + repasseVendedora);
 
     return {
       nome: emp.salesName || emp.name,
       vendas,
       taxas,
       comissaoPromotora,
-      custo,
+      custo: custo + repasseVendedora, // Custo total inclui o repasse de 15%
       rentabilidadeLiquida
     };
   }).sort((a, b) => b.rentabilidadeLiquida - a.rentabilidadeLiquida);

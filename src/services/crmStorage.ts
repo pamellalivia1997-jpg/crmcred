@@ -14,9 +14,10 @@ import {
   Banco,
   Promotora
 } from '../types';
-import { generateSeedData, INITIAL_USERS } from '../data/mockSeed';
+// import { generateSeedData, INITIAL_USERS } from '../data/mockSeed';
+import { INITIAL_USERS } from '../data/mockSeed';
 import { db, handleFirestoreError, OperationType } from './firebase';
-import { doc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } from 'firebase/firestore';
+import { doc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch, query, where } from 'firebase/firestore';
 import { normalizeSellerName, getLocalDateString } from '../utils/formatters';
 
 const STORAGE_KEY = 'livia_credsaude_crm_data_v1';
@@ -88,8 +89,11 @@ function sanitizeStore(store: CRMDataStore): { sanitized: CRMDataStore; modified
           modified = true;
         }
         
-        // Remove seeded items
-        if (p.id.startsWith('prop-sep26-') || p.numeroContrato?.startsWith('482')) {
+        // Remove seeded items (strictly the mock ones from the generator)
+        const isMock = p.id.startsWith('prop-sep26-') || 
+                      (p.numeroContrato >= '482500' && p.numeroContrato <= '482505' && p.id.includes('prop-sep26-'));
+        
+        if (isMock) {
           modified = true;
           return; // Skip adding
         }
@@ -388,8 +392,54 @@ export const crmStorage = {
   },
 
   reset(): void {
-    currentStore = generateSeedData();
+    currentStore = {
+      users: INITIAL_USERS,
+      clientes: [],
+      propostas: [],
+      comissoesPromotoras: [],
+      contasPagar: [],
+      metas: [],
+      feedbacks: [],
+      alertas: [],
+      auditLogs: []
+    };
     saveLocalStore(currentStore);
+  },
+
+  // Purge specific mock data #482500 to #482505 and prop-sep26 IDs
+  async purgeMockData(): Promise<string[]> {
+    const idsToDelete = [
+      'prop-sep26-1', 'prop-sep26-2', 'prop-sep26-3', 
+      'prop-sep26-4', 'prop-sep26-5', 'prop-sep26-6'
+    ];
+    const deleted: string[] = [];
+
+    // 1. Remove from Memory/LocalStorage
+    currentStore.propostas = currentStore.propostas.filter(p => !idsToDelete.includes(p.id));
+    saveLocalStore(currentStore);
+
+    // 2. Remove from Firestore
+    for (const id of idsToDelete) {
+      try {
+        const ref = doc(db, 'propostas', id);
+        await deleteDoc(ref);
+        deleted.push(id);
+      } catch (e) {}
+    }
+
+    // Also check for any proposal with those contract numbers if they have the prop-sep26 prefix
+    try {
+      const q = query(collection(db, 'propostas'), where('id', '>=', 'prop-sep26-'), where('id', '<=', 'prop-sep26-\uf8ff'));
+      const snap = await getDocs(q);
+      const batch = writeBatch(db);
+      snap.forEach(d => {
+        batch.delete(d.ref);
+        if (!deleted.includes(d.id)) deleted.push(d.id);
+      });
+      await batch.commit();
+    } catch (e) {}
+
+    return deleted;
   },
 
   // Zerar dados de teste e base completa de clientes
