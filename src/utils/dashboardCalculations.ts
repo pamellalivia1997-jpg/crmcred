@@ -37,6 +37,55 @@ export interface DashboardMetrics {
 }
 
 /**
+ * Helper to accurately match a proposal seller with an application user.
+ */
+export function matchesSeller(pSeller: string | undefined | null, emp: User): boolean {
+  if (!pSeller) return false;
+  const pLower = pSeller.toLowerCase().trim();
+  const empNameLower = (emp.name || '').toLowerCase().trim();
+  const empSalesLower = (emp.salesName || '').toLowerCase().trim();
+
+  // If proposal seller is Igarassu / Loja, match to Bianca or user with Loja Igarassu
+  const isPropIgarassu = pLower.includes('igarassu') || pLower.includes('loja');
+  const isEmpBianca =
+    empNameLower.includes('bianca') ||
+    empSalesLower.includes('bianca') ||
+    empSalesLower.includes('igarassu') ||
+    empNameLower.includes('igarassu') ||
+    emp.id === 'user-bianca';
+  if (isPropIgarassu && isEmpBianca) return true;
+
+  // Specific name checks
+  if (pLower.includes('hellen') && (empNameLower.includes('hellen') || empSalesLower.includes('hellen') || emp.id === 'user-hellen')) return true;
+  if (
+    (pLower.includes('luc') || pLower.includes('lucelia') || pLower.includes('lucélia') || pLower.includes('lucilia') || pLower.includes('lucília')) &&
+    (empNameLower.includes('luc') || empSalesLower.includes('luc') || emp.id === 'user-lucilia' || emp.id === 'user-lucelia')
+  )
+    return true;
+  if (pLower.includes('taciana') && (empNameLower.includes('taciana') || empSalesLower.includes('taciana') || emp.id === 'user-taciana')) return true;
+  if (pLower.includes('ana') && (empNameLower.includes('ana') || empSalesLower.includes('ana') || emp.id === 'user-ana')) return true;
+
+  const normP = normalizeSellerName(pSeller);
+  const normName = normalizeSellerName(emp.name);
+  const normSales = normalizeSellerName(emp.salesName);
+  return normP === normName || normP === normSales || normP.includes(normName) || normName.includes(normP);
+}
+
+/**
+ * Helper for robust tax payment detection
+ */
+export function isTaxaPaga(p: Proposta): boolean {
+  if (!p) return false;
+  const val = p.taxaPaga;
+  const cliVal = p.clientePagouTaxa;
+  if (val === true || cliVal === true) return true;
+  const sVal = String(val || '').toUpperCase().trim();
+  const sCliVal = String(cliVal || '').toUpperCase().trim();
+  return sVal === 'SIM' || sVal === 'S' || sVal === 'TRUE' || sVal === 'PAGA' || sVal === 'PAGO' ||
+         sCliVal === 'SIM' || sCliVal === 'S' || sCliVal === 'TRUE' || sCliVal === 'PAGA' || sCliVal === 'PAGO';
+}
+
+/**
  * Standardizes a seller name. Maps "Loja Igarassu" or variations of "Igarassu" to "Bianca".
  */
 export function getStandardizedSellerName(name?: string): string {
@@ -44,12 +93,12 @@ export function getStandardizedSellerName(name?: string): string {
   const clean = name.trim();
   const lower = clean.toLowerCase();
   if (lower.includes('igarassu') || lower.includes('loja')) {
-    return 'Bianca';
+    return 'Loja Igarassu';
   }
   // Standardize common names
-  if (lower.includes('hellen')) return 'Hellen Vasconcelos';
-  if (lower.includes('taciana')) return 'Taciana Silva';
-  if (lower.includes('lucelia') || lower.includes('lucélia')) return 'Lucélia Ramos';
+  if (lower.includes('hellen')) return 'Hellen';
+  if (lower.includes('taciana')) return 'Taciana';
+  if (lower.includes('lucelia') || lower.includes('lucélia')) return 'Lucélia';
   if (lower.includes('ana') && lower.includes('paula')) return 'Ana Paula';
   return clean;
 }
@@ -146,25 +195,36 @@ export function calculateDashboardMetrics(
   const cleanStart = dataInicio.substring(0, 10);
   const cleanEnd = dataFim.substring(0, 10);
 
-  // 1. Filter proposals strictly within dateRange by dataDigitacao and excluding "ASSESSORIA" promotora
+  // 1. Filter proposals strictly within dateRange by dataDigitacao
   const filteredPropostas = propostas.filter(p => {
     const dataDigi = p.dataDigitacao ? p.dataDigitacao.substring(0, 10) : '';
     if (!dataDigi) return false;
 
     const dentroDoPeriodo = dataDigi >= cleanStart && dataDigi <= cleanEnd;
-
-    const promotoraUpper = (p.promotora || '').toUpperCase().trim();
-    const naoEhAssessoria = promotoraUpper !== 'ASSESSORIA' && !promotoraUpper.includes('ASSESSORIA');
-
-    return dentroDoPeriodo && naoEhAssessoria;
+    return dentroDoPeriodo;
   });
 
-  // 2. Total sales (Sum of valorEmprestimo)
-  const totalVendas = filteredPropostas.reduce((acc, p) => acc + Number(p.valorEmprestimo || 0), 0);
+  // Helper for robust tax payment detection
+  const isTaxaPaga = (p: Proposta) => {
+    const val = p.taxaPaga;
+    const cliVal = p.clientePagouTaxa;
+    if (val === true || cliVal === true) return true;
+    const sVal = String(val || '').toUpperCase().trim();
+    const sCliVal = String(cliVal || '').toUpperCase().trim();
+    return sVal === 'SIM' || sVal === 'S' || sVal === 'TRUE' || sVal === 'PAGA' || sVal === 'PAGO' ||
+           sCliVal === 'SIM' || sCliVal === 'S' || sCliVal === 'TRUE' || sCliVal === 'PAGA' || sCliVal === 'PAGO';
+  };
 
-  // 3. Total fees (Sum of valorTaxa where paid)
+  // 2. KPI Filter: Use more inclusive criteria to match user's "somases" expectation
+  // Only "Paga" for volume totals, but INCLUDE "ASSESSORIA"
+  const contratosFormalizadosEPagos = filteredPropostas.filter(p => p.status === 'Paga');
+
+  // 3. Total sales (Sum of valorEmprestimo for PAID contracts)
+  const totalVendas = contratosFormalizadosEPagos.reduce((acc, p) => acc + Number(p.valorEmprestimo || 0), 0);
+
+  // 4. Total fees (Sum of valorTaxa where tax is marked as paid, regardless of status, as per user's request)
   const totalTaxas = filteredPropostas
-    .filter(p => p.taxaPaga === true || String(p.taxaPaga).toUpperCase() === 'SIM' || p.clientePagouTaxa === true)
+    .filter(isTaxaPaga)
     .reduce((acc, p) => acc + Number(p.valorTaxa || 0), 0);
 
   const activeCompetenceMonth = dataInicio.substring(0, 7);
@@ -200,25 +260,11 @@ export function calculateDashboardMetrics(
       : 0;
   };
 
-  // 6. Sales and Fees grouped by standardized vendedora name
-  const vendasPorVendedora: Record<string, number> = {};
-  const taxasPorVendedora: Record<string, number> = {};
-  const contratosPorVendedora: Record<string, number> = {};
-
+  // 6. Sales and Fees grouped by standardized vendedora name using looser matching
+  const rankingVendedorasMap = new Map<string, SellerRankingItem>();
   activeSellers.forEach(u => {
-    vendasPorVendedora[u.name] = 0;
-    taxasPorVendedora[u.name] = 0;
-    contratosPorVendedora[u.name] = 0;
-  });
-  vendasPorVendedora['Outros'] = 0;
-  taxasPorVendedora['Outros'] = 0;
-  contratosPorVendedora['Outros'] = 0;
-
-  // Build ranking sellersMap
-  const sellersMap = new Map<string, SellerRankingItem>();
-  activeSellers.forEach(u => {
-    sellersMap.set(u.name, { 
-      nome: u.name, 
+    rankingVendedorasMap.set(u.id, { 
+      nome: u.salesName || u.name, 
       vendas: 0, 
       taxa: 0, 
       count: 0, 
@@ -230,50 +276,38 @@ export function calculateDashboardMetrics(
   let outrosTaxa = 0;
   let outrosCount = 0;
 
-  filteredPropostas.forEach(p => {
-    const stdName = getStandardizedSellerName(p.vendedora);
-    
-    // Find active seller matching this standardized name
-    const activeSeller = activeSellers.find(u => 
-      isSameSeller(u.name, stdName) || (u.salesName && isSameSeller(u.salesName, stdName))
-    );
-
-    const isTaxaPaid = p.taxaPaga === true || String(p.taxaPaga).toUpperCase() === 'SIM' || p.clientePagouTaxa === true;
+  // Process sales from paid contracts
+  contratosFormalizadosEPagos.forEach(p => {
+    const activeSeller = activeSellers.find(emp => matchesSeller(p.vendedora, emp));
     const val = Number(p.valorEmprestimo || 0);
-    const taxaVal = Number(p.valorTaxa || 0);
-
     if (activeSeller) {
-      vendasPorVendedora[activeSeller.name] = (vendasPorVendedora[activeSeller.name] || 0) + val;
-      contratosPorVendedora[activeSeller.name] = (contratosPorVendedora[activeSeller.name] || 0) + 1;
-      if (isTaxaPaid) {
-        taxasPorVendedora[activeSeller.name] = (taxasPorVendedora[activeSeller.name] || 0) + taxaVal;
-      }
-
-      const rep = sellersMap.get(activeSeller.name);
-      if (rep) {
-        rep.vendas += val;
-        if (isTaxaPaid) {
-          rep.taxa += taxaVal;
-        }
-        rep.count += 1;
+      const item = rankingVendedorasMap.get(activeSeller.id);
+      if (item) {
+        item.vendas += val;
+        item.count += 1;
       }
     } else {
-      vendasPorVendedora['Outros'] = (vendasPorVendedora['Outros'] || 0) + val;
-      contratosPorVendedora['Outros'] = (contratosPorVendedora['Outros'] || 0) + 1;
-      if (isTaxaPaid) {
-        taxasPorVendedora['Outros'] = (taxasPorVendedora['Outros'] || 0) + taxaVal;
-      }
-
       outrosVendas += val;
-      if (isTaxaPaid) {
-        outrosTaxa += taxaVal;
-      }
       outrosCount += 1;
     }
   });
 
-  const rankingVendedoras = Array.from(sellersMap.values());
-  if (outrosCount > 0) {
+  // Process taxes from all proposals where tax is paid (as per user's inclusive request)
+  filteredPropostas.filter(isTaxaPaga).forEach(p => {
+    const activeSeller = activeSellers.find(emp => matchesSeller(p.vendedora, emp));
+    const taxaVal = Number(p.valorTaxa || 0);
+    if (activeSeller) {
+      const item = rankingVendedorasMap.get(activeSeller.id);
+      if (item) {
+        item.taxa += taxaVal;
+      }
+    } else {
+      outrosTaxa += taxaVal;
+    }
+  });
+
+  const rankingVendedoras = Array.from(rankingVendedorasMap.values());
+  if (outrosCount > 0 || outrosVendas > 0 || outrosTaxa > 0) {
     rankingVendedoras.push({
       nome: 'Outros',
       vendas: outrosVendas,
@@ -284,8 +318,16 @@ export function calculateDashboardMetrics(
   }
   rankingVendedoras.sort((a, b) => b.vendas - a.vendas);
 
-  // 7. Contracts with status 'Paga'
-  const contratosFormalizadosEPagos = filteredPropostas.filter(p => p.status === 'Paga');
+  // Synchronize Record-based mappings for legacy components
+  const vendasPorVendedora: Record<string, number> = {};
+  const taxasPorVendedora: Record<string, number> = {};
+  const contratosPorVendedora: Record<string, number> = {};
+
+  rankingVendedoras.forEach(r => {
+    vendasPorVendedora[r.nome] = r.vendas;
+    taxasPorVendedora[r.nome] = r.taxa;
+    contratosPorVendedora[r.nome] = r.count;
+  });
 
   // 8. Stage/Funnel counts
   const propostasPorEtapa: Record<StatusProposta, number> = {
@@ -328,23 +370,11 @@ export function calculateDashboardMetrics(
 
   // 10. Rentabilidade Líquida por Atendente (Employee Profitability)
   const employeeProfitability = activeSellers.map(emp => {
-    const empProps = contratosFormalizadosEPagos.filter(p => {
-      if (!p.vendedora) return false;
-      const vLower = p.vendedora.toLowerCase();
-      const isEmpBianca = emp.name.toLowerCase().includes('bianca') || (emp.salesName && emp.salesName.toLowerCase().includes('bianca'));
-      const isPropIgarassu = vLower.includes('igarassu') || vLower.includes('loja');
-      if (isEmpBianca && isPropIgarassu) return true;
+    const empProps = contratosFormalizadosEPagos.filter(p => matchesSeller(p.vendedora, emp));
+    const empTaxProps = filteredPropostas.filter(p => isTaxaPaga(p) && matchesSeller(p.vendedora, emp));
 
-      const normP = normalizeSellerName(p.vendedora);
-      const normName = normalizeSellerName(emp.name);
-      const normSales = normalizeSellerName(emp.salesName);
-      return normP === normName || normP === normSales || normP.includes(normName) || normName.includes(normP);
-    });
-
-    const vendas = empProps.reduce((acc, p) => acc + p.valorEmprestimo, 0);
-    const taxas = empProps
-      .filter(p => p.taxaPaga === true || p.clientePagouTaxa === true)
-      .reduce((acc, p) => acc + p.valorTaxa, 0);
+    const vendas = empProps.reduce((acc, p) => acc + (p.valorEmprestimo || 0), 0);
+    const taxas = empTaxProps.reduce((acc, p) => acc + (p.valorTaxa || 0), 0);
 
     const comissaoPromotora = comissoesPromotoras
       .filter(c => empProps.some(p => p.id === c.propostaId) && c.status === 'confirmada')

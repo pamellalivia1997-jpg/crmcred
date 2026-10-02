@@ -61,7 +61,7 @@ export const INITIAL_USERS: User[] = [
     phone: '(81) 98444-5566',
     cpf: '704.619.204-92',
     pix: '70461920492',
-    salesName: 'Bianca',
+    salesName: 'Loja Igarassu',
     status: 'ativo',
     monthlySalesGoal: 85000,
     monthlyTaxPercentGoal: 11.0,

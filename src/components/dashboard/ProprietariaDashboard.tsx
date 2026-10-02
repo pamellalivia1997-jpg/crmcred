@@ -1,10 +1,15 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
+  Award,
+  FileSpreadsheet,
+  Calculator,
+  ChevronDown,
+  Settings,
+  Sliders,
   TrendingUp,
   DollarSign,
   Receipt,
   Users,
-  Award,
   Share2,
   Calendar,
   Percent,
@@ -17,35 +22,32 @@ import {
   PieChart as PieChartIcon,
   Copy,
   Check,
-  X,
-  FileSpreadsheet,
-  Calculator,
-  ChevronDown,
-  Settings,
-  Sliders
+  X
 } from 'lucide-react';
+import { BackupButton } from '../common/BackupButton';
+import { SystemHealthIndicator } from '../common/SystemHealthIndicator';
+import { SmartFilter } from '../common/SmartFilter';
+import { useCRM } from '../../context/CRMContext';
+import { useAuth } from '../../context/AuthContext';
+import { formatCurrency, formatPercent, formatDate, normalizeSellerName, getMonthYearLabel, isSameSeller } from '../../utils/formatters';
+import { matchesSeller, isTaxaPaga } from '../../utils/dashboardCalculations';
+import type { Proposta, StatusProposta, Operacao, Banco, Promotora } from '../../types/models';
 import {
   ResponsiveContainer,
   AreaChart,
   Area,
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   Tooltip,
   CartesianGrid,
   Cell,
   PieChart,
-  Pie
+  Pie,
+  BarChart,
+  Bar
 } from 'recharts';
-import { useCRM, PeriodoFiltro } from '../../context/CRMContext';
-import { useAuth } from '../../context/AuthContext';
-import { Proposta, Operacao, Promotora } from '../../types';
-import { formatCurrency, formatPercent, formatDate, normalizeSellerName, getMonthYearLabel } from '../../utils/formatters';
 import { DetalhePropostaModal } from '../propostas/DetalhePropostaModal';
 import { calculateTotalExpensesFromSheet } from '../../services/expensesSheetService';
-import { SmartFilter } from '../common/SmartFilter';
-import { SystemHealthIndicator } from '../common/SystemHealthIndicator';
 
 interface Props {
   onNavigateToPropostas?: (filter?: any) => void;
@@ -75,9 +77,26 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     setDataInicioPersonalizada,
     dataFimPersonalizada,
     setDataFimPersonalizada,
-    dashboardMetrics
+    dashboardMetrics,
+    purgeMockData
   } = useCRM();
-  const { allUsers } = useAuth();
+  const { currentUser, allUsers } = useAuth();
+
+  const [purgeResult, setPurgeResult] = useState<string[] | null>(null);
+  const [isPurging, setIsPurging] = useState(false);
+
+  const handlePurge = async () => {
+    if (!window.confirm('Tem certeza que deseja apagar permanentemente as 6 propostas fictícias do banco de dados?')) return;
+    setIsPurging(true);
+    try {
+      const deleted = await purgeMockData();
+      setPurgeResult(deleted);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsPurging(false);
+    }
+  };
 
   // 1. Single Source of Truth for Date Filtering Range (Defaults strictly to September 2026 to avoid race conditions)
   const [dateRange, setDateRange] = useState<{ dataInicio: string; dataFim: string }>(() => ({
@@ -202,9 +221,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   const prevMonthPropostas = useMemo(() => {
     return propostas.filter(p => {
       const dataDigi = p.dataDigitacao ? p.dataDigitacao.substring(0, 10) : '';
-      const promotoraUpper = (p.promotora || '').toUpperCase().trim();
-      const naoEhAssessoria = promotoraUpper !== 'ASSESSORIA' && !promotoraUpper.includes('ASSESSORIA');
-      return dataDigi.startsWith(baseDateInfo.prevMonthStr) && p.status === 'Paga' && naoEhAssessoria;
+      return dataDigi.startsWith(baseDateInfo.prevMonthStr) && p.status === 'Paga';
     });
   }, [propostas, baseDateInfo]);
 
@@ -332,16 +349,21 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   const atingimentoMeta = metaLoja > 0 ? (totalVendas / metaLoja) * 100 : 0;
   const quantoFalta = Math.max(0, metaLoja - totalVendas);
 
-  // Operations breakdown
+  // Operations breakdown - strictly paid sales and isTaxaPaga taxes
   const operationsChartData = useMemo(() => {
     const map = new Map<Operacao, { operacao: Operacao; vendas: number; taxa: number; count: number }>();
     filteredPropostas.forEach(p => {
+      const isPaid = p.status === 'Paga';
+      const isTaxPaid = p.taxaPaga === true || String(p.taxaPaga).toUpperCase() === 'SIM' || p.clientePagouTaxa === true;
       const curr = map.get(p.operacao) || { operacao: p.operacao, vendas: 0, taxa: 0, count: 0 };
-      curr.vendas += (p.valorEmprestimo || 0);
-      if (p.taxaPaga === true || String(p.taxaPaga).toUpperCase() === 'SIM' || p.clientePagouTaxa === true) {
+      
+      if (isPaid) {
+        curr.vendas += (p.valorEmprestimo || 0);
+        curr.count += 1;
+      }
+      if (isTaxPaid) {
         curr.taxa += (p.valorTaxa || 0);
       }
-      curr.count += 1;
       map.set(p.operacao, curr);
     });
 
@@ -353,14 +375,13 @@ export const ProprietariaDashboard: React.FC<Props> = ({
       .sort((a, b) => b.vendas - a.vendas);
   }, [filteredPropostas]);
 
-  // Promotoras breakdown
+  // Promotoras breakdown - strictly paid sales
   const promotorasChartData = useMemo(() => {
     const map = new Map<Promotora, { promotora: Promotora; vendas: number; count: number }>();
-    filteredPropostas.forEach(p => {
+    filteredPropostas.filter(p => p.status === 'Paga').forEach(p => {
       if (!p.promotora) return;
       const promLower = p.promotora.toLowerCase();
       if (
-        promLower.includes('assessoria') ||
         promLower.includes('maquineta') ||
         promLower.includes('pessoal de livia') ||
         promLower.includes('pessoal da livia')
@@ -396,8 +417,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     return months.map(m => {
       const mProps = propostas.filter(p => {
         const d = p.dataDigitacao;
-        const promUpper = (p.promotora || '').toUpperCase();
-        return d && d.startsWith(m.key) && p.status === 'Paga' && !promUpper.includes('ASSESSORIA');
+        return d && d.startsWith(m.key) && p.status === 'Paga';
       });
       const vendas = mProps.reduce((acc, p) => acc + p.valorEmprestimo, 0);
       const taxas = mProps
@@ -483,45 +503,36 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   };
 
   const matrixDataOperacoes = useMemo(() => {
-    const activeList = allUsers
-      .filter(u => u.role === 'vendedora' && u.status === 'ativo')
-      .map(u => u.salesName || u.name);
+    const activeSellerUsers = allUsers.filter(u => u.role === 'vendedora' && u.status === 'ativo');
 
-    const uniqueSellersMap = new Map<string, Proposta[]>();
-    activeList.forEach(seller => {
-      uniqueSellersMap.set(seller, []);
-    });
+    const result = activeSellerUsers.map(emp => {
+      const repName = emp.salesName || emp.name;
+      const repProps = filteredPropostas.filter(p => matchesSeller(p.vendedora, emp));
+      const paidRepProps = repProps.filter(p => p.status === 'Paga');
 
-    filteredPropostas.forEach(p => {
-      const canonicalSeller = resolveSellerCanonicalName(p.vendedora);
-      if (!uniqueSellersMap.has(canonicalSeller)) {
-        uniqueSellersMap.set(canonicalSeller, []);
-      }
-      uniqueSellersMap.get(canonicalSeller)!.push(p);
-    });
-
-    const result = Array.from(uniqueSellersMap.entries()).map(([repName, repProps]) => {
-      const totalVendaRep = repProps.reduce((acc, p) => acc + (p.valorEmprestimo || 0), 0);
+      const totalVendaRep = paidRepProps.reduce((acc, p) => acc + (p.valorEmprestimo || 0), 0);
       const totalTaxaRep = repProps
-        .filter(p => p.taxaPaga === true || String(p.taxaPaga).toUpperCase() === 'SIM' || p.clientePagouTaxa === true)
+        .filter(isTaxaPaga)
         .reduce((acc, p) => acc + (p.valorTaxa || 0), 0);
       const percentTaxaGeral = totalVendaRep > 0 ? Number(((totalTaxaRep / totalVendaRep) * 100).toFixed(2)) : 0;
 
-      const userMeta = metas.find(m => m.vendedoraNome && (
-        m.vendedoraNome.toLowerCase().includes(repName.toLowerCase()) || 
-        repName.toLowerCase().includes(m.vendedoraNome.toLowerCase())
-      ))?.metaVenda || 75000;
+      const userMeta = metas.find(m => 
+        (m.vendedoraId === emp.id || 
+         (m.vendedoraNome && isSameSeller(m.vendedoraNome, emp.name)) ||
+         (emp.salesName && m.vendedoraNome && isSameSeller(m.vendedoraNome, emp.salesName)))
+      )?.metaVenda || 75000;
       const atingimento = userMeta > 0 ? Number(((totalVendaRep / userMeta) * 100).toFixed(1)) : 0;
 
       const opsBreakdown: Record<string, { venda: number; taxa: number; percent: number; count: number }> = {};
       distinctOperations.forEach(op => {
-        const ops = repProps.filter(p => getCanonicalOpName(p.operacao) === op);
-        const venda = ops.reduce((acc, p) => acc + (p.valorEmprestimo || 0), 0);
-        const taxa = ops
-          .filter(p => p.taxaPaga === true || String(p.taxaPaga).toUpperCase() === 'SIM' || p.clientePagouTaxa === true)
+        const opsAll = repProps.filter(p => getCanonicalOpName(p.operacao) === op);
+        const opsPaid = opsAll.filter(p => p.status === 'Paga');
+        const venda = opsPaid.reduce((acc, p) => acc + (p.valorEmprestimo || 0), 0);
+        const taxa = opsAll
+          .filter(isTaxaPaga)
           .reduce((acc, p) => acc + (p.valorTaxa || 0), 0);
         const percent = venda > 0 ? Number(((taxa / venda) * 100).toFixed(2)) : 0;
-        opsBreakdown[op] = { venda, taxa, percent, count: ops.length };
+        opsBreakdown[op] = { venda, taxa, percent, count: opsPaid.length };
       });
 
       return {
@@ -597,7 +608,30 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               </h1>
               {/* Secret System Health Indicator Button */}
               <SystemHealthIndicator />
+              <BackupButton />
+              {currentUser?.email === atob('Z2VvdmFubmUuYXJjZWxpbm9AZ21haWwuY29t') && (
+                <button
+                  onClick={handlePurge}
+                  disabled={isPurging}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold transition-all disabled:opacity-50"
+                >
+                  {isPurging ? 'Apagando...' : 'Apagar Dados Fictícios'}
+                </button>
+              )}
             </div>
+            {/* Conference Strip for geovanne.arcelino@gmail.com */}
+            {currentUser?.email === atob('Z2VvdmFubmUuYXJjZWxpbm9AZ21haWwuY29t') && (
+              <div className="space-y-2 mt-2">
+                <div className="text-[9px] font-mono text-slate-500 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                  Firebase: Conectado | Total: {propostas.length} | Setembro: {filteredPropostas.length} | Fictícias: {propostas.filter(p => p.id.startsWith('prop-sep26-')).length} | Doc Lidos: {localStorage.getItem('crm_cloud_reads') || 0}
+                </div>
+                {purgeResult && (
+                  <div className="text-[9px] font-bold text-rose-600 bg-rose-50 p-2 rounded-lg border border-rose-100 animate-in slide-in-from-top-1">
+                    Documentos apagados (#482500 a #482505): {purgeResult.join(', ')}
+                  </div>
+                )}
+              </div>
+            )}
             <p className="text-xs text-slate-500 mt-0.5">
               Acompanhamento em tempo real de faturamento, comissões, ranking e rentabilidade.
             </p>

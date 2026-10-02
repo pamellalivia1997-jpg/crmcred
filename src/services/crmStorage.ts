@@ -68,14 +68,23 @@ function sanitizeStore(store: CRMDataStore): { sanitized: CRMDataStore; modified
     if (name !== original) {
       modified = true;
     }
+    if (u.id === 'user-bianca' && (!u.salesName || u.salesName === 'Bianca')) {
+      u.salesName = 'Loja Igarassu';
+      modified = true;
+    }
     return { ...u, name };
   });
 
   if (Array.isArray(store.propostas)) {
-    // 1. Deduplicate by unique ID and normalize dataDigitacao to YYYY-MM-DD
+    // 2. Propostas validation
     const uniqueMap = new Map<string, Proposta>();
     store.propostas.forEach(p => {
       if (p && p.id) {
+        // Remove specific legacy mock proposals that interfere with real imported data
+        if (p.id.startsWith('prop-sep26-')) {
+          modified = true;
+          return;
+        }
         if (p.dataDigitacao) {
           p.dataDigitacao = p.dataDigitacao.substring(0, 10);
         }
@@ -91,20 +100,6 @@ function sanitizeStore(store: CRMDataStore): { sanitized: CRMDataStore; modified
       }
     });
     store.propostas = Array.from(uniqueMap.values());
-
-    // 2. Calibrate September 2026 proposals if stored sales differ from target R$ 443.163,54
-    const sepProps = store.propostas.filter(p => {
-      const d = p.dataDigitacao ? p.dataDigitacao.substring(0, 10) : '';
-      const promUpper = (p.promotora || '').toUpperCase();
-      return d.startsWith('2026-09') && !promUpper.includes('ASSESSORIA');
-    });
-    const sepSales = sepProps.reduce((a, b) => a + (b.valorEmprestimo || 0), 0);
-    if (Math.abs(sepSales - 443163.54) > 1 || sepProps.length !== 6) {
-      const seed = generateSeedData();
-      const seedSepProps = seed.propostas.filter(p => p.dataDigitacao && p.dataDigitacao.startsWith('2026-09'));
-      store.propostas = store.propostas.filter(p => !(p.dataDigitacao && p.dataDigitacao.startsWith('2026-09'))).concat(seedSepProps);
-      modified = true;
-    }
   }
 
   // Ensure feedbacks list starts empty per business rules (clean pre-seeded/mock feedbacks) and one-time clear of saved ones
@@ -299,17 +294,30 @@ export function standardizeCPF(rawCpf: string): { cleanCpf: string; formattedCpf
   return { cleanCpf: digits, formattedCpf, wasCorrected };
 }
 
-// Helper: Parse Brazilian currency formats (e.g., "2.957,02" -> 2957.02)
+// Helper: Parse Brazilian currency formats (e.g., "2.957,02" -> 2957.02, "2.000" -> 2000, "289,5" -> 289.5)
 export function parseBrazilianCurrency(val: any): number {
   if (typeof val === 'number') return isNaN(val) ? 0 : val;
   if (!val) return 0;
-  let s = String(val).trim().replace('R$', '').trim();
+  let s = String(val).trim().replace('R$', '').replace(/\s/g, '').trim();
   if (!s || s === '-' || s === '0') return 0;
+
+  // Case 1: Both dots and comma (e.g., "1.349,50" or "10.000,00")
   if (s.includes(',') && s.includes('.')) {
     s = s.replace(/\./g, '').replace(',', '.');
-  } else if (s.includes(',')) {
+  }
+  // Case 2: Only comma (e.g., "289,5" or "1349,50" or "0,00")
+  else if (s.includes(',')) {
     s = s.replace(',', '.');
   }
+  // Case 3: Only dot (e.g., "2.000", "1.000", "3.850", "10.500" - Brazilian thousand dot without comma)
+  else if (s.includes('.')) {
+    const parts = s.split('.');
+    // If it's like 2.000 or 10.500 (3 digits after dot, or multiple dots like 1.000.000)
+    if (parts.length > 2 || (parts.length === 2 && parts[1].length === 3)) {
+      s = s.replace(/\./g, '');
+    }
+  }
+
   const num = parseFloat(s);
   return isNaN(num) ? 0 : num;
 }
@@ -418,6 +426,27 @@ export const crmStorage = {
         console.warn(`Erro ao limpar coleção ${collName} no Firestore:`, e);
       }
     });
+  },
+
+  async purgeMockData(): Promise<string[]> {
+    const deletedIds: string[] = [];
+    currentStore.propostas = currentStore.propostas.filter(p => {
+      if (p.id && (p.id.startsWith('prop-sep26-') || p.id.startsWith('mock-') || p.id.startsWith('seed-'))) {
+        deletedIds.push(p.id);
+        return false;
+      }
+      return true;
+    });
+    saveLocalStore(currentStore);
+
+    for (const id of deletedIds) {
+      try {
+        await deleteDoc(doc(db, 'propostas', id));
+      } catch (e) {
+        // ignore
+      }
+    }
+    return deletedIds;
   },
 
   // Importar Carteira de Clientes em Lote

@@ -24,6 +24,7 @@ import { Proposta, StatusProposta, Operacao, Banco, Promotora } from '../../type
 import { formatCurrency, formatPercent, formatDate, formatCPF } from '../../utils/formatters';
 import { DetalhePropostaModal } from './DetalhePropostaModal';
 import { CPFValidationBadge } from '../common/CPFValidationBadge';
+import { SmartFilter } from '../common/SmartFilter';
 
 interface PropostasViewProps {
   initialProposta?: Proposta | null;
@@ -46,38 +47,19 @@ type SortField =
   | 'taxaPaga';
 
 export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = null, initialSearchTerm = '' }) => {
-  const { propostas, updateStatusProposta, dashboardMetrics } = useCRM();
+  const {
+    propostas,
+    updateStatusProposta,
+    dashboardMetrics,
+    dataInicioPersonalizada,
+    setDataInicioPersonalizada,
+    dataFimPersonalizada,
+    setDataFimPersonalizada
+  } = useCRM();
   const { currentUser } = useAuth();
 
   const [viewMode, setViewMode] = useState<'kanban' | 'tabela'>('tabela');
   const [searchTerm, setSearchTerm] = useState(initialSearchTerm);
-
-  // Period filter with persistence to localStorage (Default: 'mes')
-  const [periodoFunil, setPeriodoFunil] = useState<'hoje' | '7d' | 'mes' | 'todos' | 'personalizado'>(() => {
-    try {
-      const saved = localStorage.getItem('lviacred_periodo_funil');
-      if (saved && ['hoje', '7d', 'mes', 'todos', 'personalizado'].includes(saved)) {
-        return saved as any;
-      }
-    } catch (e) {}
-    return 'mes';
-  });
-
-  const [dataInicioCustom, setDataInicioCustom] = useState(() => {
-    try {
-      return localStorage.getItem('lviacred_funil_dt_inicio') || '';
-    } catch (e) {
-      return '';
-    }
-  });
-
-  const [dataFimCustom, setDataFimCustom] = useState(() => {
-    try {
-      return localStorage.getItem('lviacred_funil_dt_fim') || '';
-    } catch (e) {
-      return '';
-    }
-  });
 
   // Column dropdown filters
   const [filterVendedora, setFilterVendedora] = useState('todas');
@@ -114,35 +96,9 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
 
   const isDigitador = currentUser?.role === 'digitador';
 
-  // Helper date limits for Period filter
-  const periodDateLimits = useMemo(() => {
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
-
-    const d30 = new Date(now);
-    d30.setDate(now.getDate() - 30);
-    const d30Str = d30.toISOString().split('T')[0];
-
-    const d7 = new Date(now);
-    d7.setDate(now.getDate() - 7);
-    const d7Str = d7.toISOString().split('T')[0];
-
-    const mo = String(now.getMonth() + 1).padStart(2, '0');
-    const mesAtualStr = `${now.getFullYear()}-${mo}`;
-
-    return { todayStr, d30Str, d7Str, mesAtualStr };
-  }, []);
-
   // Filter propostas
   const filteredPropostas = useMemo(() => {
-    // Start with the centralized list of propostas for month/personalizado, or full propostas for other views
-    let baseList = propostas;
-    
-    if (periodoFunil === 'mes' || periodoFunil === 'personalizado') {
-      baseList = dashboardMetrics.filteredPropostas;
-    }
-
-    return baseList.filter(p => {
+    return dashboardMetrics.filteredPropostas.filter(p => {
       // If digitador, only show proposals typed by this user
       if (isDigitador) {
         const matchDigitador =
@@ -152,22 +108,12 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
         if (!matchDigitador) return false;
       }
 
-      // Period filter only applies if we aren't using the central dashboard list
-      if (periodoFunil !== 'mes' && periodoFunil !== 'personalizado') {
-        const refDate = p.dataDigitacao ? p.dataDigitacao.substring(0, 10) : '';
-        if (periodoFunil === 'hoje') {
-          if (refDate !== periodDateLimits.todayStr) return false;
-        } else if (periodoFunil === '7d') {
-          if (refDate < periodDateLimits.d7Str) return false;
-        }
-      }
-
       // Search match
       const matchSearch =
         !searchTerm ||
         p.nomeCliente.toLowerCase().includes(searchTerm.toLowerCase()) ||
         p.cpf.includes(searchTerm.replace(/\D/g, '')) ||
-        p.numeroContrato.toLowerCase().includes(searchTerm.toLowerCase());
+        (p.numeroContrato && p.numeroContrato.toLowerCase().includes(searchTerm.toLowerCase()));
 
       const matchVendedora = filterVendedora === 'todas' || p.vendedora === filterVendedora;
       const matchOperacao = filterOperacao === 'todas' || p.operacao === filterOperacao;
@@ -184,11 +130,8 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
       return matchSearch && matchVendedora && matchOperacao && matchBanco && matchPromotora && matchStatus && matchTaxa;
     });
   }, [
-    propostas,
     dashboardMetrics.filteredPropostas,
     searchTerm,
-    periodoFunil,
-    periodDateLimits,
     filterVendedora,
     filterOperacao,
     filterBanco,
@@ -272,13 +215,25 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
   const bancosList = useMemo(() => Array.from(new Set(propostas.map(p => p.banco).filter(Boolean))), [propostas]);
   const promotorasList = useMemo(() => Array.from(new Set(propostas.map(p => p.promotora).filter(Boolean))), [propostas]);
 
-  // Aggregates of filtered results
-  const totalVolume = filteredPropostas.reduce((acc, p) => acc + p.valorEmprestimo, 0);
+  // Aggregates of filtered results - Sync with Management Panel KPIs
+  const isTaxaPaga = (p: Proposta) => {
+    const val = p.taxaPaga;
+    const cliVal = p.clientePagouTaxa;
+    if (val === true || cliVal === true) return true;
+    const sVal = String(val || '').toUpperCase().trim();
+    const sCliVal = String(cliVal || '').toUpperCase().trim();
+    return sVal === 'SIM' || sVal === 'S' || sVal === 'TRUE' || sVal === 'PAGA' || sVal === 'PAGO' ||
+           sCliVal === 'SIM' || sCliVal === 'S' || sCliVal === 'TRUE' || sCliVal === 'PAGA' || sCliVal === 'PAGO';
+  };
+
+  const totalVolume = filteredPropostas
+    .filter(p => p.status === 'Paga')
+    .reduce((acc, p) => acc + p.valorEmprestimo, 0);
   const totalTaxasPagas = filteredPropostas
-    .filter(p => p.taxaPaga === true || p.clientePagouTaxa === true)
+    .filter(isTaxaPaga)
     .reduce((acc, p) => acc + p.valorTaxa, 0);
   const totalTaxasPendentes = filteredPropostas
-    .filter(p => !p.taxaPaga && !p.clientePagouTaxa)
+    .filter(p => !isTaxaPaga(p))
     .reduce((acc, p) => acc + p.valorTaxa, 0);
 
   const toggleSort = (field: SortField) => {
@@ -368,64 +323,16 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
             )}
           </div>
 
-          {/* Period Selector (Label outside, clean options, inline calendar) */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-bold text-slate-600 dark:text-slate-400">
-              Período:
-            </span>
-
-            <div className="relative min-w-[155px]">
-              <Calendar className="w-3.5 h-3.5 text-teal-600 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <select
-                value={periodoFunil}
-                onChange={(e) => {
-                  const val = e.target.value as any;
-                  setPeriodoFunil(val);
-                  try {
-                    localStorage.setItem('lviacred_periodo_funil', val);
-                  } catch (err) {}
-                }}
-                className="w-full pl-8 pr-7 py-2 text-xs font-bold rounded-xl bg-teal-50/60 dark:bg-teal-950/40 border border-teal-200/80 dark:border-teal-800 text-teal-950 dark:text-teal-200 focus:outline-none focus:ring-2 focus:ring-teal-500/30 transition-all appearance-none cursor-pointer"
-              >
-                <option value="hoje">Hoje</option>
-                <option value="7d">Últimos 7 dias</option>
-                <option value="mes">Mês Atual</option>
-                <option value="todos">Todo Histórico</option>
-                <option value="personalizado">Personalizado</option>
-              </select>
-              <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-teal-700 text-xs">
-                ▾
-              </div>
-            </div>
-
-            {/* Inline Date Inputs placed side-by-side with the selector */}
-            {periodoFunil === 'personalizado' && (
-              <div className="flex items-center gap-1.5 p-1 rounded-xl bg-teal-50/50 dark:bg-teal-950/30 border border-teal-200/80 dark:border-teal-800 text-xs animate-in fade-in duration-150">
-                <input
-                  type="date"
-                  value={dataInicioCustom}
-                  onChange={(e) => {
-                    setDataInicioCustom(e.target.value);
-                    try {
-                      localStorage.setItem('lviacred_funil_dt_inicio', e.target.value);
-                    } catch (err) {}
-                  }}
-                  className="px-2 py-1 text-xs rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white font-medium focus:outline-none"
-                />
-                <span className="text-slate-400 font-bold">até</span>
-                <input
-                  type="date"
-                  value={dataFimCustom}
-                  onChange={(e) => {
-                    setDataFimCustom(e.target.value);
-                    try {
-                      localStorage.setItem('lviacred_funil_dt_fim', e.target.value);
-                    } catch (err) {}
-                  }}
-                  className="px-2 py-1 text-xs rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white font-medium focus:outline-none"
-                />
-              </div>
-            )}
+          {/* Period Selector (Exactly like management panel) */}
+          <div className="flex-1 w-full max-w-2xl">
+            <SmartFilter
+              dataInicio={dataInicioPersonalizada}
+              dataFim={dataFimPersonalizada}
+              onChangeRange={(range) => {
+                setDataInicioPersonalizada(range.dataInicio);
+                setDataFimPersonalizada(range.dataFim);
+              }}
+            />
           </div>
         </div>
 
@@ -507,7 +414,11 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
         {/* Aggregate Stats Bar */}
         <div className="flex flex-wrap items-center justify-between text-xs text-slate-500 pt-2.5 border-t border-slate-100 dark:border-slate-800 gap-2">
           <div className="flex items-center gap-2">
-            <span className="font-bold text-slate-800 dark:text-slate-200">{sortedPropostas.length} contratos</span>
+            <span className="font-bold text-slate-800 dark:text-slate-200">
+              {filteredPropostas.filter(p => p.status === 'Paga').length} contratos pagos
+              {filteredPropostas.length > filteredPropostas.filter(p => p.status === 'Paga').length && 
+                ` (${filteredPropostas.length} no total)`}
+            </span>
             {(filterVendedora !== 'todas' || filterOperacao !== 'todas' || filterBanco !== 'todos' || filterPromotora !== 'todas' || filterStatus !== 'todos' || filterTaxaPaga !== 'todas' || searchTerm) && (
               <button
                 onClick={() => {
@@ -528,7 +439,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
 
           <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-xs">
             <span className="flex items-center gap-1">
-              Volume: <strong className="text-slate-900 dark:text-white tabular-nums font-black">{formatCurrency(totalVolume)}</strong>
+              Volume Pago: <strong className="text-slate-900 dark:text-white tabular-nums font-black">{formatCurrency(totalVolume)}</strong>
             </span>
             <span className="flex items-center gap-1">
               Taxas Pagas: <strong className="text-emerald-600 dark:text-emerald-400 tabular-nums font-black">{formatCurrency(totalTaxasPagas)}</strong>
