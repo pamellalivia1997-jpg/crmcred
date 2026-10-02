@@ -54,6 +54,148 @@ type SortField =
   | 'taxaPaga'
   | 'repasse';
 
+// Helper function to dynamically map spreadsheet text or Google Forms TSV/CSV rows
+function parseTextToSpreadsheetInputRows(rawText: string, defaultUser: string): any[] {
+  const lines = rawText.split('\n').filter(l => l.trim());
+  if (lines.length === 0) return [];
+
+  const allRows = lines.map(line => {
+    return line.includes('\t')
+      ? line.split('\t').map(c => c.trim().replace(/^"|"$/g, ''))
+      : line.split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+  });
+
+  const firstLineText = lines[0].toLowerCase();
+  let headerRow: string[] | null = null;
+  let dataRowsIndex = 0;
+
+  if (
+    firstLineText.includes('cpf') ||
+    firstLineText.includes('nome') ||
+    firstLineText.includes('cliente') ||
+    firstLineText.includes('carimbo') ||
+    firstLineText.includes('vendedor')
+  ) {
+    headerRow = allRows[0].map(h => h.toLowerCase().trim());
+    dataRowsIndex = 1;
+  }
+
+  let colCpf = -1;
+  let colNome = -1;
+  let colTel = -1;
+  let colDataDig = -1;
+  let colDataPag = -1;
+  let colConvenio = -1;
+  let colOperacao = -1;
+  let colBanco = -1;
+  let colPromotora = -1;
+  let colValorEmp = -1;
+  let colValorTaxa = -1;
+  let colClientePagou = -1;
+  let colVendedora = -1;
+  let colDigitador = -1;
+  let colContrato = -1;
+  let colLink = -1;
+  let colStatus = -1;
+
+  if (headerRow) {
+    headerRow.forEach((h, idx) => {
+      const cleanH = h.replace(/[^a-z0-9]/g, '');
+      if (cleanH.includes('cpf')) colCpf = idx;
+      else if (cleanH.includes('nome') || cleanH.includes('cliente')) { if (colNome < 0) colNome = idx; }
+      else if (cleanH.includes('telefone') || cleanH.includes('fone') || cleanH.includes('celular')) colTel = idx;
+      else if (cleanH.includes('digitacao') || cleanH.includes('datadadigitacao')) colDataDig = idx;
+      else if (cleanH.includes('pagamento') || cleanH.includes('datadopagamento')) colDataPag = idx;
+      else if (cleanH.includes('convenio') || cleanH.includes('conven')) colConvenio = idx;
+      else if (cleanH.includes('operacao') || cleanH.includes('operac')) colOperacao = idx;
+      else if (cleanH.includes('banco')) colBanco = idx;
+      else if (cleanH.includes('promotora')) colPromotora = idx;
+      else if (cleanH.includes('valor') || cleanH.includes('emprestimo') || cleanH.includes('liberado')) {
+        if (cleanH.includes('taxa') || cleanH.includes('assessoria')) colValorTaxa = idx;
+        else if (colValorEmp < 0) colValorEmp = idx;
+      }
+      else if (cleanH.includes('taxa') || cleanH.includes('assessoria')) colValorTaxa = idx;
+      else if (cleanH.includes('pagou')) colClientePagou = idx;
+      else if (cleanH.includes('vendedor') || cleanH.includes('vendedora')) colVendedora = idx;
+      else if (cleanH.includes('digitador')) colDigitador = idx;
+      else if (cleanH.includes('contrato') || cleanH.includes('numero') || cleanH.includes('proposta')) colContrato = idx;
+      else if (cleanH.includes('anexar') || cleanH.includes('capa') || cleanH.includes('print') || cleanH.includes('link')) colLink = idx;
+      else if (cleanH.includes('status') || cleanH.includes('situacao')) colStatus = idx;
+    });
+  }
+
+  const sampleDataRow = allRows[dataRowsIndex] || [];
+
+  // Fallbacks if header wasn't detected or columns missing
+  if (colCpf < 0) {
+    const col3Clean = (sampleDataRow[3] || '').replace(/\D/g, '');
+    if (col3Clean.length >= 10 && col3Clean.length <= 11) {
+      colCpf = 3;
+      if (colNome < 0) colNome = 4;
+      if (colTel < 0) colTel = 5;
+      if (colDataDig < 0) colDataDig = 6;
+      if (colDataPag < 0) colDataPag = 7;
+      if (colConvenio < 0) colConvenio = 8;
+      if (colOperacao < 0) colOperacao = 9;
+      if (colBanco < 0) colBanco = 10;
+      if (colPromotora < 0) colPromotora = 11;
+      if (colValorEmp < 0) colValorEmp = 12;
+      if (colValorTaxa < 0) colValorTaxa = 13;
+      if (colClientePagou < 0) colClientePagou = 14;
+      if (colVendedora < 0) colVendedora = 16;
+      if (colDigitador < 0) colDigitador = 17;
+      if (colContrato < 0) colContrato = 18;
+      if (colLink < 0) colLink = 19;
+      if (colStatus < 0) colStatus = 20;
+    } else {
+      colCpf = 0;
+      if (colNome < 0) colNome = 1;
+      if (colTel < 0) colTel = 2;
+      if (colValorEmp < 0) colValorEmp = 3;
+      if (colValorTaxa < 0) colValorTaxa = 4;
+      if (colBanco < 0) colBanco = 6;
+      if (colOperacao < 0) colOperacao = 7;
+      if (colPromotora < 0) colPromotora = 8;
+      if (colStatus < 0) colStatus = 9;
+      if (colVendedora < 0) colVendedora = 10;
+      if (colContrato < 0) colContrato = 11;
+    }
+  }
+
+  const resultRows = [];
+  for (let i = dataRowsIndex; i < allRows.length; i++) {
+    const cols = allRows[i];
+    if (!cols || cols.length < 2) continue;
+
+    const cpfVal = cols[colCpf] || '';
+    const nomeVal = cols[colNome] || '';
+
+    if (!cpfVal && !nomeVal) continue;
+
+    resultRows.push({
+      cpf: cpfVal.trim(),
+      nomeCliente: nomeVal.trim() || 'Cliente',
+      telefone: colTel >= 0 ? cols[colTel]?.trim() || '' : '',
+      dataDigitacao: colDataDig >= 0 ? cols[colDataDig]?.trim() || '' : '',
+      dataPagamentoCliente: colDataPag >= 0 ? cols[colDataPag]?.trim() || '' : '',
+      convenio: colConvenio >= 0 ? cols[colConvenio]?.trim() || 'INSS' : 'INSS',
+      operacao: colOperacao >= 0 ? cols[colOperacao]?.trim() || 'Margem' : 'Margem',
+      banco: colBanco >= 0 ? cols[colBanco]?.trim() || 'Daycoval' : 'Daycoval',
+      promotora: colPromotora >= 0 ? cols[colPromotora]?.trim() || 'J2 Promotora' : 'J2 Promotora',
+      valorEmprestimo: colValorEmp >= 0 ? cols[colValorEmp]?.trim() || '0' : '0',
+      valorTaxa: colValorTaxa >= 0 ? cols[colValorTaxa]?.trim() || '0' : '0',
+      clientePagou: colClientePagou >= 0 ? cols[colClientePagou]?.trim() || 'NÃO' : 'NÃO',
+      vendedora: colVendedora >= 0 ? cols[colVendedora]?.trim() || defaultUser : defaultUser,
+      digitador: colDigitador >= 0 ? cols[colDigitador]?.trim() || defaultUser : defaultUser,
+      numeroContrato: colContrato >= 0 ? cols[colContrato]?.trim() || '' : '',
+      linkDocumento: colLink >= 0 ? cols[colLink]?.trim() || '' : '',
+      status: colStatus >= 0 ? cols[colStatus]?.trim() || 'PAGA' : 'PAGA'
+    });
+  }
+
+  return resultRows;
+}
+
 export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = null, initialSearchTerm = '' }) => {
   const {
     propostas,
@@ -950,7 +1092,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
             <div className="flex items-center justify-between">
               <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
                 <UploadCloud className="w-5 h-5 text-teal-600" />
-                <span>Importar Planilha de Contratos (sem limite de linhas)</span>
+                <span>Importar Planilha de Contratos</span>
               </h2>
               <button
                 onClick={() => setIsImportModalOpen(false)}
@@ -961,7 +1103,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
             </div>
 
             <p className="text-xs text-slate-500 leading-relaxed">
-              Você pode enviar seu arquivo Excel diretamente (<strong>.xlsx, .xls, .csv</strong>) ou colar os dados de milhares de linhas na caixa abaixo. Linhas duplicadas com mesmo CPF, Contrato, Valor e Data serão ignoradas.
+              Você pode enviar seu arquivo Excel diretamente (<strong>.xlsx, .xls, .csv</strong>) ou colar os dados da planilha abaixo. O sistema identifica automaticamente as colunas de CPF, Nome, Empréstimo, Banco, Operação, Status e Contrato.
             </p>
 
             {/* Direct File Selector */}
@@ -971,7 +1113,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
                   Clique aqui para selecionar seu arquivo Excel (.xlsx, .xls, .csv)
                 </span>
-                <span className="text-[10px] text-slate-400">Suporta arquivos grandes de mais de 2.000 linhas</span>
+                <span className="text-[10px] text-slate-400">Suporta arquivos de qualquer tamanho</span>
                 <input
                   type="file"
                   accept=".xlsx, .xls, .csv"
@@ -995,9 +1137,9 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
 
                         const mappedRows = jsonRows.map((r: any) => {
                           const keys = Object.keys(r);
-                          const getVal = (colNames: string[]) => {
-                            for (const name of colNames) {
-                              const match = keys.find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '').includes(name.toLowerCase()));
+                          const getVal = (keywords: string[]) => {
+                            for (const kw of keywords) {
+                              const match = keys.find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '').includes(kw.toLowerCase().replace(/[^a-z0-9]/g, '')));
                               if (match && r[match] !== undefined && r[match] !== null) return String(r[match]).trim();
                             }
                             return '';
@@ -1006,21 +1148,26 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                           return {
                             cpf: getVal(['cpf', 'documento']),
                             nomeCliente: getVal(['nome', 'cliente']) || 'Cliente',
-                            telefone: getVal(['fone', 'tel', 'whatsapp', 'celular']),
-                            valorEmprestimo: getVal(['emprestimo', 'valor', 'bruto', 'liberado']),
-                            valorTaxa: getVal(['taxa', 'comissao']),
-                            percentualTaxa: getVal(['percentual', 'pct']),
+                            telefone: getVal(['telefone', 'fone', 'tel', 'whatsapp', 'celular']),
+                            dataDigitacao: getVal(['digitacao', 'data da digitacao']),
+                            dataPagamentoCliente: getVal(['pagamento', 'data do pagamento']),
+                            convenio: getVal(['convenio', 'conven']),
+                            operacao: getVal(['operacao', 'operac']),
                             banco: getVal(['banco']),
-                            operacao: getVal(['operacao', 'tipo']),
                             promotora: getVal(['promotora']),
-                            status: getVal(['status', 'situacao']),
-                            vendedora: getVal(['vendedora', 'vendedor', 'consultor']),
-                            numeroContrato: getVal(['contrato', 'numero', 'proposta'])
+                            valorEmprestimo: getVal(['emprestimo', 'liberado', 'bruto', 'valor do emprestimo']),
+                            valorTaxa: getVal(['taxa', 'assessoria', 'comissao']),
+                            clientePagou: getVal(['pagou', 'cliente pagou']),
+                            vendedora: getVal(['vendedor', 'vendedora', 'consultor']) || currentUser?.name || 'Hellen Vasconcelos',
+                            digitador: getVal(['digitador']) || currentUser?.name || 'Hellen Vasconcelos',
+                            numeroContrato: getVal(['contrato', 'numero', 'proposta']),
+                            linkDocumento: getVal(['anexar', 'capa', 'print', 'link']),
+                            status: getVal(['status', 'situacao']) || 'PAGO'
                           };
                         });
 
                         const res = importFullSpreadsheetRows(mappedRows);
-                        setImportNotice(`Sucesso! ${res.totalRows} linhas lidas do arquivo. ${res.clientsCreated} clientes e ${res.proposalsCreated} propostas processadas.`);
+                        setImportNotice(`Sucesso! ${res.totalRows} linhas lidas do arquivo. ${res.clientsCreated} clientes e ${res.proposalsCreated} propostas salvas na nuvem.`);
                       } catch (err: any) {
                         setImportNotice(`Erro ao ler arquivo Excel: ${err.message}`);
                       }
@@ -1033,13 +1180,13 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
 
             <div className="relative">
               <span className="text-[11px] font-bold text-slate-500 block mb-1">
-                Ou cole o texto da planilha abaixo (sem limite de linhas):
+                Ou cole o texto copiado da planilha abaixo:
               </span>
               <textarea
                 rows={8}
                 value={importText}
                 onChange={(e) => setImportText(e.target.value)}
-                placeholder="CPF, Nome, Telefone, Valor Empréstimo, Valor Taxa, Banco, Operação, Promotora, Status, Vendedora, Contrato..."
+                placeholder="Cole aqui as linhas da sua planilha..."
                 className="w-full p-3 text-xs font-mono rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
             </div>
@@ -1060,37 +1207,19 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
               <button
                 onClick={() => {
                   try {
-                    const lines = importText.split('\n').filter(l => l.trim());
-                    if (lines.length === 0) {
-                      setImportNotice('Cole pelo menos 1 linha ou selecione um arquivo Excel acima.');
+                    const parsedRows = parseTextToSpreadsheetInputRows(importText, currentUser?.name || 'Hellen Vasconcelos');
+                    if (parsedRows.length === 0) {
+                      setImportNotice('Nenhuma linha válida encontrada. Selecione um arquivo Excel ou cole as linhas acima.');
                       return;
                     }
 
-                    const rows = lines.map(line => {
-                      const cols = line.includes('\t') ? line.split('\t') : line.split(',');
-                      return {
-                        cpf: cols[0]?.trim() || '',
-                        nomeCliente: cols[1]?.trim() || cols[0]?.trim() || 'Cliente',
-                        telefone: cols[2]?.trim() || '',
-                        valorEmprestimo: cols[3]?.trim() || '0',
-                        valorTaxa: cols[4]?.trim() || '0',
-                        percentualTaxa: cols[5]?.trim() || '0',
-                        banco: cols[6]?.trim() || 'Daycoval',
-                        operacao: cols[7]?.trim() || 'Margem',
-                        promotora: cols[8]?.trim() || 'J2 Promotora',
-                        status: cols[9]?.trim() || 'Paga',
-                        vendedora: cols[10]?.trim() || currentUser?.name || 'Hellen Vasconcelos',
-                        numeroContrato: cols[11]?.trim() || `CONT-${Math.floor(1000 + Math.random() * 9000)}`
-                      };
-                    });
-
-                    const res = importFullSpreadsheetRows(rows);
-                    setImportNotice(`Importação de ${rows.length} linhas concluída: ${res.clientsCreated} clientes e ${res.proposalsCreated} propostas salvas.`);
+                    const res = importFullSpreadsheetRows(parsedRows);
+                    setImportNotice(`Importação concluída! ${parsedRows.length} linhas processadas. ${res.clientsCreated} clientes criados/atualizados e ${res.proposalsCreated} propostas inseridas.`);
                     setTimeout(() => {
                       setIsImportModalOpen(false);
                       setImportNotice(null);
                       setImportText('');
-                    }, 3000);
+                    }, 3500);
                   } catch (err: any) {
                     setImportNotice(`Erro ao processar dados: ${err.message}`);
                   }

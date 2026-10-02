@@ -501,14 +501,19 @@ export const crmStorage = {
       propostas: []
     };
     saveLocalStore(currentStore);
+    notifySubscribers();
     try {
       const querySnap = await getDocs(collection(db, 'propostas'));
-      const batch = writeBatch(db);
-      querySnap.docs.forEach(docSnap => batch.delete(docSnap.ref));
-      await batch.commit();
+      const docs = querySnap.docs;
+      for (let i = 0; i < docs.length; i += 400) {
+        const batch = writeBatch(db);
+        docs.slice(i, i + 400).forEach(docSnap => batch.delete(docSnap.ref));
+        await batch.commit();
+      }
     } catch (e) {
       console.warn('Erro ao limpar propostas do Firestore:', e);
     }
+    notifySubscribers();
   },
 
   async clearControladoriaData(): Promise<void> {
@@ -517,14 +522,19 @@ export const crmStorage = {
       comissoesPromotoras: []
     };
     saveLocalStore(currentStore);
+    notifySubscribers();
     try {
       const querySnap = await getDocs(collection(db, 'comissoesPromotoras'));
-      const batch = writeBatch(db);
-      querySnap.docs.forEach(docSnap => batch.delete(docSnap.ref));
-      await batch.commit();
+      const docs = querySnap.docs;
+      for (let i = 0; i < docs.length; i += 400) {
+        const batch = writeBatch(db);
+        docs.slice(i, i + 400).forEach(docSnap => batch.delete(docSnap.ref));
+        await batch.commit();
+      }
     } catch (e) {
       console.warn('Erro ao limpar comissoesPromotoras do Firestore:', e);
     }
+    notifySubscribers();
   },
 
   async purgeMockData(): Promise<string[]> {
