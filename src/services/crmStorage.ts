@@ -72,7 +72,7 @@ function sanitizeStore(store: CRMDataStore): { sanitized: CRMDataStore; modified
   });
 
   if (Array.isArray(store.propostas)) {
-    // 1. Deduplicate by unique ID and normalize dataDigitacao to YYYY-MM-DD
+    // Deduplicate by unique ID and normalize dataDigitacao to YYYY-MM-DD
     const uniqueMap = new Map<string, Proposta>();
     store.propostas.forEach(p => {
       if (p && p.id) {
@@ -87,24 +87,17 @@ function sanitizeStore(store: CRMDataStore): { sanitized: CRMDataStore; modified
           p.digitador = 'Pamella';
           modified = true;
         }
+        
+        // Remove seeded items
+        if (p.id.startsWith('prop-sep26-') || p.numeroContrato?.startsWith('482')) {
+          modified = true;
+          return; // Skip adding
+        }
+        
         uniqueMap.set(p.id, p);
       }
     });
     store.propostas = Array.from(uniqueMap.values());
-
-    // 2. Calibrate September 2026 proposals if stored sales differ from target R$ 443.163,54
-    const sepProps = store.propostas.filter(p => {
-      const d = p.dataDigitacao ? p.dataDigitacao.substring(0, 10) : '';
-      const promUpper = (p.promotora || '').toUpperCase();
-      return d.startsWith('2026-09') && !promUpper.includes('ASSESSORIA');
-    });
-    const sepSales = sepProps.reduce((a, b) => a + (b.valorEmprestimo || 0), 0);
-    if (Math.abs(sepSales - 443163.54) > 1 || sepProps.length !== 6) {
-      const seed = generateSeedData();
-      const seedSepProps = seed.propostas.filter(p => p.dataDigitacao && p.dataDigitacao.startsWith('2026-09'));
-      store.propostas = store.propostas.filter(p => !(p.dataDigitacao && p.dataDigitacao.startsWith('2026-09'))).concat(seedSepProps);
-      modified = true;
-    }
   }
 
   // Ensure feedbacks list starts empty per business rules (clean pre-seeded/mock feedbacks) and one-time clear of saved ones
@@ -142,9 +135,18 @@ function loadStore(): CRMDataStore {
     console.error('Erro ao ler LocalStorage:', e);
   }
 
-  const seed = generateSeedData();
-  saveLocalStore(seed);
-  return seed;
+  // Return empty store if no data found, do NOT fallback to seed data
+  return {
+    users: INITIAL_USERS,
+    clientes: [],
+    propostas: [],
+    comissoesPromotoras: [],
+    contasPagar: [],
+    metas: [],
+    feedbacks: [],
+    alertas: [],
+    auditLogs: []
+  };
 }
 
 function saveLocalStore(data: CRMDataStore) {

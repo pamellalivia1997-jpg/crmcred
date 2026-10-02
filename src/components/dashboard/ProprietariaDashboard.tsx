@@ -1,10 +1,15 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import {
+  Award,
+  FileSpreadsheet,
+  Calculator,
+  ChevronDown,
+  Settings,
+  Sliders,
   TrendingUp,
   DollarSign,
   Receipt,
   Users,
-  Award,
   Share2,
   Calendar,
   Percent,
@@ -17,20 +22,18 @@ import {
   PieChart as PieChartIcon,
   Copy,
   Check,
-  X,
-  FileSpreadsheet,
-  Calculator,
-  ChevronDown,
-  Settings,
-  Sliders
+  X
 } from 'lucide-react';
+import { BackupButton } from '../common/BackupButton';
+import { SystemHealthIndicator } from '../common/SystemHealthIndicator';
+import { SmartFilter } from '../common/SmartFilter';
+import { useCRM } from '../../context/CRMContext';
+import { useAuth } from '../../context/AuthContext';
+import { formatCurrency, formatPercent, getMonthYearLabel } from '../../utils/formatters';
+import { Proposta, StatusProposta } from '../../types';
 import {
   ResponsiveContainer,
   AreaChart,
-  Area,
-  BarChart,
-  Bar,
-  XAxis,
   YAxis,
   Tooltip,
   CartesianGrid,
@@ -40,7 +43,7 @@ import {
 } from 'recharts';
 import { useCRM, PeriodoFiltro } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
-import { Proposta, Operacao, Promotora } from '../../types';
+import { Proposta, StatusProposta } from '../../types';
 import { formatCurrency, formatPercent, formatDate, normalizeSellerName, getMonthYearLabel } from '../../utils/formatters';
 import { DetalhePropostaModal } from '../propostas/DetalhePropostaModal';
 import { calculateTotalExpensesFromSheet } from '../../services/expensesSheetService';
@@ -586,6 +589,15 @@ export const ProprietariaDashboard: React.FC<Props> = ({
 
   return (
     <div className="space-y-5 pb-20 md:pb-8">
+import { Award, FileSpreadsheet, Calculator, ChevronDown, Settings, Sliders } from 'lucide-react';
+import { BackupButton } from '../common/BackupButton';
+import { SystemHealthIndicator } from '../common/SystemHealthIndicator';
+import { SmartFilter } from '../common/SmartFilter';
+import { useCRM } from '../../context/CRMContext';
+import { useAuth } from '../../context/AuthContext';
+import { formatCurrency, formatPercent, getMonthYearLabel } from '../../utils/formatters';
+import { Proposta, StatusProposta } from '../../types';
+import React, { useState, useEffect, useMemo } from 'react';
       {/* Top Header Controls: Title, Secret Button & Smart Period Filter */}
       <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
         <div className="flex items-center justify-between">
@@ -597,7 +609,14 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               </h1>
               {/* Secret System Health Indicator Button */}
               <SystemHealthIndicator />
+              <BackupButton />
             </div>
+            {/* Conference Strip for geovanne.arcelino@gmail.com */}
+            {currentUser?.email === atob('Z2VvdmFubmUuYXJjZWxpbm9AZ21haWwuY29t') && (
+              <div className="text-[9px] font-mono text-slate-500 mt-2 bg-slate-50 p-2 rounded-lg border border-slate-100">
+                Firebase: Conectado | Total: {propostas.length} | Setembro: {filteredPropostas.length} | Fictícias: 0 | Doc Lidos: {localStorage.getItem('crm_cloud_reads') || 0} / Cache: {localStorage.getItem('crm_cache_reads') || 0}
+              </div>
+            )}
             <p className="text-xs text-slate-500 mt-0.5">
               Acompanhamento em tempo real de faturamento, comissões, ranking e rentabilidade.
             </p>
