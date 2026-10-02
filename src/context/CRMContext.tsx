@@ -69,7 +69,7 @@ interface CRMContextType {
   concluirAlerta: (id: string, alertData?: Partial<AlertaOportunidade>) => void;
   toggleLiberacaoLeadDigitador: (alertaId: string, liberado: boolean) => void;
   resetAllData: () => void;
-  clearAllTestData: () => void;
+  clearAllTestData: () => Promise<void>;
   purgeMockData: () => Promise<string[]>;
   importClientPortfolio: (clientesList: Cliente[]) => { importedCount: number; updatedCount: number };
   importFullSpreadsheetRows: (rows: SpreadsheetRowInput[]) => {
@@ -274,8 +274,8 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     crmStorage.reset();
   };
 
-  const clearAllTestData = () => {
-    crmStorage.clearAllTestData();
+  const clearAllTestData = async () => {
+    await crmStorage.clearAllTestData();
   };
 
   const purgeMockData = async () => {

@@ -395,34 +395,38 @@ export const crmStorage = {
     saveLocalStore(currentStore);
   },
 
-  // Zerar dados de teste e base completa de clientes
-  clearAllTestData(): void {
+  // Zerar todos os dados operacionais; a coleção users é preservada.
+  async clearAllTestData(): Promise<void> {
     currentStore = {
       ...currentStore,
       clientes: [],
       propostas: [],
       comissoesPromotoras: [],
       contasPagar: [],
+      metas: [],
       alertas: [],
       feedbacks: [],
       auditLogs: []
     };
     saveLocalStore(currentStore);
 
-    // Clear Firestore collections including clientes
-    const collectionsToClear = ['clientes', 'propostas', 'comissoesPromotoras', 'contasPagar', 'alertas', 'feedbacks', 'auditLogs'];
-    collectionsToClear.forEach(async (collName) => {
-      try {
+    const collectionsToClear = ['clientes', 'propostas', 'comissoesPromotoras', 'contasPagar', 'metas', 'alertas', 'feedbacks', 'auditLogs'];
+    for (const collName of collectionsToClear) {
+      // Repeat until empty so a large collection or a concurrent snapshot cannot leave leftovers.
+      for (;;) {
         const querySnap = await getDocs(collection(db, collName));
-        const batch = writeBatch(db);
-        querySnap.forEach((docSnap) => {
-          batch.delete(docSnap.ref);
-        });
-        await batch.commit();
-      } catch (e) {
-        console.warn(`Erro ao limpar coleção ${collName} no Firestore:`, e);
+        if (querySnap.empty) break;
+        for (let i = 0; i < querySnap.docs.length; i += 400) {
+          const batch = writeBatch(db);
+          querySnap.docs.slice(i, i + 400).forEach(docSnap => batch.delete(docSnap.ref));
+          await batch.commit();
+        }
       }
-    });
+      const remaining = await getDocs(collection(db, collName));
+      if (!remaining.empty) {
+        throw new Error(`A coleção ${collName} ainda possui ${remaining.size} documento(s).`);
+      }
+    }
   },
 
   async purgeMockData(): Promise<string[]> {

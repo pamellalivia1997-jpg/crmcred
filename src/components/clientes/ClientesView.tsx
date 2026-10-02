@@ -1131,13 +1131,17 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
               {!clearNotice && (
                 <button
                   type="button"
-                  onClick={() => {
-                    clearAllTestData();
-                    setClearNotice('Todos os dados de teste foram apagados do banco de dados na nuvem com sucesso!');
-                    setTimeout(() => {
-                      setIsClearModalOpen(false);
-                      setClearNotice(null);
-                    }, 2000);
+                  onClick={async () => {
+                    try {
+                      await clearAllTestData();
+                      setClearNotice('Zeramento confirmado: os dados operacionais foram excluídos da nuvem.');
+                      setTimeout(() => {
+                        setIsClearModalOpen(false);
+                        setClearNotice(null);
+                      }, 2000);
+                    } catch (error) {
+                      setClearNotice(`Falha no zeramento: ${error instanceof Error ? error.message : 'o Firebase não confirmou a exclusão.'}`);
+                    }
                   }}
                   className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md transition-all active:scale-95 flex items-center gap-1.5"
                 >
