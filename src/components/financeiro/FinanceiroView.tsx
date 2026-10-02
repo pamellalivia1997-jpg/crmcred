@@ -43,7 +43,7 @@ export const FinanceiroView: React.FC = () => {
     return setIds;
   }, [comissoesPromotoras]);
 
-  // Contratos EXCLUSIVAMENTE SEM repasse de comissão da promotora
+  // Contratos EXCLUSIVAMENTE SEM repasse de comissão da promotora, excluindo Assessoria
   const contratosPendentesRepasse = useMemo(() => {
     return propostas
       .filter(p => p.status === 'Paga')
@@ -52,6 +52,10 @@ export const FinanceiroView: React.FC = () => {
           confirmedPropostaIds.has(p.id) ||
           (p.numeroContrato && confirmedPropostaIds.has(p.numeroContrato.trim().toLowerCase()));
         return !hasCommission;
+      })
+      .filter(p => {
+        const promUpper = (p.promotora || '').toUpperCase().trim();
+        return promUpper !== 'ASSESSORIA' && !promUpper.includes('ASSESSORIA');
       })
       .filter(p => {
         const term = searchTerm.toLowerCase().trim();

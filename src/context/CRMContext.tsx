@@ -350,9 +350,12 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       dataInicioPersonalizada,
       dataFimPersonalizada,
       cleanMetas,
-      allUsers || []
+      allUsers || [],
+      storeState.comissoesPromotoras,
+      sheetExpenses,
+      storeState.contasPagar
     );
-  }, [cleanPropostas, dataInicioPersonalizada, dataFimPersonalizada, cleanMetas, allUsers]);
+  }, [cleanPropostas, dataInicioPersonalizada, dataFimPersonalizada, cleanMetas, allUsers, storeState.comissoesPromotoras, sheetExpenses, storeState.contasPagar]);
 
   return (
     <CRMContext.Provider

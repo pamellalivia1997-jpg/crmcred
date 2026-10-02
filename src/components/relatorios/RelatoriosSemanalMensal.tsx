@@ -9,13 +9,16 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import {
-  AreaChart,
-  Area,
+  ComposedChart,
+  Bar,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer
+  ResponsiveContainer,
+  ReferenceLine,
+  LabelList
 } from 'recharts';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
@@ -24,126 +27,110 @@ import { Promotora } from '../../types';
 import { calculateTotalExpensesFromSheet, calculateSellerCostFromSheet } from '../../services/expensesSheetService';
 import { SmartFilter } from '../common/SmartFilter';
 
+const CustomXAxisTick = (props: any) => {
+  const { x, y, payload } = props;
+  const isSemDados = ['Out/25', 'Nov/25', 'Dez/25'].includes(payload.value);
+
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text
+        x={0}
+        y={0}
+        dy={14}
+        textAnchor="middle"
+        fill={isSemDados ? '#cbd5e1' : '#64748b'}
+        className={`text-[10px] sm:text-xs font-semibold ${isSemDados ? 'opacity-50 dark:opacity-30' : ''}`}
+      >
+        {payload.value}
+      </text>
+      {isSemDados && (
+        <text
+          x={0}
+          y={14}
+          dy={10}
+          textAnchor="middle"
+          fill="#94a3b8"
+          className="text-[8px] sm:text-[9px] font-bold opacity-60 dark:opacity-40"
+        >
+          sem dados
+        </text>
+      )}
+    </g>
+  );
+};
+
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    const isSemDados = data.semDados;
+
+    return (
+      <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-md text-xs space-y-1.5 animate-in fade-in duration-100">
+        <p className="font-extrabold text-slate-900 dark:text-white">
+          {label} {isSemDados ? ' (Sem Dados)' : ''}
+        </p>
+        {isSemDados ? (
+          <p className="text-slate-400 font-semibold italic">Sem receita registrada neste período</p>
+        ) : (
+          <div className="space-y-1">
+            <div className="flex items-center justify-between gap-6">
+              <span className="flex items-center gap-1.5 text-blue-600 font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-600" /> Receita:
+              </span>
+              <span className="font-bold text-slate-900 dark:text-white font-mono tabular-nums">
+                {formatCurrency(data.receita)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-6">
+              <span className="flex items-center gap-1.5 text-rose-500 font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" /> Despesa:
+              </span>
+              <span className="font-bold text-slate-900 dark:text-white font-mono tabular-nums">
+                {formatCurrency(data.despesas)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-6 pt-1 border-t border-slate-100 dark:border-slate-800">
+              <span className="flex items-center gap-1.5 text-emerald-500 font-semibold">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Lucro:
+              </span>
+              <span className={`font-black font-mono tabular-nums ${data.lucro >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                {formatCurrency(data.lucro)}
+              </span>
+            </div>
+            {data.receita > 0 && (
+              <div className="flex items-center justify-between gap-6 pt-1 text-[10px] text-slate-400 font-semibold">
+                <span>Margem Líquida:</span>
+                <span className="font-mono tabular-nums">
+                  {formatPercent((data.lucro / data.receita) * 100, 2)}
+                </span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+  return null;
+};
+
 export const RelatoriosSemanalMensal: React.FC = () => {
   const {
-    propostas,
-    contasPagar,
-    comissoesPromotoras,
-    sheetExpenses,
     dataInicioPersonalizada,
     setDataInicioPersonalizada,
     dataFimPersonalizada,
-    setDataFimPersonalizada
+    setDataFimPersonalizada,
+    dashboardMetrics,
+    comissoesPromotoras,
+    sheetExpenses,
+    propostas
   } = useCRM();
-  const { allUsers } = useAuth();
 
-  // Filter propostas by period ("De" e "Até") and exclude ASSESSORIA strictly by dataDigitacao
-  const filteredPropostas = useMemo(() => {
-    return propostas.filter(p => {
-      const dataDigi = p.dataDigitacao ? p.dataDigitacao.substring(0, 10) : '';
-      if (!dataDigi) return false;
-
-      const dentroDoPeriodo =
-        (!dataInicioPersonalizada || dataDigi >= dataInicioPersonalizada) &&
-        (!dataFimPersonalizada || dataDigi <= dataFimPersonalizada);
-
-      const promotoraUpper = (p.promotora || '').toUpperCase().trim();
-      const naoEhAssessoria = promotoraUpper !== 'ASSESSORIA' && !promotoraUpper.includes('ASSESSORIA');
-
-      return dentroDoPeriodo && naoEhAssessoria;
-    });
-  }, [propostas, dataInicioPersonalizada, dataFimPersonalizada]);
-
-  // Contratos pagos no período
-  const paidPropostas = useMemo(() => {
-    return filteredPropostas.filter(p => p.status === 'Paga');
-  }, [filteredPropostas]);
-
-  // Regra de Negócio: Taxa só é contabilizada se taxaPaga === true || String(taxaPaga).toUpperCase() === 'SIM' || clientePagouTaxa === true
-  const totalTaxasArrecadadas = useMemo(() => {
-    return filteredPropostas
-      .filter(p => p.taxaPaga === true || String(p.taxaPaga).toUpperCase() === 'SIM' || p.clientePagouTaxa === true)
-      .reduce((acc, p) => acc + (p.valorTaxa || 0), 0);
-  }, [filteredPropostas]);
-
-  // Total Comissões de Promotoras no período
-  const totalComissoesPromotoras = useMemo(() => {
-    const paidIds = new Set(paidPropostas.map(p => p.id));
-    return comissoesPromotoras
-      .filter(c => paidIds.has(c.propostaId) && c.status === 'confirmada')
-      .reduce((acc, c) => acc + (c.valorRecebido || 0), 0);
-  }, [paidPropostas, comissoesPromotoras]);
-
-  // Faturamento Bruto Consolidado (Taxas Pagas + Comissões Promotoras)
+  const totalTaxasArrecadadas = dashboardMetrics.totalTaxas;
+  const totalComissoesPromotoras = dashboardMetrics.totalComissoesPromotoras;
   const totalFaturamentoPeriodo = totalTaxasArrecadadas + totalComissoesPromotoras;
-
-  // Despesas no período via Google Sheets (Coluna L onde Coluna K preenchida no intervalo De/Até)
-  const totalDespesasPeriodo = useMemo(() => {
-    if (sheetExpenses && sheetExpenses.length > 0) {
-      return calculateTotalExpensesFromSheet(sheetExpenses, dataInicioPersonalizada, dataFimPersonalizada);
-    }
-    const cp = contasPagar.filter(c => {
-      if (!c.vencimento) return false;
-      if (dataInicioPersonalizada && c.vencimento < dataInicioPersonalizada) return false;
-      if (dataFimPersonalizada && c.vencimento > dataFimPersonalizada) return false;
-      return true;
-    });
-    return cp.reduce((acc, c) => acc + c.valor, 0);
-  }, [sheetExpenses, contasPagar, dataInicioPersonalizada, dataFimPersonalizada]);
-
-  // Lucro Líquido
-  const lucroLiquidoPeriodo = totalFaturamentoPeriodo - totalDespesasPeriodo;
-
-  // Rentabilidade Líquida por Atendente (Cruzamento Pix com Google Sheets)
-  const employeeProfitability = useMemo(() => {
-    const sellers = allUsers.filter(u => u.role === 'vendedora' && u.status === 'ativo');
-    const result = sellers.map(emp => {
-      const empProps = paidPropostas.filter(p => {
-        if (!p.vendedora) return false;
-        const vLower = p.vendedora.toLowerCase();
-        const isEmpBianca = emp.name.toLowerCase().includes('bianca') || (emp.salesName && emp.salesName.toLowerCase().includes('bianca'));
-        const isPropIgarassu = vLower.includes('igarassu') || vLower.includes('loja');
-        if (isEmpBianca && isPropIgarassu) return true;
-
-        const normP = normalizeSellerName(p.vendedora);
-        const normName = normalizeSellerName(emp.name);
-        const normSales = normalizeSellerName(emp.salesName);
-        return normP === normName || normP === normSales || normP.includes(normName) || normName.includes(normP);
-      });
-
-      const vendas = empProps.reduce((acc, p) => acc + p.valorEmprestimo, 0);
-      const taxas = empProps
-        .filter(p => p.taxaPaga === true || p.clientePagouTaxa === true)
-        .reduce((acc, p) => acc + p.valorTaxa, 0);
-
-      // Comissão promotora confirmada
-      const comissaoPromotora = comissoesPromotoras
-        .filter(c => empProps.some(p => p.id === c.propostaId) && c.status === 'confirmada')
-        .reduce((acc, c) => acc + c.valorRecebido, 0);
-
-      // Custo somando da planilha do Google Sheets Coluna L onde Coluna K preenchida
-      let custo = 0;
-      if (sheetExpenses && sheetExpenses.length > 0) {
-        custo = calculateSellerCostFromSheet(sheetExpenses, emp, dataInicioPersonalizada, dataFimPersonalizada);
-      }
-      if (custo === 0 && emp.baseSalaryCost) {
-        custo = emp.baseSalaryCost;
-      }
-
-      const rentabilidadeLiquida = (taxas + comissaoPromotora) - custo;
-
-      return {
-        nome: emp.salesName || emp.name,
-        vendas,
-        taxas,
-        comissaoPromotora,
-        custo,
-        rentabilidadeLiquida
-      };
-    });
-
-    return result.sort((a, b) => b.rentabilidadeLiquida - a.rentabilidadeLiquida);
-  }, [paidPropostas, allUsers, comissoesPromotoras, sheetExpenses, dataInicioPersonalizada, dataFimPersonalizada]);
+  const totalDespesasPeriodo = dashboardMetrics.totalDespesas;
+  const lucroLiquidoPeriodo = dashboardMetrics.lucroLiquido;
+  const employeeProfitability = dashboardMetrics.employeeProfitability;
 
   // 12-Month Financial Evolution: Receitas, Despesas do Google Sheets e Lucro
   const evolutionFinanceiraReceitaDespesa = useMemo(() => {
@@ -191,12 +178,14 @@ export const RelatoriosSemanalMensal: React.FC = () => {
       }
 
       const lucro = receitaTotal - despesas;
+      const isSemDados = receitaTotal === 0;
 
       return {
         mes: m.label,
-        receita: receitaTotal,
-        despesas,
-        lucro
+        receita: isSemDados ? 0 : receitaTotal,
+        despesas: isSemDados ? 0 : despesas,
+        lucro: isSemDados ? undefined : lucro,
+        semDados: isSemDados
       };
     });
   }, [propostas, comissoesPromotoras, sheetExpenses]);
@@ -215,7 +204,7 @@ export const RelatoriosSemanalMensal: React.FC = () => {
   return (
     <div className="space-y-5 pb-20 md:pb-8">
       {/* Header & Simplified "De" / "Até" Filter Bar */}
-      <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
         <div>
           <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
             <TrendingUp className="w-6 h-6 text-[#0F5C63]" />
@@ -227,43 +216,54 @@ export const RelatoriosSemanalMensal: React.FC = () => {
         </div>
 
         {/* Smart Period Filter synchronized with Painel Gerencial */}
-        <SmartFilter
-          dataInicio={dataInicioPersonalizada}
-          dataFim={dataFimPersonalizada}
-          onChangeRange={(range) => {
-            setDataInicioPersonalizada(range.dataInicio);
-            setDataFimPersonalizada(range.dataFim);
-          }}
-        />
+        <div className="w-full pt-3 border-t border-slate-100 dark:border-slate-800">
+          <SmartFilter
+            dataInicio={dataInicioPersonalizada}
+            dataFim={dataFimPersonalizada}
+            onChangeRange={(range) => {
+              setDataInicioPersonalizada(range.dataInicio);
+              setDataFimPersonalizada(range.dataFim);
+            }}
+          />
+        </div>
       </div>
 
       {/* Unified Financial Metrics Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
-          <span className="text-xs font-semibold text-slate-500">Faturamento Bruto Consolidado</span>
-          <p className="text-2xl font-black text-slate-900 dark:text-white tabular-nums mt-0.5">
+          <span className="text-xs font-semibold text-slate-500">Receita Total</span>
+          <p className="text-2xl font-black text-blue-600 dark:text-blue-400 font-mono tabular-nums mt-0.5">
             {formatCurrency(totalFaturamentoPeriodo)}
           </p>
-          <p className="text-[11px] text-teal-600 mt-1 flex items-center justify-between">
-            <span>Taxas Pagas: {formatCurrency(totalTaxasArrecadadas)}</span>
-            <span>Repasses: {formatCurrency(totalComissoesPromotoras)}</span>
-          </p>
+          <p className="text-[11px] text-slate-400 mt-1">Taxas arrecadadas + repasses de comissões</p>
         </div>
 
         <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
-          <span className="text-xs font-semibold text-slate-500">Despesas & Custos do Período</span>
-          <p className="text-2xl font-black text-rose-600 tabular-nums mt-0.5">
+          <span className="text-xs font-semibold text-slate-500">Despesa Total</span>
+          <p className="text-2xl font-black text-rose-600 dark:text-rose-400 font-mono tabular-nums mt-0.5">
             {formatCurrency(totalDespesasPeriodo)}
           </p>
-          <p className="text-[11px] text-slate-400 mt-1">Estrutura operacional + Folha salarial</p>
+          <p className="text-[11px] text-slate-400 mt-1">Custo operacional + folha salarial</p>
         </div>
 
-        <div className="bg-gradient-to-br from-emerald-500 to-teal-700 text-white p-4 rounded-2xl shadow-md">
-          <span className="text-xs font-bold uppercase tracking-wider text-emerald-100">Resultado Líquido do Período</span>
-          <p className="text-2xl font-black tabular-nums mt-0.5">
+        <div className={`p-4 rounded-2xl border shadow-xs transition-colors ${
+          lucroLiquidoPeriodo >= 0
+            ? 'bg-emerald-50/60 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/80'
+            : 'bg-rose-50/60 dark:bg-rose-950/20 border-rose-200 dark:border-rose-800/80'
+        }`}>
+          <span className={`text-xs font-semibold ${
+            lucroLiquidoPeriodo >= 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400'
+          }`}>
+            Lucro Líquido Total
+          </span>
+          <p className={`text-2xl font-black font-mono tabular-nums mt-0.5 ${
+            lucroLiquidoPeriodo >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+          }`}>
             {formatCurrency(lucroLiquidoPeriodo)}
           </p>
-          <p className="text-[11px] text-emerald-100 mt-1">
+          <p className={`text-[11px] mt-1 font-medium ${
+            lucroLiquidoPeriodo >= 0 ? 'text-emerald-600/80 dark:text-emerald-400/80' : 'text-rose-600/80 dark:text-rose-400/80'
+          }`}>
             Margem Líquida: {totalFaturamentoPeriodo > 0 ? formatPercent((lucroLiquidoPeriodo / totalFaturamentoPeriodo) * 100, 2) : '0%'}
           </p>
         </div>
@@ -295,32 +295,36 @@ export const RelatoriosSemanalMensal: React.FC = () => {
 
         <div className="h-80 sm:h-96 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={evolutionFinanceiraReceitaDespesa} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-              <defs>
-                <linearGradient id="receitaFinGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4} />
-                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.0} />
-                </linearGradient>
-                <linearGradient id="despesasFinGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#f43f5e" stopOpacity={0.4} />
-                  <stop offset="95%" stopColor="#f43f5e" stopOpacity={0.0} />
-                </linearGradient>
-                <linearGradient id="lucroFinGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
-                  <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
-                </linearGradient>
-              </defs>
+            <ComposedChart data={evolutionFinanceiraReceitaDespesa} margin={{ top: 20, right: 10, left: -20, bottom: 5 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148, 163, 184, 0.2)" />
-              <XAxis dataKey="mes" tick={{ fontSize: 11 }} stroke="#94a3b8" />
-              <YAxis tick={{ fontSize: 10 }} tickFormatter={(val) => `R$${(val / 1000).toFixed(0)}k`} stroke="#94a3b8" />
-              <Tooltip
-                formatter={(value: any) => [formatCurrency(Number(value)), '']}
-                contentStyle={{ borderRadius: '12px', fontSize: '12px' }}
-              />
-              <Area type="monotone" dataKey="receita" name="Receita" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#receitaFinGrad)" />
-              <Area type="monotone" dataKey="despesas" name="Despesa" stroke="#f43f5e" strokeWidth={1.5} fillOpacity={1} fill="url(#despesasFinGrad)" />
-              <Area type="monotone" dataKey="lucro" name="Lucro Líquido" stroke="#10b981" strokeWidth={2.5} fillOpacity={1} fill="url(#lucroFinGrad)" />
-            </AreaChart>
+              <XAxis dataKey="mes" tick={<CustomXAxisTick />} stroke="#94a3b8" interval={0} height={45} />
+              <YAxis tick={{ fontSize: 10 }} tickFormatter={(val) => `R$ ${(val / 1000).toFixed(0)}k`} stroke="#94a3b8" tickCount={5} />
+              <ReferenceLine y={0} stroke="#64748b" strokeWidth={1.5} strokeDasharray="3 3" />
+              <Tooltip content={<CustomTooltip />} />
+              <Bar dataKey="receita" name="Receita" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={16} />
+              <Bar dataKey="despesas" name="Despesa" fill="#ef4444" radius={[4, 4, 0, 0]} barSize={16} />
+              <Line
+                type="linear"
+                dataKey="lucro"
+                name="Lucro Líquido"
+                stroke="#10b981"
+                strokeWidth={3}
+                dot={{ r: 5, strokeWidth: 2, fill: '#fff' }}
+                activeDot={{ r: 7 }}
+                connectNulls={false}
+              >
+                <LabelList
+                  dataKey="lucro"
+                  position="top"
+                  formatter={(val: number) => {
+                    if (val === undefined || val === null) return '';
+                    const kVal = (val / 1000).toFixed(0);
+                    return `R$ ${kVal}k`;
+                  }}
+                  style={{ fill: '#10b981', fontSize: 10, fontWeight: 'bold' }}
+                />
+              </Line>
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
       </div>

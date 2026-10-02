@@ -46,7 +46,7 @@ type SortField =
   | 'taxaPaga';
 
 export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = null, initialSearchTerm = '' }) => {
-  const { propostas, updateStatusProposta } = useCRM();
+  const { propostas, updateStatusProposta, dashboardMetrics } = useCRM();
   const { currentUser } = useAuth();
 
   const [viewMode, setViewMode] = useState<'kanban' | 'tabela'>('tabela');
@@ -135,7 +135,14 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
 
   // Filter propostas
   const filteredPropostas = useMemo(() => {
-    return propostas.filter(p => {
+    // Start with the centralized list of propostas for month/personalizado, or full propostas for other views
+    let baseList = propostas;
+    
+    if (periodoFunil === 'mes' || periodoFunil === 'personalizado') {
+      baseList = dashboardMetrics.filteredPropostas;
+    }
+
+    return baseList.filter(p => {
       // If digitador, only show proposals typed by this user
       if (isDigitador) {
         const matchDigitador =
@@ -145,17 +152,14 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
         if (!matchDigitador) return false;
       }
 
-      // Period filter
-      const refDate = p.dataPagamentoCliente || p.dataDigitacao || '';
-      if (periodoFunil === 'hoje') {
-        if (refDate !== periodDateLimits.todayStr) return false;
-      } else if (periodoFunil === '7d') {
-        if (refDate < periodDateLimits.d7Str) return false;
-      } else if (periodoFunil === 'mes') {
-        if (!refDate.startsWith(periodDateLimits.mesAtualStr)) return false;
-      } else if (periodoFunil === 'personalizado') {
-        if (dataInicioCustom && refDate < dataInicioCustom) return false;
-        if (dataFimCustom && refDate > dataFimCustom) return false;
+      // Period filter only applies if we aren't using the central dashboard list
+      if (periodoFunil !== 'mes' && periodoFunil !== 'personalizado') {
+        const refDate = p.dataDigitacao ? p.dataDigitacao.substring(0, 10) : '';
+        if (periodoFunil === 'hoje') {
+          if (refDate !== periodDateLimits.todayStr) return false;
+        } else if (periodoFunil === '7d') {
+          if (refDate < periodDateLimits.d7Str) return false;
+        }
       }
 
       // Search match
@@ -181,11 +185,10 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
     });
   }, [
     propostas,
+    dashboardMetrics.filteredPropostas,
     searchTerm,
     periodoFunil,
     periodDateLimits,
-    dataInicioCustom,
-    dataFimCustom,
     filterVendedora,
     filterOperacao,
     filterBanco,

@@ -319,11 +319,11 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
     return { totalMonthSales, outrosTotal, outrosCount, monthProposals };
   }, [propostas, selectedMesAno, sellersList]);
 
-  // All operational team members (vendedoras, digitadoras, etc.) for feedback evaluation without duplicate names
+  // All operational team members (vendedoras, digitadoras) for feedback evaluation without duplicate names
   const operationalTeam = useMemo(() => {
     const map = new Map<string, User>();
     allUsers.forEach(u => {
-      if (u.status === 'ativo' && u.role !== 'proprietaria') {
+      if (u.status === 'ativo' && (u.role === 'vendedora' || u.role === 'digitador')) {
         const normName = u.name.trim();
         const key = normName.toLowerCase();
         if (!map.has(key)) {
@@ -383,7 +383,7 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
         <div>
           <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
             <Target className="w-6 h-6 text-purple-600" />
-            <span>Gestão de Equipe em Feedbacks & PDI</span>
+            <span>Gestão de Equipe</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
             Gerenciamento centralizado de metas mensais e acompanhamento de feedbacks/PDI por colaborador
@@ -690,7 +690,7 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
             <form onSubmit={handleSaveFeedback} className="space-y-3 text-xs">
               <div>
                 <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Colaborador(a) Avaliado(a) (Atendente / Digitadora)
+                  Colaborador(a)
                 </label>
                 <select
                   value={fbVendedoraId}

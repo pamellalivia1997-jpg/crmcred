@@ -144,8 +144,8 @@ export const Sidebar: React.FC<Props> = ({
                   className={navItemClass(currentTab === 'adm')}
                 >
                   <div className="flex items-center gap-2.5">
-                    <Target className="w-4 h-4 text-purple-600" />
-                    <span>Gestão de Equipe em Feedbacks & PDI</span>
+                    <Target className="w-4 h-4" />
+                    <span>Gestão de Equipe</span>
                   </div>
                 </button>
 

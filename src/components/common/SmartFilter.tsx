@@ -99,13 +99,13 @@ export const SmartFilter: React.FC<SmartFilterProps> = ({
   const availableYears = [2025, 2026, 2027];
 
   return (
-    <div className="bg-white/95 dark:bg-slate-800/95 backdrop-blur-md border border-slate-200 dark:border-slate-700 rounded-2xl p-3.5 shadow-sm space-y-3">
+    <div className="w-full flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
       {/* Selector Mode Tabs */}
-      <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-900 rounded-xl">
+      <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-900 rounded-xl w-full sm:w-auto shrink-0">
         <button
           type="button"
           onClick={() => handleModeChange('mes')}
-          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+          className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
             mode === 'mes'
               ? 'bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-xs'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -118,7 +118,7 @@ export const SmartFilter: React.FC<SmartFilterProps> = ({
         <button
           type="button"
           onClick={() => handleModeChange('semana')}
-          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+          className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
             mode === 'semana'
               ? 'bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-xs'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -131,7 +131,7 @@ export const SmartFilter: React.FC<SmartFilterProps> = ({
         <button
           type="button"
           onClick={() => handleModeChange('personalizado')}
-          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+          className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
             mode === 'personalizado'
               ? 'bg-white dark:bg-slate-800 text-teal-700 dark:text-teal-400 shadow-xs'
               : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
@@ -143,7 +143,7 @@ export const SmartFilter: React.FC<SmartFilterProps> = ({
       </div>
 
       {/* Mode Controls */}
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:justify-end">
         {mode === 'mes' && (
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <select

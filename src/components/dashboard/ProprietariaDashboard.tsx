@@ -208,30 +208,10 @@ export const ProprietariaDashboard: React.FC<Props> = ({
     });
   }, [propostas, baseDateInfo]);
 
-  const totalComissoesPromotoras = useMemo(() => {
-    const periodIds = new Set(filteredPropostas.map(p => p.id));
-    return comissoesPromotoras
-      .filter(c => (periodIds.has(c.propostaId) || (c.dataRecebimento && c.dataRecebimento >= dateRange.dataInicio && c.dataRecebimento <= dateRange.dataFim)) && c.status === 'confirmada')
-      .reduce((acc, c) => acc + c.valorRecebido, 0);
-  }, [filteredPropostas, comissoesPromotoras, dateRange]);
-
+  const totalComissoesPromotoras = dashboardMetrics.totalComissoesPromotoras;
   const faturamentoBruto = totalTaxas + totalComissoesPromotoras;
-
-  // Expenses in current period from Google Sheets
-  const totalDespesas = useMemo(() => {
-    if (sheetExpenses && sheetExpenses.length > 0) {
-      return calculateTotalExpensesFromSheet(sheetExpenses, dateRange.dataInicio, dateRange.dataFim);
-    }
-    const cp = contasPagar.filter(c => {
-      if (!c.vencimento) return false;
-      if (dateRange.dataInicio && c.vencimento < dateRange.dataInicio) return false;
-      if (dateRange.dataFim && c.vencimento > dateRange.dataFim) return false;
-      return true;
-    });
-    return cp.reduce((acc, c) => acc + c.valor, 0);
-  }, [sheetExpenses, contasPagar, dateRange]);
-
-  const lucroLiquido = faturamentoBruto - totalDespesas;
+  const totalDespesas = dashboardMetrics.totalDespesas;
+  const lucroLiquido = dashboardMetrics.lucroLiquido;
   const margemLucro = faturamentoBruto > 0 ? (lucroLiquido / faturamentoBruto) * 100 : 0;
   const ticketMedio = paidPropostas.length > 0 ? totalVendas / paidPropostas.length : 0;
   const percentualMedioTaxa = totalVendas > 0 ? (totalTaxas / totalVendas) * 100 : 0;
@@ -606,68 +586,26 @@ export const ProprietariaDashboard: React.FC<Props> = ({
 
   return (
     <div className="space-y-5 pb-20 md:pb-8">
-      {/* Top Header Controls: Title, Secret Button, Settings, & Smart Period Filter */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
-        <div>
-          <div className="flex items-center gap-2">
-            <Award className="w-5 h-5 text-purple-600 shrink-0" />
-            <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-              Painel de Resultados Gerais
-            </h1>
-            {/* Secret System Health Indicator Button */}
-            <SystemHealthIndicator />
-            {/* Discrete Config / Shortcuts Dropdown Button */}
-            <div className="relative ml-1">
-              <button
-                onClick={() => setIsShortcutsOpen(!isShortcutsOpen)}
-                className="p-1 text-slate-400 hover:text-slate-700 dark:text-slate-500 dark:hover:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                title="Atalhos do Painel"
-              >
-                <Settings className="w-4 h-4" />
-              </button>
-              {isShortcutsOpen && (
-                <div className="absolute left-0 mt-1 w-48 bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-lg py-1.5 z-50 text-xs animate-in fade-in slide-in-from-top-1">
-                  <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    Opções Rápidas
-                  </div>
-                  <button
-                    onClick={() => {
-                      setIsShortcutsOpen(false);
-                      const text = `Resultados Gerais LiviaCred (${dateRange.dataInicio} a ${dateRange.dataFim}):\n- Total de Vendas: ${formatCurrency(totalVendas)}\n- Total de Taxas: ${formatCurrency(totalTaxas)}`;
-                      navigator.clipboard.writeText(text);
-                      setCopiedResumo(true);
-                      setTimeout(() => setCopiedResumo(false), 2000);
-                    }}
-                    className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700/50 font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5"
-                  >
-                    {copiedResumo ? (
-                      <Check className="w-3.5 h-3.5 text-emerald-500" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5 text-purple-500" />
-                    )}
-                    <span>{copiedResumo ? 'Copiado!' : 'Copiar Resumo'}</span>
-                  </button>
-                  <button
-                    onClick={() => {
-                      setIsShortcutsOpen(false);
-                      handleRangeChange({ dataInicio: '2026-09-01', dataFim: '2026-09-30' });
-                    }}
-                    className="w-full text-left px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-700/50 font-semibold text-slate-700 dark:text-slate-200 flex items-center gap-1.5"
-                  >
-                    <Sliders className="w-3.5 h-3.5 text-amber-500" />
-                    <span>Período Padrão</span>
-                  </button>
-                </div>
-              )}
+      {/* Top Header Controls: Title, Secret Button & Smart Period Filter */}
+      <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <Award className="w-5 h-5 text-purple-600 shrink-0" />
+              <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                Painel Gerencial
+              </h1>
+              {/* Secret System Health Indicator Button */}
+              <SystemHealthIndicator />
             </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Acompanhamento em tempo real de faturamento, comissões, ranking e rentabilidade.
+            </p>
           </div>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Acompanhamento em tempo real de faturamento, comissões, ranking e rentabilidade.
-          </p>
         </div>
 
-        {/* Smart Filter Component */}
-        <div className="w-full md:w-auto">
+        {/* Full-width horizontal filter bar */}
+        <div className="w-full pt-3 border-t border-slate-100 dark:border-slate-800">
           <SmartFilter
             dataInicio={dateRange.dataInicio}
             dataFim={dateRange.dataFim}

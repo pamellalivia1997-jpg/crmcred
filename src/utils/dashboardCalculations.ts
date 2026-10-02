@@ -1,4 +1,6 @@
-import { Proposta, MetaVendedora, User, StatusProposta } from '../types';
+import { Proposta, MetaVendedora, User, StatusProposta, ComissaoPromotora, ContaPagar } from '../types';
+import { isSameSeller, normalizeSellerName } from './formatters';
+import { calculateTotalExpensesFromSheet, calculateSellerCostFromSheet } from '../services/expensesSheetService';
 
 export interface SellerRankingItem {
   nome: string;
@@ -8,10 +10,22 @@ export interface SellerRankingItem {
   meta: number;
 }
 
+export interface EmployeeProfitabilityItem {
+  nome: string;
+  vendas: number;
+  taxas: number;
+  comissaoPromotora: number;
+  custo: number;
+  rentabilidadeLiquida: number;
+}
+
 export interface DashboardMetrics {
   filteredPropostas: Proposta[];
   totalVendas: number;
   totalTaxas: number;
+  totalComissoesPromotoras: number;
+  totalDespesas: number;
+  lucroLiquido: number;
   vendasPorVendedora: Record<string, number>;
   taxasPorVendedora: Record<string, number>;
   contratosPorVendedora: Record<string, number>;
@@ -19,6 +33,7 @@ export interface DashboardMetrics {
   propostasPorEtapa: Record<StatusProposta, number>;
   metaPeriodo: number;
   rankingVendedoras: SellerRankingItem[];
+  employeeProfitability: EmployeeProfitabilityItem[];
 }
 
 /**
@@ -44,8 +59,10 @@ export function getStandardizedSellerName(name?: string): string {
  */
 export function isFullClosedMonth(dataInicio: string, dataFim: string): boolean {
   if (!dataInicio || !dataFim) return false;
-  const startParts = dataInicio.split('-');
-  const endParts = dataFim.split('-');
+  const cleanStart = dataInicio.substring(0, 10);
+  const cleanEnd = dataFim.substring(0, 10);
+  const startParts = cleanStart.split('-');
+  const endParts = cleanEnd.split('-');
   if (startParts.length !== 3 || endParts.length !== 3) return false;
 
   // Must start on day 01
@@ -100,9 +117,13 @@ export function calculateMetaForPeriod(
     return storeMetaMonthly;
   }
 
-  const startMs = new Date(dataInicio).getTime();
-  const endMs = new Date(dataFim).getTime();
-  const diffDays = Math.max(1, Math.round((endMs - startMs) / (1000 * 60 * 60 * 24)) + 1);
+  const cleanStart = dataInicio.substring(0, 10);
+  const cleanEnd = dataFim.substring(0, 10);
+  const sParts = cleanStart.split('-');
+  const eParts = cleanEnd.split('-');
+  const sDate = new Date(parseInt(sParts[0]), parseInt(sParts[1]) - 1, parseInt(sParts[2]));
+  const eDate = new Date(parseInt(eParts[0]), parseInt(eParts[1]) - 1, parseInt(eParts[2]));
+  const diffDays = Math.max(1, Math.round((eDate.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
   const periodMultiplier = diffDays / 30;
 
   return storeMetaMonthly * periodMultiplier;
@@ -117,14 +138,20 @@ export function calculateDashboardMetrics(
   dataInicio: string,
   dataFim: string,
   metas: MetaVendedora[],
-  users: User[]
+  users: User[],
+  comissoesPromotoras: ComissaoPromotora[] = [],
+  sheetExpenses: any[] = [],
+  contasPagar: ContaPagar[] = []
 ): DashboardMetrics {
+  const cleanStart = dataInicio.substring(0, 10);
+  const cleanEnd = dataFim.substring(0, 10);
+
   // 1. Filter proposals strictly within dateRange by dataDigitacao and excluding "ASSESSORIA" promotora
   const filteredPropostas = propostas.filter(p => {
     const dataDigi = p.dataDigitacao ? p.dataDigitacao.substring(0, 10) : '';
     if (!dataDigi) return false;
 
-    const dentroDoPeriodo = dataDigi >= dataInicio && dataDigi <= dataFim;
+    const dentroDoPeriodo = dataDigi >= cleanStart && dataDigi <= cleanEnd;
 
     const promotoraUpper = (p.promotora || '').toUpperCase().trim();
     const naoEhAssessoria = promotoraUpper !== 'ASSESSORIA' && !promotoraUpper.includes('ASSESSORIA');
@@ -147,24 +174,25 @@ export function calculateDashboardMetrics(
     if (u.role !== 'vendedora') return false;
     if (u.status !== 'ativo') return false;
     const foundMeta = metas.find(m => 
-      (m.vendedoraId === u.id || 
-       m.vendedoraNome.toLowerCase().trim() === u.name.toLowerCase().trim() ||
-       (u.salesName && m.vendedoraNome.toLowerCase().trim() === u.salesName.toLowerCase().trim())) && 
-      m.mesAno === activeCompetenceMonth
+      m.vendedoraId === u.id || 
+      isSameSeller(m.vendedoraNome, u.name) ||
+      (u.salesName && isSameSeller(m.vendedoraNome, u.salesName))
     );
     if (foundMeta && foundMeta.isAtivoNoMes === false) return false;
     return true;
   });
 
   // 5. Proportionality for Meta
-  const startMs = new Date(dataInicio).getTime();
-  const endMs = new Date(dataFim).getTime();
-  const diffDays = Math.max(1, Math.round((endMs - startMs) / (1000 * 60 * 60 * 24)) + 1);
+  const sParts = cleanStart.split('-');
+  const eParts = cleanEnd.split('-');
+  const sDate = new Date(parseInt(sParts[0]), parseInt(sParts[1]) - 1, parseInt(sParts[2]));
+  const eDate = new Date(parseInt(eParts[0]), parseInt(eParts[1]) - 1, parseInt(eParts[2]));
+  const diffDays = Math.max(1, Math.round((eDate.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
   const periodMultiplier = isFullClosedMonth(dataInicio, dataFim) ? 1.0 : (diffDays / 30);
 
   const getSellerPeriodMeta = (user: any): number => {
     const foundMeta = metas.find(m => 
-      (m.vendedoraId === user.id || m.vendedoraNome.toLowerCase().trim() === user.name.toLowerCase().trim()) && 
+      (m.vendedoraId === user.id || isSameSeller(m.vendedoraNome, user.name)) && 
       m.mesAno === activeCompetenceMonth
     );
     return (foundMeta && foundMeta.metaVenda > 0) 
@@ -207,39 +235,38 @@ export function calculateDashboardMetrics(
     
     // Find active seller matching this standardized name
     const activeSeller = activeSellers.find(u => 
-      u.name === stdName || 
-      (u.salesName && u.salesName === stdName) ||
-      getStandardizedSellerName(u.name) === stdName ||
-      (u.salesName && getStandardizedSellerName(u.salesName) === stdName)
+      isSameSeller(u.name, stdName) || (u.salesName && isSameSeller(u.salesName, stdName))
     );
 
     const isTaxaPaid = p.taxaPaga === true || String(p.taxaPaga).toUpperCase() === 'SIM' || p.clientePagouTaxa === true;
+    const val = Number(p.valorEmprestimo || 0);
+    const taxaVal = Number(p.valorTaxa || 0);
 
     if (activeSeller) {
-      vendasPorVendedora[activeSeller.name] = (vendasPorVendedora[activeSeller.name] || 0) + Number(p.valorEmprestimo || 0);
+      vendasPorVendedora[activeSeller.name] = (vendasPorVendedora[activeSeller.name] || 0) + val;
       contratosPorVendedora[activeSeller.name] = (contratosPorVendedora[activeSeller.name] || 0) + 1;
       if (isTaxaPaid) {
-        taxasPorVendedora[activeSeller.name] = (taxasPorVendedora[activeSeller.name] || 0) + Number(p.valorTaxa || 0);
+        taxasPorVendedora[activeSeller.name] = (taxasPorVendedora[activeSeller.name] || 0) + taxaVal;
       }
 
       const rep = sellersMap.get(activeSeller.name);
       if (rep) {
-        rep.vendas += Number(p.valorEmprestimo || 0);
+        rep.vendas += val;
         if (isTaxaPaid) {
-          rep.taxa += Number(p.valorTaxa || 0);
+          rep.taxa += taxaVal;
         }
         rep.count += 1;
       }
     } else {
-      vendasPorVendedora['Outros'] = (vendasPorVendedora['Outros'] || 0) + Number(p.valorEmprestimo || 0);
+      vendasPorVendedora['Outros'] = (vendasPorVendedora['Outros'] || 0) + val;
       contratosPorVendedora['Outros'] = (contratosPorVendedora['Outros'] || 0) + 1;
       if (isTaxaPaid) {
-        taxasPorVendedora['Outros'] = (taxasPorVendedora['Outros'] || 0) + Number(p.valorTaxa || 0);
+        taxasPorVendedora['Outros'] = (taxasPorVendedora['Outros'] || 0) + taxaVal;
       }
 
-      outrosVendas += Number(p.valorEmprestimo || 0);
+      outrosVendas += val;
       if (isTaxaPaid) {
-        outrosTaxa += Number(p.valorTaxa || 0);
+        outrosTaxa += taxaVal;
       }
       outrosCount += 1;
     }
@@ -279,16 +306,84 @@ export function calculateDashboardMetrics(
 
   const metaPeriodo = calculateMetaForPeriod(dataInicio, dataFim, metas, users);
 
+  // 9. Total commissions and expenses
+  const paidIds = new Set(contratosFormalizadosEPagos.map(p => p.id));
+  const totalComissoesPromotoras = comissoesPromotoras
+    .filter(c => paidIds.has(c.propostaId) && c.status === 'confirmada')
+    .reduce((acc, c) => acc + (c.valorRecebido || 0), 0);
+
+  let totalDespesas = 0;
+  if (sheetExpenses && sheetExpenses.length > 0) {
+    totalDespesas = calculateTotalExpensesFromSheet(sheetExpenses, cleanStart, cleanEnd);
+  } else {
+    const cp = contasPagar.filter(c => {
+      if (!c.vencimento) return false;
+      return c.vencimento >= cleanStart && c.vencimento <= cleanEnd;
+    });
+    totalDespesas = cp.reduce((acc, c) => acc + c.valor, 0);
+  }
+
+  const faturamentoBruto = totalTaxas + totalComissoesPromotoras;
+  const lucroLiquido = faturamentoBruto - totalDespesas;
+
+  // 10. Rentabilidade Líquida por Atendente (Employee Profitability)
+  const employeeProfitability = activeSellers.map(emp => {
+    const empProps = contratosFormalizadosEPagos.filter(p => {
+      if (!p.vendedora) return false;
+      const vLower = p.vendedora.toLowerCase();
+      const isEmpBianca = emp.name.toLowerCase().includes('bianca') || (emp.salesName && emp.salesName.toLowerCase().includes('bianca'));
+      const isPropIgarassu = vLower.includes('igarassu') || vLower.includes('loja');
+      if (isEmpBianca && isPropIgarassu) return true;
+
+      const normP = normalizeSellerName(p.vendedora);
+      const normName = normalizeSellerName(emp.name);
+      const normSales = normalizeSellerName(emp.salesName);
+      return normP === normName || normP === normSales || normP.includes(normName) || normName.includes(normP);
+    });
+
+    const vendas = empProps.reduce((acc, p) => acc + p.valorEmprestimo, 0);
+    const taxas = empProps
+      .filter(p => p.taxaPaga === true || p.clientePagouTaxa === true)
+      .reduce((acc, p) => acc + p.valorTaxa, 0);
+
+    const comissaoPromotora = comissoesPromotoras
+      .filter(c => empProps.some(p => p.id === c.propostaId) && c.status === 'confirmada')
+      .reduce((acc, c) => acc + c.valorRecebido, 0);
+
+    let custo = 0;
+    if (sheetExpenses && sheetExpenses.length > 0) {
+      custo = calculateSellerCostFromSheet(sheetExpenses, emp, cleanStart, cleanEnd);
+    }
+    if (custo === 0 && emp.baseSalaryCost) {
+      custo = emp.baseSalaryCost;
+    }
+
+    const rentabilidadeLiquida = (taxas + comissaoPromotora) - custo;
+
+    return {
+      nome: emp.salesName || emp.name,
+      vendas,
+      taxas,
+      comissaoPromotora,
+      custo,
+      rentabilidadeLiquida
+    };
+  }).sort((a, b) => b.rentabilidadeLiquida - a.rentabilidadeLiquida);
+
   return {
     filteredPropostas,
     totalVendas,
     totalTaxas,
+    totalComissoesPromotoras,
+    totalDespesas,
+    lucroLiquido,
     vendasPorVendedora,
     taxasPorVendedora,
     contratosPorVendedora,
     contratosFormalizadosEPagos,
     propostasPorEtapa,
     metaPeriodo,
-    rankingVendedoras
+    rankingVendedoras,
+    employeeProfitability
   };
 }

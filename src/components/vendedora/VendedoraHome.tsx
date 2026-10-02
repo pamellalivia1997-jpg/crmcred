@@ -269,7 +269,7 @@ export const VendedoraHome: React.FC<Props> = ({
     if (periodo === 'personalizado') {
       const startMs = new Date(dataInicioPersonalizada || '2026-09-01').getTime();
       const endMs = new Date(dataFimPersonalizada || '2026-09-30').getTime();
-      const diffDays = Math.max(1, Math.round((endMs - startMs) / (1000 * 60 * 60 * 24)));
+      const diffDays = Math.max(1, Math.round((endMs - startMs) / (1000 * 60 * 60 * 24)) + 1);
       return diffDays / 30;
     }
     return 1;
