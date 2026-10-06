@@ -59,6 +59,7 @@ interface CRMContextType {
   updateStatusProposta: (id: string, novoStatus: StatusProposta, motivo?: string) => void;
   saveComissaoPromotora: (comissao: ComissaoPromotora) => void;
   saveComissaoPromotoraBatch: (comissoes: ComissaoPromotora[]) => void;
+  deleteComissaoPromotora: (id: string) => void;
   saveContaPagar: (conta: ContaPagar) => void;
   marcarContaPaga: (id: string, data?: string) => void;
   saveMeta: (meta: MetaVendedora) => void;
@@ -237,6 +238,10 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     crmStorage.saveComissaoPromotoraBatch(comissoes, currentActor);
   };
 
+  const deleteComissaoPromotora = (id: string) => {
+    crmStorage.deleteComissaoPromotora(id, currentActor);
+  };
+
   const saveContaPagar = (conta: ContaPagar) => {
     crmStorage.saveContaPagar(conta);
   };
@@ -406,6 +411,7 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateStatusProposta,
         saveComissaoPromotora,
         saveComissaoPromotoraBatch,
+        deleteComissaoPromotora,
         saveContaPagar,
         marcarContaPaga,
         saveMeta,

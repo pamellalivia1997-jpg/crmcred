@@ -130,26 +130,21 @@ export async function processControladoriaGoogleSheetsWithStats(propostas: Propo
         });
       }
 
-      const deterministicId = matchedProp
-        ? `com-j2-${matchedProp.id}`
-        : `com-j2-row-${contrato || cpf || i}`;
-
       if (matchedProp) {
         matchedProposalIds.add(matchedProp.id);
+        newCommissions.push({
+          id: `com-j2-${matchedProp.id}`,
+          propostaId: matchedProp.id,
+          numeroContrato: matchedProp.numeroContrato || contrato,
+          clienteNome: matchedProp.nomeCliente,
+          promotora: 'J2 Promotora',
+          valorRecebido: repasse,
+          dataRecebimento: new Date().toISOString().split('T')[0],
+          tipo: 'fixo',
+          status: 'confirmada',
+          observacao: 'Sincronizado via Google Sheets (Aba J2)'
+        });
       }
-
-      newCommissions.push({
-        id: deterministicId,
-        propostaId: matchedProp?.id || '',
-        numeroContrato: matchedProp?.numeroContrato || contrato || 'J2',
-        clienteNome: matchedProp?.nomeCliente || clienteNome || 'Cliente J2',
-        promotora: 'J2 Promotora',
-        valorRecebido: repasse,
-        dataRecebimento: new Date().toISOString().split('T')[0],
-        tipo: 'fixo',
-        status: 'confirmada',
-        observacao: 'Sincronizado via Google Sheets (Aba J2)'
-      });
     }
   }
 
@@ -215,26 +210,21 @@ export async function processControladoriaGoogleSheetsWithStats(propostas: Propo
         });
       }
 
-      const deterministicId = matchedProp
-        ? `com-sem-${matchedProp.id}`
-        : `com-sem-row-${cpf || i}`;
-
       if (matchedProp) {
         matchedProposalIds.add(matchedProp.id);
+        newCommissions.push({
+          id: `com-sem-${matchedProp.id}`,
+          propostaId: matchedProp.id,
+          numeroContrato: matchedProp.numeroContrato || 'Sempre',
+          clienteNome: matchedProp.nomeCliente,
+          promotora: 'Sempre',
+          valorRecebido: repasse,
+          dataRecebimento: new Date().toISOString().split('T')[0],
+          tipo: 'fixo',
+          status: 'confirmada',
+          observacao: 'Sincronizado via Google Sheets (Aba Sempre)'
+        });
       }
-
-      newCommissions.push({
-        id: deterministicId,
-        propostaId: matchedProp?.id || '',
-        numeroContrato: matchedProp?.numeroContrato || 'Sempre',
-        clienteNome: matchedProp?.nomeCliente || String(r[1] || 'Cliente Sempre').trim(),
-        promotora: 'Sempre',
-        valorRecebido: repasse,
-        dataRecebimento: new Date().toISOString().split('T')[0],
-        tipo: 'fixo',
-        status: 'confirmada',
-        observacao: 'Sincronizado via Google Sheets (Aba Sempre)'
-      });
     }
   }
 
@@ -263,26 +253,21 @@ export async function processControladoriaGoogleSheetsWithStats(propostas: Propo
 
       contractSumMap.forEach((val, contrato) => {
         const matchedProp = targetPropostas.find(p => !matchedProposalIds.has(p.id) && cleanDigits(p.numeroContrato) === contrato);
-        const deterministicId = matchedProp
-          ? `com-${promotoraName.toLowerCase()}-${matchedProp.id}`
-          : `com-${promotoraName.toLowerCase()}-ctr-${contrato}`;
-
         if (matchedProp) {
           matchedProposalIds.add(matchedProp.id);
+          newCommissions.push({
+            id: `com-${promotoraName.toLowerCase()}-${matchedProp.id}`,
+            propostaId: matchedProp.id,
+            numeroContrato: matchedProp.numeroContrato || contrato,
+            clienteNome: matchedProp.nomeCliente,
+            promotora: promotoraName as any,
+            valorRecebido: val.sum,
+            dataRecebimento: new Date().toISOString().split('T')[0],
+            tipo: 'fixo',
+            status: 'confirmada',
+            observacao: `Sincronizado via Google Sheets (Aba ${promotoraName})`
+          });
         }
-
-        newCommissions.push({
-          id: deterministicId,
-          propostaId: matchedProp?.id || '',
-          numeroContrato: matchedProp?.numeroContrato || contrato,
-          clienteNome: matchedProp?.nomeCliente || val.clientName || `Cliente ${promotoraName}`,
-          promotora: promotoraName as any,
-          valorRecebido: val.sum,
-          dataRecebimento: new Date().toISOString().split('T')[0],
-          tipo: 'fixo',
-          status: 'confirmada',
-          observacao: `Sincronizado via Google Sheets (Aba ${promotoraName})`
-        });
       });
     }
   }

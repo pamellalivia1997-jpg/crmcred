@@ -118,6 +118,31 @@ function sanitizeStore(store: CRMDataStore): { sanitized: CRMDataStore; modified
     modified = true;
   }
 
+  // Purge false/sample commissions (QWERTY, unmatched sample rows, seed)
+  if (Array.isArray(store.comissoesPromotoras)) {
+    const initialCount = store.comissoesPromotoras.length;
+    const toDeleteIds: string[] = [];
+    store.comissoesPromotoras = store.comissoesPromotoras.filter(c => {
+      if (!c || !c.clienteNome) return false;
+      const isFake =
+        c.clienteNome.toUpperCase().includes('QWERTY') ||
+        (c.numeroContrato === 'Sempre' && c.id?.startsWith('com-sem-row-')) ||
+        (c.numeroContrato === 'J2' && c.id?.startsWith('com-j2-row-')) ||
+        c.id?.startsWith('com-seed-');
+      if (isFake) {
+        toDeleteIds.push(c.id);
+        return false;
+      }
+      return true;
+    });
+    if (store.comissoesPromotoras.length !== initialCount) {
+      modified = true;
+      toDeleteIds.forEach(id => {
+        deleteItemFromFirestore('comissoesPromotoras', id);
+      });
+    }
+  }
+
   // Purge legacy mock/ghost clients and proposals if present in user local storage
   const hasWipedGhostDemo = typeof localStorage !== 'undefined' && localStorage.getItem('lviacred_ghost_demo_wiped_v1');
   if (!hasWipedGhostDemo) {
@@ -1220,6 +1245,22 @@ export const crmStorage = {
       idRecurso: 'batch-reconciliation',
       detalhes: `Importação em lote de ${comissoes.length} repasses de promotoras conciliados.`
     });
+  },
+
+  deleteComissaoPromotora(id: string, currentUser?: { id: string; name: string }): void {
+    currentStore.comissoesPromotoras = currentStore.comissoesPromotoras.filter(c => c.id !== id);
+    saveLocalStore(currentStore);
+    deleteItemFromFirestore('comissoesPromotoras', id);
+    if (currentUser) {
+      this.logAudit({
+        usuarioId: currentUser.id,
+        usuarioNome: currentUser.name,
+        acao: 'excluiu',
+        tipoRecurso: 'comissao',
+        idRecurso: id,
+        detalhes: `Excluiu lançamento de repasse da Controladoria.`
+      });
+    }
   },
 
   // CONTAS A PAGAR
