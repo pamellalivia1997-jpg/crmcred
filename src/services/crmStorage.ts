@@ -118,6 +118,26 @@ function sanitizeStore(store: CRMDataStore): { sanitized: CRMDataStore; modified
     modified = true;
   }
 
+  // Purge legacy mock/ghost clients and proposals if present in user local storage
+  const hasWipedGhostDemo = typeof localStorage !== 'undefined' && localStorage.getItem('lviacred_ghost_demo_wiped_v1');
+  if (!hasWipedGhostDemo) {
+    if (Array.isArray(store.clientes)) {
+      store.clientes = store.clientes.filter(c => 
+        !c.observacoes?.includes('Cliente muito fiel, prefere atendimento presencial em Igarassu') &&
+        !c.observacoes?.includes('Gosta de simulações com parcelas baixas no Pan')
+      );
+    }
+    if (Array.isArray(store.propostas)) {
+      store.propostas = store.propostas.filter(p => 
+        !p.observacoes?.includes('Proposta gerada no sistema. Convênio')
+      );
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('lviacred_ghost_demo_wiped_v1', 'true');
+    }
+    modified = true;
+  }
+
   return { sanitized: store, modified };
 }
 
@@ -299,11 +319,11 @@ export function initFirestoreRealtimeSync() {
 
           if (snapshot.empty) {
             const localItems = (currentStore as any)[coll];
-            // Empty operational collections are authoritative. Never upload
-            // generated demo data back to the cloud; clear the local cache.
-            if (coll !== 'users' && Array.isArray(localItems) && localItems.length > 0) {
-              (currentStore as any)[coll] = [];
-              saveLocalStore(currentStore);
+            // If local store has items that were imported/saved and Firestore collection is empty,
+            // push local items to Firestore so the cloud gets populated. NEVER wipe local data!
+            if (Array.isArray(localItems) && localItems.length > 0) {
+              console.log(`☁️ [Firestore] Coleção ${coll} vazia no Firestore. Enviando ${localItems.length} registros locais para a nuvem...`);
+              syncBatchToFirestore(coll, localItems);
             }
           } else {
             (currentStore as any)[coll] = items;
@@ -520,7 +540,7 @@ export const crmStorage = {
       clientes: []
     };
     saveLocalStore(currentStore);
-    notifySubscribers();
+    notify();
     try {
       // Clear propostas collection
       const propSnap = await getDocs(collection(db, 'propostas'));
@@ -542,7 +562,7 @@ export const crmStorage = {
     } catch (e) {
       console.warn('Erro ao limpar propostas e clientes do Firestore:', e);
     }
-    notifySubscribers();
+    notify();
   },
 
   async clearControladoriaData(): Promise<void> {
@@ -554,7 +574,7 @@ export const crmStorage = {
       comissoesPromotoras: []
     };
     saveLocalStore(currentStore);
-    notifySubscribers();
+    notify();
     try {
       const querySnap = await getDocs(collection(db, 'comissoesPromotoras'));
       const docs = querySnap.docs;
@@ -566,10 +586,11 @@ export const crmStorage = {
     } catch (e) {
       console.warn('Erro ao limpar comissoesPromotoras do Firestore:', e);
     }
-    notifySubscribers();
+    notify();
   },
 
   async purgeMockData(): Promise<string[]> {
+    const deletedIds: string[] = [];
     currentStore.propostas = currentStore.propostas.filter(p => {
       if (p.id && (p.id.startsWith('prop-sep26-') || p.id.startsWith('mock-') || p.id.startsWith('seed-'))) {
         deletedIds.push(p.id);
@@ -634,10 +655,10 @@ export const crmStorage = {
         currentStore.clientes[existingIndex] = formattedClient;
         updatedCount++;
       }
-
-      // Sync to Firestore
-      syncItemToFirestore('clientes', formattedClient.id, formattedClient);
     });
+
+    // Batch sync all imported clients to Firestore cloud in chunks of 400
+    syncBatchToFirestore('clientes', currentStore.clientes);
 
     this.logAudit({
       usuarioId: actor.id,
@@ -846,7 +867,9 @@ export const crmStorage = {
       chunk.forEach(op => {
         currentBatch.set(op.ref, op.data, { merge: true });
       });
-      currentBatch.commit().catch(err => {
+      currentBatch.commit().then(() => {
+        console.log(`✅ [Firestore] Lote de ${chunk.length} operações salvo na nuvem com sucesso!`);
+      }).catch(err => {
         console.error('Erro ao salvar lote no Firestore:', err);
       });
     }

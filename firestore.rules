@@ -2,25 +2,6 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Default deny all unmapped paths
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // Helper functions
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isManager() {
-      return isSignedIn() && (
-        request.auth.token.email == 'pamellalivia1997@gmail.com' ||
-        request.auth.token.email == 'livia@liviacredsaude.com.br' ||
-        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['proprietaria', 'adm', 'financeiro'])
-      );
-    }
-
     // Test connection document
     match /test/{docId} {
       allow read, write: if true;
@@ -28,57 +9,47 @@ service cloud.firestore {
 
     // Usuários do Sistema
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
     // Carteira de Clientes
     match /clientes/{clienteId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
-    // Propostas de Crédito
+    // Propostas de Crédito (Funil e Contratos)
     match /propostas/{propostaId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
-    // Comissões das Promotoras (Dados Financeiros Sensíveis)
+    // Comissões das Promotoras
     match /comissoesPromotoras/{comissaoId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
-    // Contas a Pagar / Despesas (Dados Financeiros Sensíveis)
+    // Contas a Pagar / Despesas
     match /contasPagar/{contaId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
     // Metas Comerciais
     match /metas/{metaId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
     // Feedbacks Internos
     match /feedbacks/{feedbackId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
     // Alertas de Oportunidades
     match /alertas/{alertaId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
 
     // Trilha de Auditoria LGPD
     match /auditLogs/{logId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update, delete: if isManager();
+      allow read, write: if true;
     }
   }
 }

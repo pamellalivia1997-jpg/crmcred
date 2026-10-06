@@ -183,6 +183,20 @@ function generateCPF(i: number): string {
 }
 
 export function generateSeedData() {
+  return {
+    users: INITIAL_USERS,
+    clientes: [] as Cliente[],
+    propostas: [] as Proposta[],
+    comissoesPromotoras: [] as ComissaoPromotora[],
+    contasPagar: [] as ContaPagar[],
+    metas: [] as MetaVendedora[],
+    feedbacks: [] as Feedback[],
+    alertas: [] as AlertaOportunidade[],
+    auditLogs: [] as AuditLog[]
+  };
+}
+
+export function generateSeedDataOld() {
   const clientes: Cliente[] = [];
   const propostas: Proposta[] = [];
   const comissoesPromotoras: ComissaoPromotora[] = [...SPREADSHEET_COMMISSIONS_SEED];
