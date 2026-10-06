@@ -137,58 +137,65 @@ function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: str
   let colValorEmp = -1;
   let colValorTaxa = -1;
   let colClientePagou = -1;
+  let colPercentTaxa = -1;
   let colVendedora = -1;
   let colDigitador = -1;
   let colContrato = -1;
   let colLink = -1;
   let colStatus = -1;
+  let colObs = -1;
 
   if (headerRow) {
     headerRow.forEach((h, idx) => {
-      const cleanH = h.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
+      const raw = h.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+      const clean = raw.replace(/[^a-z0-9]/g, '');
 
-      if (cleanH.includes('cpf') || cleanH.includes('documento')) {
+      // Specific multi-word detection to prevent cross-contamination
+      if (clean.includes('cpf')) {
         colCpf = idx;
-      } else if ((cleanH.includes('nome') || cleanH.includes('cliente')) && !cleanH.includes('pagou') && !cleanH.includes('cpf')) {
-        if (colNome < 0) colNome = idx;
-      } else if (cleanH.includes('telefone') || cleanH.includes('fone') || cleanH.includes('celular') || cleanH.includes('whatsapp')) {
+      } else if (clean.includes('nomedocliente') || (clean.startsWith('nome') && !clean.includes('promotora') && !clean.includes('banco') && !clean.includes('mae'))) {
+        colNome = idx;
+      } else if (clean.includes('telefone') || clean.includes('celular') || clean.includes('fone') || clean.includes('whatsapp')) {
         colTel = idx;
-      } else if (cleanH.includes('digitacao') || cleanH.includes('datadadigitacao')) {
+      } else if (clean.includes('digitacao') || clean.includes('datadagitacao')) {
         colDataDig = idx;
-      } else if (cleanH.includes('pagamento') || cleanH.includes('datadopagamento') || cleanH.includes('pgto')) {
+      } else if (clean.includes('datapagamento') || clean.includes('datadopagamento') || (clean.includes('pagamento') && clean.includes('cliente'))) {
         colDataPag = idx;
-      } else if (cleanH.includes('convenio') || cleanH.includes('conven')) {
-        colConvenio = idx;
-      } else if (cleanH.includes('operacao') || cleanH.includes('operac') || cleanH.includes('formadevenda')) {
-        colOperacao = idx;
-      } else if (cleanH.includes('banco')) {
-        colBanco = idx;
-      } else if (cleanH.includes('promotora')) {
-        colPromotora = idx;
-      } else if (
-        (cleanH.includes('emprestimo') || cleanH.includes('liberado') || cleanH.includes('bruto') || cleanH.includes('valor')) &&
-        !cleanH.includes('taxa') && !cleanH.includes('assessoria') && !cleanH.includes('comissao')
-      ) {
-        if (colValorEmp < 0) colValorEmp = idx;
-      } else if (cleanH.includes('valordataxa') || cleanH.includes('taxadaassessoria') || (cleanH.includes('taxa') && !cleanH.includes('cartao') && !cleanH.includes('pagou')) || cleanH.includes('assessoria')) {
-        if (colValorTaxa < 0) colValorTaxa = idx;
-      } else if (cleanH.includes('clientepagou') || cleanH.includes('pagou')) {
+      } else if (clean.includes('pagamento') && !clean.includes('taxa')) {
+        colDataPag = idx;
+      } else if (clean.includes('clientepagou') || clean.includes('pagouataxa')) {
         colClientePagou = idx;
-      } else if (cleanH.includes('vendedor') || cleanH.includes('vendedora') || cleanH.includes('consultor')) {
-        colVendedora = idx;
-      } else if (cleanH.includes('digitador')) {
-        colDigitador = idx;
-      } else if (cleanH.includes('contrato') || cleanH.includes('ndocontrato') || cleanH.includes('proposta') || cleanH.includes('numero')) {
-        colContrato = idx;
-      } else if (cleanH.includes('anexar') || cleanH.includes('capa') || cleanH.includes('print') || cleanH.includes('link') || cleanH.includes('drive')) {
+      } else if (clean.includes('taxadocartao') || clean.includes('percentual') || clean.includes('taxacartao')) {
+        colPercentTaxa = idx;
+      } else if (clean.includes('valordataxa') || clean.includes('taxadaassessoria') || (clean.includes('taxa') && !clean.includes('cartao'))) {
+        colValorTaxa = idx;
+      } else if (clean.includes('valordoemprestimo') || clean.includes('emprestimoliberado') || clean.includes('valorliberado') || clean.includes('emprestimo')) {
+        colValorEmp = idx;
+      } else if (clean.includes('anexar') || clean.includes('capa') || clean.includes('print') || clean.includes('link') || clean.includes('drive')) {
         colLink = idx;
-      } else if (cleanH.includes('status') || cleanH.includes('situacao')) {
+      } else if (clean.includes('statusdocontrato') || clean.includes('status') || clean.includes('situacao')) {
         colStatus = idx;
+      } else if (clean.includes('nocontrato') || clean.includes('ndocontrato') || clean.includes('numerocontrato') || (clean.includes('contrato') && !clean.includes('status') && !clean.includes('capa'))) {
+        colContrato = idx;
+      } else if (clean.includes('digitador')) {
+        colDigitador = idx;
+      } else if (clean.includes('vendedor') || clean.includes('vendedora') || clean.includes('consultor')) {
+        colVendedora = idx;
+      } else if (clean.includes('convenio')) {
+        colConvenio = idx;
+      } else if (clean.includes('operacao') && !clean.includes('capa') && !clean.includes('print')) {
+        colOperacao = idx;
+      } else if (clean.includes('promotora')) {
+        colPromotora = idx;
+      } else if (clean.includes('banco')) {
+        colBanco = idx;
+      } else if (clean.includes('observacao') || clean.includes('observacoes')) {
+        colObs = idx;
       }
     });
   }
 
-  // Value-based fallback scanner if columns remain unmapped
+  // Value-based fallback scanner only for still unmapped columns
   const sampleDataRow = allRows[dataRowsIndex] || [];
   sampleDataRow.forEach((valCell, cIdx) => {
     const val = String(valCell || '').trim();
@@ -223,14 +230,16 @@ function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: str
     const cols = allRows[i];
     if (!cols || cols.length < 2) continue;
 
-    const cpfVal = colCpf >= 0 ? String(cols[colCpf] || '').trim() : '';
-    const nomeVal = colNome >= 0 ? String(cols[colNome] || '').trim() : '';
+    const rawCpf = colCpf >= 0 ? String(cols[colCpf] || '').trim() : '';
+    const rawNome = colNome >= 0 ? String(cols[colNome] || '').trim() : '';
+    const cleanNome = rawNome.replace(/^[\"\'\t\r\n\s]+|[\"\'\t\r\n\s]+$/g, '').trim();
+    const cleanCpf = rawCpf.replace(/^[\"\'\t\r\n\s]+|[\"\'\t\r\n\s]+$/g, '').trim();
 
-    if (!cpfVal && !nomeVal) continue;
+    if (!cleanCpf && !cleanNome) continue;
 
     resultRows.push({
-      cpf: cpfVal,
-      nomeCliente: nomeVal || 'Cliente',
+      cpf: cleanCpf,
+      nomeCliente: cleanNome || 'Cliente',
       telefone: colTel >= 0 ? String(cols[colTel] || '').trim() : '',
       dataDigitacao: colDataDig >= 0 ? String(cols[colDataDig] || '').trim() : '',
       dataPagamentoCliente: colDataPag >= 0 ? String(cols[colDataPag] || '').trim() : '',
@@ -240,6 +249,7 @@ function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: str
       promotora: colPromotora >= 0 ? String(cols[colPromotora] || '').trim() || 'J2 Promotora' : 'J2 Promotora',
       valorEmprestimo: colValorEmp >= 0 ? String(cols[colValorEmp] || '').trim() || '0' : '0',
       valorTaxa: colValorTaxa >= 0 ? String(cols[colValorTaxa] || '').trim() || '0' : '0',
+      percentualTaxa: colPercentTaxa >= 0 ? String(cols[colPercentTaxa] || '').trim() : '',
       clientePagou: colClientePagou >= 0 ? String(cols[colClientePagou] || '').trim() || 'NÃO' : 'NÃO',
       vendedora: colVendedora >= 0 ? String(cols[colVendedora] || '').trim() || defaultUser : defaultUser,
       digitador: colDigitador >= 0 ? String(cols[colDigitador] || '').trim() || defaultUser : defaultUser,

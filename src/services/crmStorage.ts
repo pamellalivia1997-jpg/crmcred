@@ -725,7 +725,8 @@ export const crmStorage = {
     const writeOperations: { ref: any; data: any }[] = [];
 
     rows.forEach((row, index) => {
-      if (!row.nomeCliente || !row.nomeCliente.trim()) return;
+      const rawNome = row.nomeCliente ? String(row.nomeCliente).replace(/^[\"\'\t\r\n\s]+|[\"\'\t\r\n\s]+$/g, '').trim() : '';
+      if (!rawNome) return;
 
       // 1. CPF Auto-Correction & Standardization
       const { cleanCpf, formattedCpf, wasCorrected } = standardizeCPF(row.cpf);
@@ -739,24 +740,31 @@ export const crmStorage = {
       const rawDatePagto = parseBrazilianDate(row.dataPagamentoCliente);
       const datePagamento = rawDatePagto || dateDigitacao;
       const rawContract = row.numeroContrato ? String(row.numeroContrato).trim() : '';
-      const cleanContract = rawContract ? rawContract : `CONTR-${cleanCpf}-${Date.now()}-${index}`;
+      const cleanContract = rawContract || '0';
 
       const rawSeller = row.vendedora && row.vendedora.trim() && row.vendedora !== '0' ? row.vendedora.trim() : actor.name || 'Hellen Vasconcelos';
       const sellerName = normalizeSellerName(rawSeller);
       const rawDigitador = row.digitador && row.digitador.trim() && row.digitador !== '0' ? row.digitador.trim() : sellerName;
       const digitadorName = normalizeSellerName(rawDigitador);
 
-      // 3. Find or Create/Update Client
-      const existingClientIdx = currentStore.clientes.findIndex(c => c.cpf.replace(/\D/g, '') === cleanCpf);
+      // 3. Find or Create/Update Client (robust against empty or zero CPFs)
+      const isValidCpf = cleanCpf && cleanCpf !== '00000000000';
+      const existingClientIdx = currentStore.clientes.findIndex(c => {
+        if (isValidCpf) {
+          return c.cpf.replace(/\D/g, '') === cleanCpf;
+        }
+        return c.nome.trim().toLowerCase() === rawNome.toLowerCase();
+      });
       let clientRecord: Cliente;
 
       const rawPhone = row.telefone && row.telefone.trim() && row.telefone.trim() !== '0' ? row.telefone.trim() : '(81) 98000-0000';
+      const clientId = isValidCpf ? cleanCpf : `CLI-${rawNome.toLowerCase().replace(/\W/g, '')}-${cleanCpf}`;
 
       if (existingClientIdx < 0) {
         clientRecord = {
-          id: cleanCpf,
-          cpf: cleanCpf,
-          nome: row.nomeCliente.trim(),
+          id: clientId,
+          cpf: isValidCpf ? cleanCpf : (row.cpf || cleanCpf),
+          nome: rawNome,
           dataNascimento: '1975-01-01',
           telefone: rawPhone,
           email: `${cleanCpf}@cliente.com`,
@@ -771,7 +779,7 @@ export const crmStorage = {
       } else {
         clientRecord = {
           ...currentStore.clientes[existingClientIdx],
-          nome: row.nomeCliente.trim() || currentStore.clientes[existingClientIdx].nome,
+          nome: rawNome || currentStore.clientes[existingClientIdx].nome,
           telefone: rawPhone !== '(81) 98000-0000' ? rawPhone : currentStore.clientes[existingClientIdx].telefone,
           vendedoraResponsavel: sellerName
         };
@@ -799,13 +807,22 @@ export const crmStorage = {
         isTaxaRealmentePaga = statusProp === 'Paga';
       }
 
-      // Deduplication check: CPF + Contrato + Valor + Data (todos juntos)
+      // Deduplication check: CPF + Contrato + Valor + Data + Operacao
       const isDuplicate = currentStore.propostas.some(p => {
         const sameCpf = p.cpf.replace(/\D/g, '') === cleanCpf;
-        const sameContract = p.numeroContrato.trim().toLowerCase() === cleanContract.trim().toLowerCase();
         const sameValor = Math.abs((p.valorEmprestimo || 0) - parsedEmp) < 0.01;
         const sameData = (p.dataDigitacao === dateDigitacao) || (p.dataPagamentoCliente === datePagamento);
-        return sameCpf && sameContract && sameValor && sameData;
+        const hasRealContract = rawContract && rawContract !== '0' && rawContract !== '-';
+
+        if (hasRealContract) {
+          const sameContract = p.numeroContrato.trim().toLowerCase() === rawContract.trim().toLowerCase();
+          return sameCpf && sameContract && sameValor && sameData;
+        }
+
+        const sameOp = (p.operacao || '').toLowerCase() === (row.operacao || '').toLowerCase();
+        const sameBanco = (p.banco || '').toLowerCase() === (row.banco || '').toLowerCase();
+        const sameLink = (p.linkDocumento || '') === (row.linkDocumento || '');
+        return sameCpf && sameOp && sameBanco && sameValor && sameData && sameLink;
       });
 
       if (isDuplicate) {
@@ -819,7 +836,7 @@ export const crmStorage = {
         id: proposalId,
         carimboDataHora: row.carimboDataHora || new Date().toISOString(),
         cpf: cleanCpf,
-        nomeCliente: row.nomeCliente.trim(),
+        nomeCliente: rawNome,
         dataDigitacao: dateDigitacao,
         dataPagamentoCliente: datePagamento,
         convenio: (row.convenio as Convenio) || 'INSS',
