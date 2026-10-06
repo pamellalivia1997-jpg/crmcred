@@ -21,6 +21,7 @@ interface AuthContextType {
   switchUser: (userId: string) => void;
   saveUser: (user: User) => void;
   approveUser: (userId: string, role?: UserRole) => void;
+  linkUserToPreRegistered: (pendingUserId: string, targetPreRegisteredUserId: string) => void;
   deleteUser: (userId: string) => void;
   hasRole: (roles: UserRole[]) => boolean;
   canAccessFinancial: () => boolean;
@@ -116,11 +117,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         u.email.toLowerCase().split('@')[0] === cleanInput
     );
 
-    // Support quick alias for manager testing ('123', 'gerencial', 'admin') mapped to management account
-    if (!found && (cleanInput === '123' || cleanInput === 'gerencial' || cleanInput === 'admin' || cleanInput === 'proprietaria' || cleanInput === 'livia')) {
-      found = users.find(u => u.email.toLowerCase() === 'pamellalivia1997@gmail.com') ||
-              users.find(u => u.role === 'proprietaria') ||
+    // Support quick alias:
+    // If input is 'geovanne', 'controladoria', 'financeiro', '123123', or '123' -> map to Geovanne (Controladoria)
+    if (!found && (
+      cleanInput === 'geovanne' ||
+      cleanInput === 'controladoria' ||
+      cleanInput === 'financeiro' ||
+      cleanInput === '123123' ||
+      cleanInput === '123'
+    )) {
+      found = users.find(u => u.id === 'Vq7wUkG7ltcanJjJmnEqYZOiiym1') ||
+              users.find(u => u.email.toLowerCase() === 'geovanne.arcelino@gmail.com') ||
+              users.find(u => u.role === 'financeiro');
+    }
+
+    // Support other aliases for manager accounts
+    if (!found && (cleanInput === 'pamella' || cleanInput === 'adm' || cleanInput === 'admin')) {
+      found = users.find(u => u.id === 'eRkG9KNI8AZMCtQGkrPAPc7g8PC3') ||
+              users.find(u => u.email.toLowerCase() === 'pamellalivia1997@gmail.com') ||
               users.find(u => u.role === 'adm');
+    }
+
+    if (!found && (cleanInput === 'livia' || cleanInput === 'gerencial' || cleanInput === 'proprietaria')) {
+      found = users.find(u => u.id === 'user-livia') ||
+              users.find(u => u.role === 'proprietaria');
     }
 
     if (found) {
@@ -137,7 +157,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const storedPassword = found.password && found.password.trim() !== '' ? found.password.trim() : null;
 
       let isAuthorized = false;
-      if (storedPassword) {
+      const isGeovanne = found.id === 'Vq7wUkG7ltcanJjJmnEqYZOiiym1' || found.email.toLowerCase() === 'geovanne.arcelino@gmail.com';
+
+      if (isGeovanne) {
+        // Geovanne accepts 123123, 123 or stored password
+        isAuthorized = cleanPass === '123123' || cleanPass === '123' || (Boolean(storedPassword) && cleanPass === storedPassword);
+      } else if (storedPassword) {
         isAuthorized = cleanPass === storedPassword;
       } else {
         // If password is not yet configured in database, adopt the input password and persist to database
@@ -184,7 +209,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       const users = crmStorage.getUsers();
-      let found = users.find(u => u.email.toLowerCase() === fbUser.email?.toLowerCase());
+      // Match by Google email, authUid, or ID
+      let found = users.find(u => 
+        (u.email && u.email.toLowerCase() === fbUser.email?.toLowerCase()) ||
+        (u.authUid && u.authUid === fbUser.uid) ||
+        u.id === fbUser.uid
+      );
 
       if (!found) {
         // First time Google Sign in: Create user as INATIVO (PENDING APPROVAL BY ADM)
@@ -192,12 +222,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           id: fbUser.uid,
           name: fbUser.displayName || cleanPersonName(fbUser.email.split('@')[0]),
           email: fbUser.email.toLowerCase(),
+          authUid: fbUser.uid,
           role: 'vendedora',
           phone: '(81) 98000-0000',
           status: 'inativo', // PENDING APPROVAL!
           monthlySalesGoal: 75000,
-          monthlyTaxPercentGoal: 10.0,
-          baseSalaryCost: 2000
+          monthlyTaxPercentGoal: 10.0
         };
         crmStorage.saveUser(found);
 
@@ -307,6 +337,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const linkUserToPreRegistered = (pendingUserId: string, targetPreRegisteredUserId: string) => {
+    const users = crmStorage.getUsers();
+    const pendingUser = users.find(u => u.id === pendingUserId);
+    const targetUser = users.find(u => u.id === targetPreRegisteredUserId);
+    if (!pendingUser || !targetUser) return;
+
+    // Preserva integralmente o cadastro do colaborador existente (ID, nome, salesName, relatórios, propostas),
+    // atualizando seu e-mail oficial para o e-mail do Google e vinculando o authUid
+    const updatedTarget: User = {
+      ...targetUser,
+      email: pendingUser.email.toLowerCase(),
+      authUid: pendingUser.id,
+      status: 'ativo'
+    };
+
+    crmStorage.saveUser(updatedTarget);
+    crmStorage.deleteUser(pendingUserId);
+
+    crmStorage.logAudit({
+      usuarioId: currentUser?.id || 'adm',
+      usuarioNome: currentUser?.name || 'Administrador',
+      acao: 'editou',
+      tipoRecurso: 'usuario',
+      idRecurso: targetUser.id,
+      detalhes: `Vinculou autenticação do Google (${pendingUser.email}) ao colaborador pré-cadastrado ${targetUser.name}.`
+    });
+
+    const updated = crmStorage.getUsers().map(u => normalizeUser(u)!);
+    setAllUsers(updated);
+  };
+
   const deleteUser = (userId: string) => {
     crmStorage.deleteUser(userId);
     const updated = crmStorage.getUsers().map(u => normalizeUser(u)!);
@@ -356,6 +417,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         switchUser,
         saveUser,
         approveUser,
+        linkUserToPreRegistered,
         deleteUser,
         hasRole,
         canAccessFinancial,

@@ -14,7 +14,7 @@ export interface User {
   salesName?: string; // Nome que aparece nos formulários e planilhas (Ex: "Hellen")
   monthlySalesGoal?: number; // Ex: 70000
   monthlyTaxPercentGoal?: number; // Ex: 10.0 (%)
-  baseSalaryCost?: number; // Custo mensal da funcionária (salário + encargos)
+  authUid?: string; // Firebase Auth UID quando vinculado
 }
 
 export type Convenio = 

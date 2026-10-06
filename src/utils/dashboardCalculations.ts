@@ -384,9 +384,6 @@ export function calculateDashboardMetrics(
     if (sheetExpenses && sheetExpenses.length > 0) {
       custo = calculateSellerCostFromSheet(sheetExpenses, emp, cleanStart, cleanEnd);
     }
-    if (custo === 0 && emp.baseSalaryCost) {
-      custo = emp.baseSalaryCost;
-    }
 
     const rentabilidadeLiquida = (taxas + comissaoPromotora) - custo;
 

@@ -54,6 +54,90 @@ function sanitizeStore(store: CRMDataStore): { sanitized: CRMDataStore; modified
   if (!Array.isArray(store.users) || store.users.length === 0) {
     store.users = INITIAL_USERS;
     modified = true;
+  } else {
+    // 1. Remove test users (e.g. user-carlos)
+    const beforeCount = store.users.length;
+    store.users = store.users.filter(u => 
+      u.id !== 'user-carlos' &&
+      !u.name.toLowerCase().includes('carlos eduardo') &&
+      u.email.toLowerCase() !== 'financeiro@liviacredsaude.com.br'
+    );
+    if (store.users.length !== beforeCount) {
+      modified = true;
+    }
+
+    // 2. Remove legacy duplicate mock IDs if real Firebase Auth accounts exist
+    const hasRealGeovanne = store.users.some(u => u.id === 'Vq7wUkG7ltcanJjJmnEqYZOiiym1' || u.email.toLowerCase() === 'geovanne.arcelino@gmail.com');
+    const hasRealPamella = store.users.some(u => u.id === 'eRkG9KNI8AZMCtQGkrPAPc7g8PC3' || u.email.toLowerCase() === 'pamellalivia1997@gmail.com');
+
+    if (hasRealGeovanne) {
+      const filtered = store.users.filter(u => u.id !== 'user-geovanne');
+      if (filtered.length !== store.users.length) {
+        store.users = filtered;
+        modified = true;
+      }
+    } else {
+      // Migrate user-geovanne to official Geovanne
+      const gIndex = store.users.findIndex(u => u.id === 'user-geovanne');
+      if (gIndex >= 0) {
+        store.users[gIndex] = {
+          ...store.users[gIndex],
+          id: 'Vq7wUkG7ltcanJjJmnEqYZOiiym1',
+          name: 'Geovanne Ferreira',
+          email: 'geovanne.arcelino@gmail.com',
+          password: '123123',
+          role: 'financeiro'
+        };
+        modified = true;
+      }
+    }
+
+    if (hasRealPamella) {
+      const filtered = store.users.filter(u => u.id !== 'user-pamella');
+      if (filtered.length !== store.users.length) {
+        store.users = filtered;
+        modified = true;
+      }
+    } else {
+      // Migrate user-pamella to official Pamella
+      const pIndex = store.users.findIndex(u => u.id === 'user-pamella');
+      if (pIndex >= 0) {
+        store.users[pIndex] = {
+          ...store.users[pIndex],
+          id: 'eRkG9KNI8AZMCtQGkrPAPc7g8PC3',
+          name: 'Pamella',
+          email: 'pamellalivia1997@gmail.com',
+          password: '123',
+          role: 'adm'
+        };
+        modified = true;
+      }
+    }
+
+    // Deduplicate users by email or ID
+    const seenEmails = new Set<string>();
+    const seenIds = new Set<string>();
+    const deduped: User[] = [];
+
+    store.users.forEach(u => {
+      const normEmail = (u.email || '').trim().toLowerCase();
+      const normId = (u.id || '').trim();
+      if (!normEmail || seenEmails.has(normEmail) || seenIds.has(normId)) {
+        modified = true;
+        return;
+      }
+      seenEmails.add(normEmail);
+      seenIds.add(normId);
+
+      // Clean legacy baseSalaryCost
+      if ('baseSalaryCost' in (u as any)) {
+        delete (u as any).baseSalaryCost;
+        modified = true;
+      }
+      deduped.push(u);
+    });
+
+    store.users = deduped;
   }
 
   store.users = store.users.map(u => {
@@ -116,31 +200,6 @@ function sanitizeStore(store: CRMDataStore): { sanitized: CRMDataStore; modified
   if (!Array.isArray(store.comissoesPromotoras)) {
     store.comissoesPromotoras = [];
     modified = true;
-  }
-
-  // Purge false/sample commissions (QWERTY, unmatched sample rows, seed)
-  if (Array.isArray(store.comissoesPromotoras)) {
-    const initialCount = store.comissoesPromotoras.length;
-    const toDeleteIds: string[] = [];
-    store.comissoesPromotoras = store.comissoesPromotoras.filter(c => {
-      if (!c || !c.clienteNome) return false;
-      const isFake =
-        c.clienteNome.toUpperCase().includes('QWERTY') ||
-        (c.numeroContrato === 'Sempre' && c.id?.startsWith('com-sem-row-')) ||
-        (c.numeroContrato === 'J2' && c.id?.startsWith('com-j2-row-')) ||
-        c.id?.startsWith('com-seed-');
-      if (isFake) {
-        toDeleteIds.push(c.id);
-        return false;
-      }
-      return true;
-    });
-    if (store.comissoesPromotoras.length !== initialCount) {
-      modified = true;
-      toDeleteIds.forEach(id => {
-        deleteItemFromFirestore('comissoesPromotoras', id);
-      });
-    }
   }
 
   // Purge legacy mock/ghost clients and proposals if present in user local storage
@@ -312,6 +371,8 @@ async function deleteItemFromFirestore(collectionName: string, id: string) {
   }
 }
 
+const suppressSnapshotCollections = new Set<string>();
+
 // Listen to Firestore real-time snapshots with smart cache reconciliation
 export function initFirestoreRealtimeSync() {
   if (isFirestoreQuotaExceeded()) {
@@ -337,20 +398,38 @@ export function initFirestoreRealtimeSync() {
       const unsub = onSnapshot(
         collRef,
         (snapshot) => {
-          const items: any[] = [];
-          snapshot.forEach((docSnap) => {
-            items.push({ ...docSnap.data(), id: docSnap.id });
-          });
+          if (suppressSnapshotCollections.has(coll)) {
+            return;
+          }
+
+          const isFunilCleared = typeof localStorage !== 'undefined' && localStorage.getItem('lviacred_funil_cleared_v1') === 'true';
+          const isControladoriaCleared = typeof localStorage !== 'undefined' && localStorage.getItem('lviacred_controladoria_cleared_v1') === 'true';
+
+          if (isFunilCleared && (coll === 'propostas' || coll === 'clientes')) {
+            (currentStore as any)[coll] = [];
+            saveLocalStore(currentStore);
+            notify();
+            return;
+          }
+
+          if (isControladoriaCleared && coll === 'comissoesPromotoras') {
+            (currentStore as any)[coll] = [];
+            saveLocalStore(currentStore);
+            notify();
+            return;
+          }
 
           if (snapshot.empty) {
-            const localItems = (currentStore as any)[coll];
-            // If local store has items that were imported/saved and Firestore collection is empty,
-            // push local items to Firestore so the cloud gets populated. NEVER wipe local data!
-            if (Array.isArray(localItems) && localItems.length > 0) {
-              console.log(`☁️ [Firestore] Coleção ${coll} vazia no Firestore. Enviando ${localItems.length} registros locais para a nuvem...`);
-              syncBatchToFirestore(coll, localItems);
-            }
+            // Se o Firestore está vazio, a coleção no aplicativo deve ficar vazia (respeitando a ação de zerar)
+            (currentStore as any)[coll] = [];
+            saveLocalStore(currentStore);
+            notify();
           } else {
+            const items: any[] = [];
+            snapshot.forEach((docSnap) => {
+              items.push({ ...docSnap.data(), id: docSnap.id });
+            });
+
             (currentStore as any)[coll] = items;
             
             // Always sanitize store on any realtime snapshot update (proposals, users, etc.)
@@ -358,6 +437,7 @@ export function initFirestoreRealtimeSync() {
             currentStore = sanitized;
 
             saveLocalStore(currentStore);
+            notify();
           }
         },
         (error: any) => {
@@ -505,12 +585,19 @@ export const crmStorage = {
   },
 
   reset(): void {
-    currentStore = generateSeedData();
-    saveLocalStore(currentStore);
+    this.clearAllTestData();
   },
 
   // Zerar todos os dados operacionais; a coleção users é preservada.
   async clearAllTestData(): Promise<void> {
+    const collectionsToClear = ['clientes', 'propostas', 'comissoesPromotoras', 'contasPagar', 'metas', 'alertas', 'feedbacks', 'auditLogs'] as const;
+    collectionsToClear.forEach(c => suppressSnapshotCollections.add(c));
+
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('lviacred_funil_cleared_v1', 'true');
+      localStorage.setItem('lviacred_controladoria_cleared_v1', 'true');
+    }
+
     currentStore = {
       ...currentStore,
       clientes: [],
@@ -523,39 +610,44 @@ export const crmStorage = {
       auditLogs: []
     };
     saveLocalStore(currentStore);
+    notify();
 
-    if (isFirestoreQuotaExceeded()) {
-      return;
-    }
-
-    try {
-      const collectionsToClear = ['clientes', 'propostas', 'comissoesPromotoras', 'contasPagar', 'metas', 'alertas', 'feedbacks', 'auditLogs'];
-      for (const collName of collectionsToClear) {
-        // Repeat until empty so a large collection or a concurrent snapshot cannot leave leftovers.
-        for (;;) {
-          const querySnap = await getDocs(collection(db, collName));
-          if (querySnap.empty) break;
-          for (let i = 0; i < querySnap.docs.length; i += 400) {
-            const batch = writeBatch(db);
-            querySnap.docs.slice(i, i + 400).forEach(docSnap => batch.delete(docSnap.ref));
-            await batch.commit();
+    if (!isFirestoreQuotaExceeded()) {
+      try {
+        for (const collName of collectionsToClear) {
+          for (;;) {
+            const querySnap = await getDocs(collection(db, collName));
+            if (querySnap.empty) break;
+            for (let i = 0; i < querySnap.docs.length; i += 400) {
+              const batch = writeBatch(db);
+              querySnap.docs.slice(i, i + 400).forEach(docSnap => batch.delete(docSnap.ref));
+              await batch.commit();
+            }
           }
         }
-        const remaining = await getDocs(collection(db, collName));
-        if (!remaining.empty) {
-          throw new Error(`A coleção ${collName} ainda possui ${remaining.size} documento(s).`);
+      } catch (e: any) {
+        if (e?.code === 'resource-exhausted' || e?.message?.includes('Quota exceeded')) {
+          setFirestoreQuotaExceeded();
+        } else {
+          console.warn('Erro ao limpar coleções remotas do Firestore:', e);
         }
+      } finally {
+        setTimeout(() => {
+          collectionsToClear.forEach(c => suppressSnapshotCollections.delete(c));
+        }, 3000);
       }
-    } catch (e: any) {
-      if (e?.code === 'resource-exhausted' || e?.message?.includes('Quota exceeded')) {
-        setFirestoreQuotaExceeded();
-      } else {
-        console.warn('Erro ao limpar coleções remotas do Firestore:', e);
-      }
+    } else {
+      setTimeout(() => {
+        collectionsToClear.forEach(c => suppressSnapshotCollections.delete(c));
+      }, 1000);
     }
+    notify();
   },
 
   async clearFunilData(): Promise<void> {
+    suppressSnapshotCollections.add('propostas');
+    suppressSnapshotCollections.add('clientes');
+
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('lviacred_funil_cleared_v1', 'true');
     }
@@ -566,31 +658,40 @@ export const crmStorage = {
     };
     saveLocalStore(currentStore);
     notify();
-    try {
-      // Clear propostas collection
-      const propSnap = await getDocs(collection(db, 'propostas'));
-      const propDocs = propSnap.docs;
-      for (let i = 0; i < propDocs.length; i += 400) {
-        const batch = writeBatch(db);
-        propDocs.slice(i, i + 400).forEach(docSnap => batch.delete(docSnap.ref));
-        await batch.commit();
-      }
 
-      // Clear clientes collection
-      const cliSnap = await getDocs(collection(db, 'clientes'));
-      const cliDocs = cliSnap.docs;
-      for (let i = 0; i < cliDocs.length; i += 400) {
-        const batch = writeBatch(db);
-        cliDocs.slice(i, i + 400).forEach(docSnap => batch.delete(docSnap.ref));
-        await batch.commit();
+    if (!isFirestoreQuotaExceeded()) {
+      try {
+        for (const collName of ['propostas', 'clientes'] as const) {
+          for (;;) {
+            const snap = await getDocs(collection(db, collName));
+            if (snap.empty) break;
+            for (let i = 0; i < snap.docs.length; i += 400) {
+              const batch = writeBatch(db);
+              snap.docs.slice(i, i + 400).forEach(docSnap => batch.delete(docSnap.ref));
+              await batch.commit();
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Erro ao limpar propostas e clientes do Firestore:', e);
+      } finally {
+        setTimeout(() => {
+          suppressSnapshotCollections.delete('propostas');
+          suppressSnapshotCollections.delete('clientes');
+        }, 3000);
       }
-    } catch (e) {
-      console.warn('Erro ao limpar propostas e clientes do Firestore:', e);
+    } else {
+      setTimeout(() => {
+        suppressSnapshotCollections.delete('propostas');
+        suppressSnapshotCollections.delete('clientes');
+      }, 1000);
     }
     notify();
   },
 
   async clearControladoriaData(): Promise<void> {
+    suppressSnapshotCollections.add('comissoesPromotoras');
+
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('lviacred_controladoria_cleared_v1', 'true');
     }
@@ -600,16 +701,29 @@ export const crmStorage = {
     };
     saveLocalStore(currentStore);
     notify();
-    try {
-      const querySnap = await getDocs(collection(db, 'comissoesPromotoras'));
-      const docs = querySnap.docs;
-      for (let i = 0; i < docs.length; i += 400) {
-        const batch = writeBatch(db);
-        docs.slice(i, i + 400).forEach(docSnap => batch.delete(docSnap.ref));
-        await batch.commit();
+
+    if (!isFirestoreQuotaExceeded()) {
+      try {
+        for (;;) {
+          const snap = await getDocs(collection(db, 'comissoesPromotoras'));
+          if (snap.empty) break;
+          for (let i = 0; i < snap.docs.length; i += 400) {
+            const batch = writeBatch(db);
+            snap.docs.slice(i, i + 400).forEach(docSnap => batch.delete(docSnap.ref));
+            await batch.commit();
+          }
+        }
+      } catch (e) {
+        console.warn('Erro ao limpar comissoesPromotoras do Firestore:', e);
+      } finally {
+        setTimeout(() => {
+          suppressSnapshotCollections.delete('comissoesPromotoras');
+        }, 3000);
       }
-    } catch (e) {
-      console.warn('Erro ao limpar comissoesPromotoras do Firestore:', e);
+    } else {
+      setTimeout(() => {
+        suppressSnapshotCollections.delete('comissoesPromotoras');
+      }, 1000);
     }
     notify();
   },
@@ -725,12 +839,24 @@ export const crmStorage = {
     const writeOperations: { ref: any; data: any }[] = [];
 
     rows.forEach((row, index) => {
-      const rawNome = row.nomeCliente ? String(row.nomeCliente).replace(/^[\"\'\t\r\n\s]+|[\"\'\t\r\n\s]+$/g, '').trim() : '';
-      if (!rawNome) return;
+      let rawNome = row.nomeCliente ? String(row.nomeCliente).replace(/^[\"\'\t\r\n\s]+|[\"\'\t\r\n\s]+$/g, '').trim() : '';
+      const rawContract = row.numeroContrato ? String(row.numeroContrato).trim() : '';
+      const cleanContract = rawContract || '0';
 
       // 1. CPF Auto-Correction & Standardization
       const { cleanCpf, formattedCpf, wasCorrected } = standardizeCPF(row.cpf);
       if (wasCorrected) cpfsCorrectedCount++;
+
+      // Fallback for name if empty or generic:
+      if (!rawNome) {
+        if (cleanContract && cleanContract !== '0' && cleanContract !== '-') {
+          rawNome = `Contrato #${cleanContract}`;
+        } else if (cleanCpf && cleanCpf !== '00000000000') {
+          rawNome = `Cliente (${cleanCpf})`;
+        } else {
+          rawNome = `Cliente Sem Nome (Linha ${index + 1})`;
+        }
+      }
 
       // 2. Parsed values
       const parsedEmp = parseBrazilianCurrency(row.valorEmprestimo);
@@ -739,8 +865,11 @@ export const crmStorage = {
       const dateDigitacao = parseBrazilianDate(row.dataDigitacao) || getLocalDateString();
       const rawDatePagto = parseBrazilianDate(row.dataPagamentoCliente);
       const datePagamento = rawDatePagto || dateDigitacao;
-      const rawContract = row.numeroContrato ? String(row.numeroContrato).trim() : '';
-      const cleanContract = rawContract || '0';
+
+      // Skip row if it has no financial value, no date, and no contract (completely blank line)
+      if (parsedEmp <= 0 && parsedTaxa <= 0 && (!cleanContract || cleanContract === '0') && !row.cpf) {
+        return;
+      }
 
       const rawSeller = row.vendedora && row.vendedora.trim() && row.vendedora !== '0' ? row.vendedora.trim() : actor.name || 'Hellen Vasconcelos';
       const sellerName = normalizeSellerName(rawSeller);
@@ -748,17 +877,19 @@ export const crmStorage = {
       const digitadorName = normalizeSellerName(rawDigitador);
 
       // 3. Find or Create/Update Client (robust against empty or zero CPFs)
-      const isValidCpf = cleanCpf && cleanCpf !== '00000000000';
-      const existingClientIdx = currentStore.clientes.findIndex(c => {
-        if (isValidCpf) {
-          return c.cpf.replace(/\D/g, '') === cleanCpf;
-        }
-        return c.nome.trim().toLowerCase() === rawNome.toLowerCase();
-      });
+      const isValidCpf = cleanCpf && cleanCpf.length === 11 && cleanCpf !== '00000000000' && !cleanCpf.startsWith('000000');
+      let existingClientIdx = -1;
+      if (isValidCpf) {
+        existingClientIdx = currentStore.clientes.findIndex(c => c.cpf.replace(/\D/g, '') === cleanCpf);
+      } else if (rawNome && !rawNome.toLowerCase().includes('sem nome') && !rawNome.toLowerCase().includes('linha ')) {
+        existingClientIdx = currentStore.clientes.findIndex(c => c.nome.trim().toLowerCase() === rawNome.toLowerCase());
+      }
       let clientRecord: Cliente;
 
       const rawPhone = row.telefone && row.telefone.trim() && row.telefone.trim() !== '0' ? row.telefone.trim() : '(81) 98000-0000';
-      const clientId = isValidCpf ? cleanCpf : `CLI-${rawNome.toLowerCase().replace(/\W/g, '')}-${cleanCpf}`;
+      const clientId = isValidCpf
+        ? cleanCpf
+        : (cleanContract && cleanContract !== '0' && cleanContract !== '-' ? `CLI-CTR-${cleanContract.replace(/\W/g, '')}` : `CLI-OP-${index + 1}`);
 
       if (existingClientIdx < 0) {
         clientRecord = {
@@ -789,7 +920,7 @@ export const crmStorage = {
 
       // Buffer Client write
       const clientDocRef = doc(db, 'clientes', clientRecord.id);
-      writeOperations.push({ ref: clientDocRef, data: JSON.parse(JSON.stringify(clientRecord)) });
+      writeOperations.push({ ref: clientDocRef, data: cleanPayloadForFirestore(clientRecord) });
 
       // 4. Map Status
       let statusProp: StatusProposta = 'Paga';
@@ -807,30 +938,23 @@ export const crmStorage = {
         isTaxaRealmentePaga = statusProp === 'Paga';
       }
 
-      // Deduplication check: CPF + Contrato + Valor + Data + Operacao
-      const isDuplicate = currentStore.propostas.some(p => {
-        const sameCpf = p.cpf.replace(/\D/g, '') === cleanCpf;
-        const sameValor = Math.abs((p.valorEmprestimo || 0) - parsedEmp) < 0.01;
-        const sameData = (p.dataDigitacao === dateDigitacao) || (p.dataPagamentoCliente === datePagamento);
-        const hasRealContract = rawContract && rawContract !== '0' && rawContract !== '-';
-
-        if (hasRealContract) {
+      // Deduplication check: ONLY deduplicate if there is a real contract number or unique row match
+      const hasRealContract = rawContract && rawContract !== '0' && rawContract !== '-';
+      let isDuplicate = false;
+      if (hasRealContract) {
+        isDuplicate = currentStore.propostas.some(p => {
           const sameContract = p.numeroContrato.trim().toLowerCase() === rawContract.trim().toLowerCase();
-          return sameCpf && sameContract && sameValor && sameData;
-        }
-
-        const sameOp = (p.operacao || '').toLowerCase() === (row.operacao || '').toLowerCase();
-        const sameBanco = (p.banco || '').toLowerCase() === (row.banco || '').toLowerCase();
-        const sameLink = (p.linkDocumento || '') === (row.linkDocumento || '');
-        return sameCpf && sameOp && sameBanco && sameValor && sameData && sameLink;
-      });
+          const sameValor = Math.abs((p.valorEmprestimo || 0) - parsedEmp) < 0.01;
+          return sameContract && sameValor;
+        });
+      }
 
       if (isDuplicate) {
         return; // Skip duplicate row
       }
 
       // 5. Create Proposta for this specific row
-      const proposalId = `prop-${cleanCpf}-${cleanContract.replace(/\W/g, '')}-${index}`;
+      const proposalId = `prop-${cleanCpf}-${cleanContract ? cleanContract.replace(/\W/g, '') : 's'}-${index + 1}`;
       const hasLink = row.linkDocumento && row.linkDocumento.trim() && row.linkDocumento.trim() !== '0' ? row.linkDocumento.trim() : undefined;
       const newProposta: Proposta = {
         id: proposalId,
@@ -868,7 +992,7 @@ export const crmStorage = {
 
       // Buffer Proposal write
       const proposalDocRef = doc(db, 'propostas', newProposta.id);
-      writeOperations.push({ ref: proposalDocRef, data: JSON.parse(JSON.stringify(newProposta)) });
+      writeOperations.push({ ref: proposalDocRef, data: cleanPayloadForFirestore(newProposta) });
 
       // 6. Handle Promoter Commission
       const comVal =
@@ -883,7 +1007,7 @@ export const crmStorage = {
           id: `com-${newProposta.id}`,
           propostaId: newProposta.id,
           numeroContrato: cleanContract,
-          clienteNome: row.nomeCliente.trim(),
+          clienteNome: rawNome,
           promotora: (row.promotora as Promotora) || 'J2 Promotora',
           valorRecebido: comVal,
           dataRecebimento: datePagamento,
@@ -897,7 +1021,7 @@ export const crmStorage = {
 
         // Buffer Commission write
         const commissionDocRef = doc(db, 'comissoesPromotoras', comRecord.id);
-        writeOperations.push({ ref: commissionDocRef, data: JSON.parse(JSON.stringify(comRecord)) });
+        writeOperations.push({ ref: commissionDocRef, data: cleanPayloadForFirestore(comRecord) });
       }
     });
 
@@ -1244,15 +1368,18 @@ export const crmStorage = {
     currentStore.comissoesPromotoras = comissoes;
     saveLocalStore(currentStore);
 
-    const batch = writeBatch(db);
-    comissoes.forEach(comissao => {
-      const commissionDocRef = doc(db, 'comissoesPromotoras', comissao.id);
-      batch.set(commissionDocRef, JSON.parse(JSON.stringify(comissao)), { merge: true });
-    });
-
-    batch.commit().catch(err => {
-      console.error('Erro ao salvar lote de comissões no Firestore:', err);
-    });
+    const chunkSize = 400;
+    for (let i = 0; i < comissoes.length; i += chunkSize) {
+      const batch = writeBatch(db);
+      const chunk = comissoes.slice(i, i + chunkSize);
+      chunk.forEach(comissao => {
+        const commissionDocRef = doc(db, 'comissoesPromotoras', comissao.id);
+        batch.set(commissionDocRef, cleanPayloadForFirestore(comissao), { merge: true });
+      });
+      batch.commit().catch(err => {
+        console.error('Erro ao salvar lote de comissões no Firestore:', err);
+      });
+    }
 
     this.logAudit({
       usuarioId: currentUser.id,

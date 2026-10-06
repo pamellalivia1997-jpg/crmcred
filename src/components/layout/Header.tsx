@@ -11,6 +11,7 @@ import {
   Menu,
   Sparkles,
   LogOut,
+  Trash2,
   X
 } from 'lucide-react';
 import { BrandLogo } from '../common/BrandLogo';
@@ -27,7 +28,7 @@ interface Props {
 
 export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavigate }) => {
   const { currentUser, allUsers, switchUser, logout, isManager } = useAuth();
-  const { alertas, resetAllData } = useCRM();
+  const { alertas, clearAllTestData } = useCRM();
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   // Active unread alerts count
@@ -192,16 +193,17 @@ export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavig
                       <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between px-1">
                         <button
                           type="button"
-                          onClick={() => {
-                            if (confirm('Deseja restaurar todos os dados fictícios originais de apresentação?')) {
-                              resetAllData();
+                          onClick={async () => {
+                            if (window.confirm('Deseja realmente zerar todo o banco de dados (funil, clientes e controladoria)? Esta ação apagará permanentemente todos os registros da nuvem.')) {
+                              await clearAllTestData();
                               setShowUserMenu(false);
                             }
                           }}
-                          className="flex items-center gap-1 text-[10px] font-medium text-amber-600 dark:text-amber-400 hover:underline py-0.5"
+                          className="flex items-center gap-1 text-[10px] font-bold text-rose-600 dark:text-rose-400 hover:underline py-0.5"
+                          title="Zerar todo o banco de dados da nuvem"
                         >
-                          <RotateCcw className="w-3 h-3" />
-                          <span>Restaurar demo</span>
+                          <Trash2 className="w-3 h-3 text-rose-600" />
+                          <span>Zerar Banco</span>
                         </button>
 
                         <button

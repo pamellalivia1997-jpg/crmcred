@@ -234,12 +234,29 @@ function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: str
     const rawNome = colNome >= 0 ? String(cols[colNome] || '').trim() : '';
     const cleanNome = rawNome.replace(/^[\"\'\t\r\n\s]+|[\"\'\t\r\n\s]+$/g, '').trim();
     const cleanCpf = rawCpf.replace(/^[\"\'\t\r\n\s]+|[\"\'\t\r\n\s]+$/g, '').trim();
+    const rawContrato = colContrato >= 0 ? String(cols[colContrato] || '').trim() : '';
+    const cleanContrato = rawContrato.replace(/^[\"\'\t\r\n\s]+|[\"\'\t\r\n\s]+$/g, '').trim();
+    const rawValorEmp = colValorEmp >= 0 ? String(cols[colValorEmp] || '').trim() : '';
+    const rawValorTaxa = colValorTaxa >= 0 ? String(cols[colValorTaxa] || '').trim() : '';
 
-    if (!cleanCpf && !cleanNome) continue;
+    // Ignore row ONLY if completely empty (no CPF, no Nome, no Contrato, and no financial values)
+    const hasAnyContent = cleanCpf || cleanNome || (cleanContrato && cleanContrato !== '0') || (rawValorEmp && rawValorEmp !== '0') || (rawValorTaxa && rawValorTaxa !== '0');
+    if (!hasAnyContent) continue;
+
+    let finalNome = cleanNome;
+    if (!finalNome) {
+      if (cleanContrato && cleanContrato !== '0' && cleanContrato !== '-') {
+        finalNome = `Contrato #${cleanContrato}`;
+      } else if (cleanCpf && cleanCpf !== '00000000000') {
+        finalNome = `Cliente (${cleanCpf})`;
+      } else {
+        finalNome = `Cliente Sem Nome (Linha ${i + 1})`;
+      }
+    }
 
     resultRows.push({
       cpf: cleanCpf,
-      nomeCliente: cleanNome || 'Cliente',
+      nomeCliente: finalNome,
       telefone: colTel >= 0 ? String(cols[colTel] || '').trim() : '',
       dataDigitacao: colDataDig >= 0 ? String(cols[colDataDig] || '').trim() : '',
       dataPagamentoCliente: colDataPag >= 0 ? String(cols[colDataPag] || '').trim() : '',

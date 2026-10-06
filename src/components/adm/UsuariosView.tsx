@@ -18,14 +18,15 @@ import {
   UserCog,
   Filter,
   Check,
-  Info
+  Info,
+  Link2
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { User, UserRole } from '../../types';
 import { cleanPersonName } from '../../utils/formatters';
 
 export const UsuariosView: React.FC = () => {
-  const { allUsers, currentUser, saveUser, approveUser, deleteUser } = useAuth();
+  const { allUsers, currentUser, saveUser, approveUser, linkUserToPreRegistered, deleteUser } = useAuth();
 
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -43,6 +44,7 @@ export const UsuariosView: React.FC = () => {
   const [showPasswordMap, setShowPasswordMap] = useState<Record<string, boolean>>({});
   const [userRoleFilter, setUserRoleFilter] = useState<'todos' | UserRole>('todos');
   const [selectedLinkUser, setSelectedLinkUser] = useState<Record<string, string>>({});
+  const [selectedColabLink, setSelectedColabLink] = useState<Record<string, string>>({});
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [userSuccessMessage, setUserSuccessMessage] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -187,63 +189,134 @@ export const UsuariosView: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-            {pendingApprovalUsers.map((pending) => (
-              <div
-                key={pending.id}
-                className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                      {pending.name}
-                    </span>
-                    <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 uppercase">
-                      Pendente
-                    </span>
+          <div className="grid grid-cols-1 gap-3">
+            {pendingApprovalUsers.map((pending) => {
+              const activePreRegisteredUsers = allUsers.filter(u => u.status === 'ativo');
+              const chosenColabId = selectedColabLink[pending.id] || '';
+              const chosenRole = (selectedLinkUser[pending.id] as UserRole) || pending.role || 'vendedora';
+
+              return (
+                <div
+                  key={pending.id}
+                  className="p-3.5 sm:p-4 rounded-xl bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-800 shadow-sm space-y-3"
+                >
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-amber-100 dark:border-slate-800 pb-2.5">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-extrabold text-slate-900 dark:text-white truncate">
+                          {pending.name}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 uppercase tracking-wider">
+                          Google Auth Pendente
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-500 font-mono mt-0.5 truncate">
+                        E-mail Google: <span className="text-slate-800 dark:text-slate-200 font-bold">{pending.email}</span>
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        if (confirm(`Deseja recusar e excluir a solicitação de ${pending.name}?`)) {
+                          deleteUser(pending.id);
+                        }
+                      }}
+                      className="self-end sm:self-center p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-xs font-semibold flex items-center gap-1 transition"
+                      title="Recusar cadastro"
+                    >
+                      <X className="w-4 h-4" />
+                      <span className="sm:hidden text-[11px]">Recusar</span>
+                    </button>
                   </div>
-                  <p className="text-[11px] text-slate-500 font-mono truncate">{pending.email}</p>
+
+                  {/* Actions: Vincular a Colaborador OU Aprovar como Novo */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+                    {/* Opção 1: Vincular a colaborador existente */}
+                    <div className="p-3 rounded-xl bg-teal-50/60 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-800/60 space-y-2">
+                      <div className="flex items-center gap-1.5 text-teal-800 dark:text-teal-300">
+                        <Link2 className="w-3.5 h-3.5 shrink-0" />
+                        <span className="text-[11px] font-bold uppercase tracking-wider">
+                          1. Vincular a Colaborador Pré-Cadastrado
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-teal-700/80 dark:text-teal-400/80 leading-snug">
+                        Atualiza o e-mail oficial para o Google e mantém intactos todos os relatórios, propostas e histórico.
+                      </p>
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5">
+                        <select
+                          value={chosenColabId}
+                          onChange={(e) => setSelectedColabLink({ ...selectedColabLink, [pending.id]: e.target.value })}
+                          className="flex-1 py-1.5 px-2 text-xs font-semibold rounded-lg bg-white dark:bg-slate-800 border border-teal-300 dark:border-teal-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                        >
+                          <option value="">Selecione quem é este colaborador...</option>
+                          {activePreRegisteredUsers.map(colab => (
+                            <option key={colab.id} value={colab.id}>
+                              {cleanPersonName(colab.name)} ({roleLabels[colab.role]})
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          disabled={!chosenColabId}
+                          onClick={() => {
+                            if (!chosenColabId) return;
+                            const target = allUsers.find(u => u.id === chosenColabId);
+                            linkUserToPreRegistered(pending.id, chosenColabId);
+                            setUserSuccessMessage(
+                              `Conta Google (${pending.email}) vinculada com sucesso a "${target?.name || 'colaborador'}"! Todos os relatórios foram preservados.`
+                            );
+                            setTimeout(() => setUserSuccessMessage(null), 4500);
+                          }}
+                          className={`py-1.5 px-3 rounded-lg font-bold text-xs flex items-center justify-center gap-1 transition ${
+                            chosenColabId
+                              ? 'bg-teal-700 hover:bg-teal-800 text-white shadow-2xs active:scale-95'
+                              : 'bg-slate-200 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                          }`}
+                        >
+                          <Link2 className="w-3.5 h-3.5" />
+                          <span>Vincular</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Opção 2: Criar como novo usuário avulso */}
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 space-y-2">
+                      <div className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
+                        <Check className="w-3.5 h-3.5 shrink-0 text-emerald-600" />
+                        <span className="text-[11px] font-bold uppercase tracking-wider">
+                          2. Ou Aprovar como Novo Usuário
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug">
+                        Cria um novo colaborador independente com o cargo selecionado abaixo.
+                      </p>
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5">
+                        <select
+                          value={chosenRole}
+                          onChange={(e) => setSelectedLinkUser({ ...selectedLinkUser, [pending.id]: e.target.value })}
+                          className="flex-1 py-1.5 px-2 text-xs font-semibold rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500"
+                        >
+                          <option value="vendedora">Vendedora (Comercial)</option>
+                          <option value="digitador">Digitador(a) Operacional</option>
+                          <option value="financeiro">Financeiro / Controladoria</option>
+                          <option value="adm">Administrador (ADM)</option>
+                        </select>
+                        <button
+                          onClick={() => {
+                            approveUser(pending.id, chosenRole);
+                            setUserSuccessMessage(`Usuário "${pending.name}" ativado com sucesso como ${roleLabels[chosenRole]}!`);
+                            setTimeout(() => setUserSuccessMessage(null), 3500);
+                          }}
+                          className="py-1.5 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1 transition active:scale-95 shadow-2xs"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Aprovar</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  <select
-                    value={selectedLinkUser[pending.id] || pending.role || 'vendedora'}
-                    onChange={(e) => setSelectedLinkUser({ ...selectedLinkUser, [pending.id]: e.target.value })}
-                    className="py-1 px-2 text-[11px] font-semibold rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200"
-                  >
-                    <option value="vendedora">Vendedora</option>
-                    <option value="adm">ADM</option>
-                    <option value="financeiro">Financeiro</option>
-                    <option value="digitador">Digitador(a)</option>
-                  </select>
-
-                  <button
-                    onClick={() => {
-                      const roleToSet = (selectedLinkUser[pending.id] as UserRole) || pending.role || 'vendedora';
-                      approveUser(pending.id, roleToSet);
-                      setUserSuccessMessage(`Usuário "${pending.name}" ativado com sucesso como ${roleLabels[roleToSet]}!`);
-                      setTimeout(() => setUserSuccessMessage(null), 3500);
-                    }}
-                    className="py-1 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1 transition"
-                  >
-                    <Check className="w-3.5 h-3.5" />
-                    <span>Aprovar</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      if (confirm(`Deseja recusar e excluir a solicitação de ${pending.name}?`)) {
-                        deleteUser(pending.id);
-                      }
-                    }}
-                    className="p-1 rounded-lg text-slate-400 hover:text-rose-600"
-                    title="Recusar cadastro"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

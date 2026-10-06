@@ -43,7 +43,6 @@ export const SystemHealthIndicator: React.FC = () => {
 
       setLastResultMessage(result.mensagem);
       setDiagnosticStatus('success');
-      alert(result.mensagem);
       setTimeout(() => {
         setDiagnosticStatus('idle');
         setLastResultMessage(null);
@@ -53,7 +52,6 @@ export const SystemHealthIndicator: React.FC = () => {
       const errMsg = `Erro na sincronização: ${err?.message || 'Falha de conexão com a planilha'}. Nenhum dado foi alterado.`;
       setLastResultMessage(errMsg);
       setDiagnosticStatus('error');
-      alert(errMsg);
       setTimeout(() => {
         setDiagnosticStatus('idle');
         setLastResultMessage(null);
