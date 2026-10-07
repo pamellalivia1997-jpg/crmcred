@@ -63,8 +63,9 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
   // ==========================================
   // 1. GESTÃO MENSAL DE METAS DA LOJA
   // ==========================================
-  const [selectedMesAno, setSelectedMesAno] = useState<string>('2026-09');
-  const [totalMetaLojaInput, setTotalMetaLojaInput] = useState<number>(390000);
+  const currentMonthStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+  const [selectedMesAno, setSelectedMesAno] = useState<string>(currentMonthStr);
+  const [totalMetaLojaInput, setTotalMetaLojaInput] = useState<number>(400000);
   const [sellerMetasMap, setSellerMetasMap] = useState<Record<string, SellerMonthMeta>>({});
   const [frozenSellers, setFrozenSellers] = useState<Record<string, boolean>>({});
   const [metasSalvasNotice, setMetasSalvasNotice] = useState(false);
@@ -98,13 +99,16 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
       }
     });
 
-    if (totalFromExisting > 0) {
+    const activeCount = Object.values(newMap).filter(item => item.isAtivo).length;
+    const allActiveHaveMeta = activeCount > 0 && Object.values(newMap).filter(item => item.isAtivo).every(item => item.metaVenda > 0);
+
+    // Keep existing custom metas only if ALL active sellers have valid metas (> 0)
+    if (totalFromExisting > 0 && allActiveHaveMeta) {
       setTotalMetaLojaInput(totalFromExisting);
       setSellerMetasMap(newMap);
     } else {
-      // Initialize equal distribution with default 390.000
-      const activeCount = Object.values(newMap).filter(item => item.isAtivo).length;
-      const initialStoreMeta = 390000;
+      // Initialize equal distribution with default 400.000 and auto-persist to cloud/database
+      const initialStoreMeta = 400000;
       const share = activeCount > 0 ? Math.round(initialStoreMeta / activeCount) : 0;
       
       Object.keys(newMap).forEach(id => {
@@ -114,6 +118,28 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
       });
       setTotalMetaLojaInput(initialStoreMeta);
       setSellerMetasMap(newMap);
+
+      // Automatically persist default 400k metas to database/cloud storage so they never disappear on reload
+      saveMeta({
+        id: `meta-loja-${selectedMesAno}`,
+        vendedoraId: 'loja',
+        vendedoraNome: 'Loja (Global)',
+        mesAno: selectedMesAno,
+        metaVenda: initialStoreMeta,
+        metaPercentualTaxa: 11.0,
+        isAtivoNoMes: true
+      });
+      Object.values(newMap).forEach(item => {
+        saveMeta({
+          id: `meta-${item.vendedoraId}-${selectedMesAno}`,
+          vendedoraId: item.vendedoraId,
+          vendedoraNome: item.vendedoraNome,
+          mesAno: selectedMesAno,
+          metaVenda: item.metaVenda,
+          metaPercentualTaxa: item.metaPercentualTaxa,
+          isAtivoNoMes: item.isAtivo
+        });
+      });
     }
   }, [selectedMesAno, sellersList, metas]);
 
@@ -431,12 +457,12 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
             </div>
           )}
 
-          {/* Controls Bar: 1. Seleciona Mês, 2. Quantidade Ativos, 3. Meta Total Loja */}
-          <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-            {/* 1. Mês selector (Retroativo) */}
+          {/* Controls Bar: 1. Seleciona Mês, 2. Meta Total Loja */}
+          <div className="bg-white dark:bg-slate-900 p-4 sm:p-5 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+            {/* 1. Mês selector */}
             <div>
               <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mb-1">
-                1. Mês de Competência (Retroativo)
+                1. Mês de Competência
               </label>
               <input
                 type="month"
@@ -444,35 +470,12 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
                 onChange={(e) => setSelectedMesAno(e.target.value)}
                 className="w-full px-3 py-2 text-xs font-bold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
-              <span className="text-[10px] text-purple-600 dark:text-purple-400 font-semibold block mt-0.5">
-                Competência: {getMonthYearLabel(selectedMesAno)}
-              </span>
             </div>
 
-            {/* 2. Vendedores Ativos no Período */}
+            {/* 2. Valor Total da Meta de Venda da Loja */}
             <div>
               <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mb-1">
-                2. Vendedores Ativos no Período
-              </label>
-              <div className="p-2.5 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60 flex items-center justify-between">
-                <div>
-                  <span className="text-base font-black text-purple-900 dark:text-purple-100 tabular-nums">
-                    {activeSellersCount} {activeSellersCount === 1 ? 'vendedora ativa' : 'vendedoras ativas'}
-                  </span>
-                  <p className="text-[10px] text-purple-700 dark:text-purple-300">
-                    {sellersList.length - activeSellersCount > 0
-                      ? `${sellersList.length - activeSellersCount} de férias / licença no mês`
-                      : 'Equipe comercial 100% ativa'}
-                  </p>
-                </div>
-                <UserCheck className="w-5 h-5 text-purple-600 shrink-0" />
-              </div>
-            </div>
-
-            {/* 3. Valor Total da Meta de Venda da Loja */}
-            <div>
-              <label className="block text-[11px] font-extrabold uppercase tracking-wider text-slate-500 mb-1">
-                3. Meta Total de Venda da Loja (R$)
+                2. Meta Total de Venda da Loja (R$)
               </label>
               <div className="flex items-center gap-2">
                 <input
@@ -485,13 +488,13 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
                     handleStoreTotalChange(val);
                   }}
                   className="w-full px-3 py-2 text-xs font-black rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-purple-500 tabular-nums"
-                  placeholder="Ex: 390000"
+                  placeholder="Ex: 400000"
                 />
                 <button
                   type="button"
                   onClick={() => handleDistributeEqually()}
-                  className="px-3 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs whitespace-nowrap shadow-xs active:scale-95 transition"
-                  title="Distribuir valor igualmente entre os ativos"
+                  className="px-3 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-xs whitespace-nowrap shadow-xs active:scale-95 transition cursor-pointer"
+                  title="Distribuir valor igualmente entre os vendedores"
                 >
                   Distribuir
                 </button>
@@ -509,15 +512,12 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
                 <h2 className="text-base font-extrabold text-slate-900 dark:text-white">
                   Distribuição Individual das Metas ({getMonthYearLabel(selectedMesAno)})
                 </h2>
-                <p className="text-xs text-slate-500">
-                  Defina quem está ativo no mês ou edite individualmente para abrir o pop-up de redistribuição
-                </p>
               </div>
 
               <button
                 type="button"
                 onClick={handleSaveMonthMetas}
-                className="py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-xs active:scale-95 transition flex items-center gap-1.5 self-start sm:self-auto"
+                className="py-2 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-xs active:scale-95 transition flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
               >
                 <Check className="w-4 h-4 stroke-[3]" />
                 <span>Salvar Configuração do Mês</span>
@@ -530,7 +530,6 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
                 <thead>
                   <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200/80 dark:border-slate-800 text-slate-500 uppercase text-[10px] font-extrabold tracking-wider">
                     <th className="py-2.5 px-3">Vendedora</th>
-                    <th className="py-2.5 px-3 text-center">Status no Mês</th>
                     <th className="py-2.5 px-3">Meta Individual (R$) & Meta Taxa (%)</th>
                     <th className="py-2.5 px-3 text-right">% do Total da Loja</th>
                   </tr>
@@ -550,7 +549,7 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
                     return (
                       <tr
                         key={seller.id}
-                        className={`hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors ${!item.isAtivo ? 'opacity-60 bg-slate-50/50' : ''}`}
+                        className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors"
                       >
                         <td className="py-3 px-3">
                           <div className="flex items-center gap-2">
@@ -564,20 +563,6 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
                               <p className="text-[10px] text-slate-400 font-mono">{seller.email}</p>
                             </div>
                           </div>
-                        </td>
-
-                        <td className="py-3 px-3 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleSellerActive(seller.id)}
-                            className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all ${
-                              item.isAtivo
-                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200 hover:bg-emerald-200'
-                                : 'bg-slate-100 text-slate-500 border border-slate-200 hover:bg-slate-200'
-                            }`}
-                          >
-                            {item.isAtivo ? 'ATIVO' : 'FÉRIAS/LICENÇA'}
-                          </button>
                         </td>
 
                         <td className="py-3 px-3">
@@ -699,7 +684,7 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
                 >
                   {operationalTeam.map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.name} ({s.role === 'digitador' ? 'Digitadora' : s.role === 'vendedora' ? 'Vendedora' : s.role})
+                      {s.name}
                     </option>
                   ))}
                 </select>

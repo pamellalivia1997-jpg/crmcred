@@ -1,6 +1,6 @@
 export interface MessagingSettings {
   provider: 'whatsapp' | 'digisac' | 'whatsapp_web';
-  digisacDomain: string; // Ex: 'liviacred.digisac.app' ou 'app.digisac.me'
+  digisacDomain: string; // Ex: 'liviacredsaude.digisac.io'
   digisacToken?: string;
 }
 
@@ -13,7 +13,7 @@ export function getMessagingSettings(): MessagingSettings {
       const parsed = JSON.parse(raw);
       return {
         provider: parsed.provider || 'digisac',
-        digisacDomain: parsed.digisacDomain || 'app.digisac.me',
+        digisacDomain: parsed.digisacDomain || 'liviacredsaude.digisac.io',
         digisacToken: parsed.digisacToken || ''
       };
     }
@@ -22,7 +22,7 @@ export function getMessagingSettings(): MessagingSettings {
   }
   return {
     provider: 'digisac',
-    digisacDomain: 'app.digisac.me',
+    digisacDomain: 'liviacredsaude.digisac.io',
     digisacToken: ''
   };
 }
@@ -41,15 +41,18 @@ export function buildMessagingUrl(phone: string, text: string, settings = getMes
   const encodedText = encodeURIComponent(text);
 
   if (settings.provider === 'digisac') {
-    let domain = settings.digisacDomain.trim() || 'app.digisac.me';
+    let domain = settings.digisacDomain.trim() || 'liviacredsaude.digisac.io';
     domain = domain.replace(/^https?:\/\//, '').replace(/\/$/, '');
     
-    // DigiSac standard deep link / multi-chat URL formats:
-    // https://[dominio-empresa]/chat/new?phone=5581988887777&text=...
+    // DigiSac .io and .app deep link formats:
+    // Opens contact search / chat directly in DigiSac web app
+    if (domain.includes('digisac.io')) {
+      return `https://${domain}/contacts?search=${cleanPhone}`;
+    }
     if (domain.includes('digisac.app')) {
       return `https://${domain}/chat/new?phone=${fullPhone}&text=${encodedText}`;
     }
-    return `https://${domain}/contacts/chat?phone=${fullPhone}&text=${encodedText}`;
+    return `https://${domain}/contacts?search=${cleanPhone}`;
   }
 
   if (settings.provider === 'whatsapp_web') {
@@ -62,5 +65,10 @@ export function buildMessagingUrl(phone: string, text: string, settings = getMes
 
 export function openMessagingApp(phone: string, text: string, settings = getMessagingSettings()): void {
   const url = buildMessagingUrl(phone, text, settings);
-  window.open(url, '_blank');
+  if (typeof window !== 'undefined') {
+    const newWindow = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!newWindow) {
+      window.location.href = url;
+    }
+  }
 }

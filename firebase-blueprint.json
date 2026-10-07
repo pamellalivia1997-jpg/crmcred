@@ -56,7 +56,15 @@
         "vendedora": { "type": "string" },
         "digitador": { "type": "string" },
         "numeroContrato": { "type": "string" },
-        "status": { "type": "string", "enum": ["Em análise", "Pendente", "Aprovada", "Paga", "Cancelada", "Reprovada"] }
+        "status": { "type": "string", "enum": ["Em análise", "Pendente", "Aprovada", "Paga", "Cancelada", "Reprovada"] },
+        "valorRepasse": { "type": "number" },
+        "dataRecebimentoRepasse": { "type": "string" },
+        "statusRepasse": { "type": "string" },
+        "promotoraRepasse": { "type": "string" },
+        "tipoRepasse": { "type": "string" },
+        "percentualRepasse": { "type": "number" },
+        "observacaoRepasse": { "type": "string" },
+        "updatedAt": { "type": "string" }
       },
       "required": ["id", "cpf", "nomeCliente", "convenio", "operacao", "banco", "valorEmprestimo", "status"]
     },

@@ -206,10 +206,16 @@ function sanitizeStore(store: CRMDataStore): { sanitized: CRMDataStore; modified
   const hasWipedGhostDemo = typeof localStorage !== 'undefined' && localStorage.getItem('lviacred_ghost_demo_wiped_v1');
   if (!hasWipedGhostDemo) {
     if (Array.isArray(store.clientes)) {
-      store.clientes = store.clientes.filter(c => 
-        !c.observacoes?.includes('Cliente muito fiel, prefere atendimento presencial em Igarassu') &&
-        !c.observacoes?.includes('Gosta de simulações com parcelas baixas no Pan')
-      );
+      store.clientes.forEach(c => {
+        if (c.dataNascimento === '1975-01-01' || c.dataNascimento === '01/01/1975') {
+          c.dataNascimento = '';
+          modified = true;
+        }
+        if (c.observacoes && c.observacoes.includes('Cliente importado via planilha')) {
+          c.observacoes = '';
+          modified = true;
+        }
+      });
     }
     if (Array.isArray(store.propostas)) {
       store.propostas = store.propostas.filter(p => 
@@ -222,13 +228,29 @@ function sanitizeStore(store: CRMDataStore): { sanitized: CRMDataStore; modified
     modified = true;
   }
 
+  // Purge incomplete legacy August metas (195k anomaly) so it uses standard 400k equal distribution fallback
+  const hasNormalizedAugMetas = typeof localStorage !== 'undefined' && localStorage.getItem('lviacred_august_metas_normalized_v1');
+  if (!hasNormalizedAugMetas) {
+    if (Array.isArray(store.metas)) {
+      const augMetas = store.metas.filter(m => m.mesAno === '2026-08');
+      const augSum = augMetas.reduce((acc, m) => acc + (m.vendedoraId !== 'loja' ? (m.metaVenda || 0) : 0), 0);
+      // If legacy 195k or partial
+      if (augSum === 195000 || augMetas.some(m => m.vendedoraId !== 'loja' && m.metaVenda === 0)) {
+        store.metas = store.metas.filter(m => m.mesAno !== '2026-08');
+        modified = true;
+      }
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('lviacred_august_metas_normalized_v1', 'true');
+    }
+  }
+
   return { sanitized: store, modified };
 }
 
 // Load store from LocalStorage fallback
 function loadStore(): CRMDataStore {
   const isFunilCleared = typeof localStorage !== 'undefined' && localStorage.getItem('lviacred_funil_cleared_v1') === 'true';
-  const isControladoriaCleared = typeof localStorage !== 'undefined' && localStorage.getItem('lviacred_controladoria_cleared_v1') === 'true';
 
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -238,10 +260,7 @@ function loadStore(): CRMDataStore {
         parsed.propostas = [];
         parsed.clientes = [];
       }
-      if (isControladoriaCleared) {
-        parsed.comissoesPromotoras = [];
-      }
-      const { sanitized, modified } = sanitizeStore(parsed);
+      const { sanitized } = sanitizeStore(parsed);
       saveLocalStore(sanitized);
       return sanitized;
     }
@@ -253,9 +272,6 @@ function loadStore(): CRMDataStore {
   if (isFunilCleared) {
     seed.propostas = [];
     seed.clientes = [];
-  }
-  if (isControladoriaCleared) {
-    seed.comissoesPromotoras = [];
   }
   saveLocalStore(seed);
   return seed;
@@ -403,7 +419,6 @@ export function initFirestoreRealtimeSync() {
           }
 
           const isFunilCleared = typeof localStorage !== 'undefined' && localStorage.getItem('lviacred_funil_cleared_v1') === 'true';
-          const isControladoriaCleared = typeof localStorage !== 'undefined' && localStorage.getItem('lviacred_controladoria_cleared_v1') === 'true';
 
           if (isFunilCleared && (coll === 'propostas' || coll === 'clientes')) {
             (currentStore as any)[coll] = [];
@@ -412,25 +427,27 @@ export function initFirestoreRealtimeSync() {
             return;
           }
 
-          if (isControladoriaCleared && coll === 'comissoesPromotoras') {
-            (currentStore as any)[coll] = [];
-            saveLocalStore(currentStore);
-            notify();
-            return;
-          }
-
           if (snapshot.empty) {
-            // Se o Firestore está vazio, a coleção no aplicativo deve ficar vazia (respeitando a ação de zerar)
             (currentStore as any)[coll] = [];
             saveLocalStore(currentStore);
             notify();
           } else {
-            const items: any[] = [];
+            const incomingMap = new Map<string, any>();
             snapshot.forEach((docSnap) => {
-              items.push({ ...docSnap.data(), id: docSnap.id });
+              incomingMap.set(docSnap.id, { ...docSnap.data(), id: docSnap.id });
             });
 
-            (currentStore as any)[coll] = items;
+            // Incremental Smart Merge: preserve local store cache and update matching docs
+            const currentList: any[] = Array.isArray((currentStore as any)[coll]) ? (currentStore as any)[coll] : [];
+            const mergedMap = new Map<string, any>();
+            currentList.forEach(item => {
+              if (item && item.id) mergedMap.set(item.id, item);
+            });
+            incomingMap.forEach((val, id) => {
+              mergedMap.set(id, { ...(mergedMap.get(id) || {}), ...val });
+            });
+
+            (currentStore as any)[coll] = Array.from(mergedMap.values());
             
             // Always sanitize store on any realtime snapshot update (proposals, users, etc.)
             const { sanitized } = sanitizeStore(currentStore);
@@ -776,7 +793,7 @@ export const crmStorage = {
         id: cleanCpf,
         cpf: cleanCpf,
         nome: cli.nome.trim(),
-        dataNascimento: cli.dataNascimento || '1975-01-01',
+        dataNascimento: (cli.dataNascimento && cli.dataNascimento !== '1975-01-01') ? cli.dataNascimento : '',
         telefone: cli.telefone || '(81) 98000-0000',
         email: cli.email || `${cleanCpf}@cliente.com`,
         cidade: cli.cidade || 'Igarassu',
@@ -896,12 +913,12 @@ export const crmStorage = {
           id: clientId,
           cpf: isValidCpf ? cleanCpf : (row.cpf || cleanCpf),
           nome: rawNome,
-          dataNascimento: '1975-01-01',
+          dataNascimento: '',
           telefone: rawPhone,
           email: `${cleanCpf}@cliente.com`,
           cidade: 'Igarassu',
           convenioPrincipal: (row.convenio as Convenio) || 'INSS',
-          observacoes: 'Cliente importado via planilha oficial de contratos.',
+          observacoes: '',
           vendedoraResponsavel: sellerName,
           dataCriacao: dateDigitacao
         };
@@ -1349,6 +1366,27 @@ export const crmStorage = {
     }
     currentStore.comissoesPromotoras = updatedComissoes;
 
+    // Single-Source of Truth: Update the proposal document directly
+    const propIndex = currentStore.propostas.findIndex(
+      p => p.id === comissao.propostaId ||
+           (p.numeroContrato && comissao.numeroContrato && p.numeroContrato.trim().toLowerCase() === comissao.numeroContrato.trim().toLowerCase())
+    );
+    if (propIndex >= 0) {
+      const prop = {
+        ...currentStore.propostas[propIndex],
+        valorRepasse: Number(comissao.valorRecebido || 0),
+        dataRecebimentoRepasse: comissao.dataRecebimento,
+        statusRepasse: comissao.status || 'confirmada',
+        promotoraRepasse: comissao.promotora,
+        tipoRepasse: comissao.tipo,
+        percentualRepasse: comissao.percentualAplicado,
+        observacaoRepasse: comissao.observacao,
+        updatedAt: new Date().toISOString()
+      };
+      currentStore.propostas[propIndex] = prop;
+      syncItemToFirestore('propostas', prop.id, prop);
+    }
+
     this.logAudit({
       usuarioId: currentUser.id,
       usuarioNome: currentUser.name,
@@ -1366,7 +1404,38 @@ export const crmStorage = {
     if (!comissoes) return;
 
     currentStore.comissoesPromotoras = comissoes;
+
+    // Single-Source of Truth: Directly bind and update proposals in memory and Firestore
+    const now = new Date().toISOString();
+    const updatedPropostas: Proposta[] = [];
+
+    comissoes.forEach(c => {
+      const propIndex = currentStore.propostas.findIndex(
+        p => p.id === c.propostaId ||
+             (p.numeroContrato && c.numeroContrato && p.numeroContrato.trim().toLowerCase() === c.numeroContrato.trim().toLowerCase())
+      );
+      if (propIndex >= 0) {
+        const prop = {
+          ...currentStore.propostas[propIndex],
+          valorRepasse: Number(c.valorRecebido || 0),
+          dataRecebimentoRepasse: c.dataRecebimento,
+          statusRepasse: c.status || 'confirmada',
+          promotoraRepasse: c.promotora,
+          tipoRepasse: c.tipo,
+          percentualRepasse: c.percentualAplicado,
+          observacaoRepasse: c.observacao,
+          updatedAt: now
+        };
+        currentStore.propostas[propIndex] = prop;
+        updatedPropostas.push(prop);
+      }
+    });
+
     saveLocalStore(currentStore);
+
+    if (updatedPropostas.length > 0) {
+      syncBatchToFirestore('propostas', updatedPropostas);
+    }
 
     const chunkSize = 400;
     for (let i = 0; i < comissoes.length; i += chunkSize) {

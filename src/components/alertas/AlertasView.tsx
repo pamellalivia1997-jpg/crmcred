@@ -477,18 +477,10 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
       {/* Top Bar Header */}
       <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
-              <BellRing className="w-6 h-6 text-amber-500" />
-              <span>Oportunidades & Alertas</span>
-            </h1>
-            <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-              {msgSettings.provider === 'digisac' ? 'DigiSac Multi-Atendimento' : 'WhatsApp Direct'}
-            </span>
-          </div>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Gestão proativa de Portabilidade (mais de 1 ano), Refinanciamento (&gt;6 meses), Indicação (3 a 7 dias) e Aniversariantes
-          </p>
+          <h1 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+            <BellRing className="w-6 h-6 text-amber-500" />
+            <span>Oportunidades & Alertas</span>
+          </h1>
         </div>
 
         {/* Messaging Provider Switcher Button */}
@@ -576,20 +568,6 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
       {/* CATEGORY 1: PORTABILIDADE */}
       {activeCategory === 'portabilidade' && (
         <div className="space-y-3">
-          <div className="p-3.5 rounded-2xl bg-cyan-50 dark:bg-cyan-950/40 border border-cyan-200 dark:border-cyan-800 text-xs text-cyan-900 dark:text-cyan-200 flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <RefreshCw className="w-4 h-4 text-cyan-600 shrink-0" />
-              <span>
-                <strong>Leads de Portabilidade:</strong> Clientes que realizaram operação de Margem ou Refinanciamento há <strong>mais de 1 ano</strong>, elegíveis para redução de taxas e liberação de troco.
-              </span>
-            </div>
-            {canManageTeam() && (
-              <span className="text-[10px] font-bold text-cyan-700 dark:text-cyan-300">
-                ADM pode autorizar para Digitadora
-              </span>
-            )}
-          </div>
-
           {portabilidadeAlertas.length === 0 ? (
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 text-center border border-slate-200/80 dark:border-slate-800">
               <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-1.5" />
@@ -1451,14 +1429,11 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
                   <input
                     type="text"
                     required
-                    placeholder="empresa.digisac.app ou app.digisac.me"
+                    placeholder="liviacredsaude.digisac.io"
                     value={msgSettings.digisacDomain}
                     onChange={(e) => setMsgSettings({ ...msgSettings, digisacDomain: e.target.value })}
                     className="w-full px-3 py-2 font-mono text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none"
                   />
-                  <p className="text-[10px] text-slate-400 mt-1">
-                    Exemplo: se o seu painel DigiSac abre em <code>liviacred.digisac.app</code>, digite este endereço acima.
-                  </p>
                 </div>
               )}
 

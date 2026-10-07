@@ -89,7 +89,7 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
   const { saveProposta, deleteProposta, propostas, comissoesPromotoras } = useCRM();
   const { currentUser, canEditProposal, allUsers } = useAuth();
 
-  const isAdm = currentUser?.role === 'adm' || currentUser?.role === 'proprietaria';
+  const isAdm = currentUser?.role === 'adm' || currentUser?.role === 'proprietaria' || currentUser?.role === 'financeiro';
 
   // Keep proposta up-to-date from context if it changes
   const proposta = propostas.find(p => p.id === initialProposta?.id) || initialProposta;
@@ -97,6 +97,10 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
   const comissaoPromotoraItem = proposta ? comissoesPromotoras.find(
     c => c.propostaId === proposta.id || (proposta.numeroContrato && c.numeroContrato && c.numeroContrato.trim().toLowerCase() === proposta.numeroContrato.trim().toLowerCase())
   ) : null;
+
+  const repasseValor = (proposta?.valorRepasse && proposta.valorRepasse > 0) ? proposta.valorRepasse : (comissaoPromotoraItem ? comissaoPromotoraItem.valorRecebido : 0);
+  const repassePromotora = proposta?.promotoraRepasse || comissaoPromotoraItem?.promotora || proposta?.promotora;
+  const repasseData = proposta?.dataRecebimentoRepasse || comissaoPromotoraItem?.dataRecebimento;
 
   const [isEditing, setIsEditing] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
@@ -824,11 +828,11 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                     </div>
                     <div>
                       <span className="text-[10px] uppercase font-bold text-emerald-800 dark:text-emerald-300 block">
-                        Comissão Recebida da Promotora (Visibilidade: Apenas ADM)
+                        Repasse Recebido da Promotora (Visibilidade Restrita)
                       </span>
-                      {comissaoPromotoraItem && comissaoPromotoraItem.valorRecebido > 0 ? (
+                      {repasseValor > 0 ? (
                         <p className="text-sm font-black text-emerald-700 dark:text-emerald-300 tabular-nums">
-                          {formatCurrency(comissaoPromotoraItem.valorRecebido)} <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">• {comissaoPromotoraItem.promotora} {comissaoPromotoraItem.dataRecebimento ? `(em ${formatDate(comissaoPromotoraItem.dataRecebimento)})` : ''}</span>
+                          {formatCurrency(repasseValor)} <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">• {repassePromotora} {repasseData ? `(em ${formatDate(repasseData)})` : ''}</span>
                         </p>
                       ) : (
                         <p className="text-xs font-bold text-amber-700 dark:text-amber-400">
@@ -838,11 +842,11 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                     </div>
                   </div>
                   <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold tracking-wide self-start sm:self-auto ${
-                    comissaoPromotoraItem && comissaoPromotoraItem.valorRecebido > 0
+                    repasseValor > 0
                       ? 'bg-emerald-200 text-emerald-900 dark:bg-emerald-900 dark:text-emerald-200'
                       : 'bg-amber-200 text-amber-900 dark:bg-amber-900 dark:text-amber-200'
                   }`}>
-                    {comissaoPromotoraItem && comissaoPromotoraItem.valorRecebido > 0 ? 'REPASSE CONFIRMADO' : 'SEM REPASSE'}
+                    {repasseValor > 0 ? 'REPASSE CONFIRMADO' : 'SEM REPASSE'}
                   </span>
                 </div>
               )}

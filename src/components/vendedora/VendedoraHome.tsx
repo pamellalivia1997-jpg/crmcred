@@ -284,18 +284,9 @@ export const VendedoraHome: React.FC<Props> = ({
 
   const metaVendaBase = useMemo(() => {
     if (sellerMeta && sellerMeta.metaVenda > 0) return sellerMeta.metaVenda;
-    const foundUser = allUsers.find(u => isSameSeller(u.name, sellerName));
-    if (foundUser && foundUser.monthlySalesGoal && foundUser.monthlySalesGoal > 0) return foundUser.monthlySalesGoal;
-
-    const defaults: Record<string, number> = {
-      'Bianca': 85000,
-      'Hellen Vasconcelos': 95000,
-      'Taciana Silva': 80000,
-      'Lucélia Ramos': 75000
-    };
-    const norm = normalizeSellerName(sellerName);
-    return defaults[norm] || 80000;
-  }, [sellerMeta, allUsers, sellerName]);
+    const activeSellersCount = allUsers.filter(u => u.role === 'vendedora').length;
+    return activeSellersCount > 0 ? Math.round(400000 / activeSellersCount) : 100000;
+  }, [sellerMeta, allUsers]);
 
   const metaVenda = metaVendaBase * periodMultiplier;
   const atingimentoMeta = metaVenda > 0 ? (totalVendas / metaVenda) * 100 : 0;

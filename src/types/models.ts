@@ -121,6 +121,15 @@ export interface Proposta {
   anexos?: string[];
   linkDocumento?: string;
   historicoStatus: HistoricoStatus[];
+  // Vínculo Direto de Repasse Conciliado (Entidade Única - Sem redundância)
+  valorRepasse?: number;
+  dataRecebimentoRepasse?: string;
+  statusRepasse?: 'confirmada' | 'pendente' | 'divergencia';
+  promotoraRepasse?: Promotora;
+  tipoRepasse?: 'percentual' | 'fixo';
+  percentualRepasse?: number;
+  observacaoRepasse?: string;
+  updatedAt?: string;
 }
 
 export interface ComissaoPromotora {

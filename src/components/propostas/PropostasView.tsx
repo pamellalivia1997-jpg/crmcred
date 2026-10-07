@@ -303,7 +303,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
     currentUser && (currentUser.role === 'proprietaria' || currentUser.role === 'adm' || currentUser.role === 'financeiro')
   );
 
-  const isGeovanne = Boolean(currentUser && currentUser.name.toLowerCase().includes('geovanne'));
+  const isFinanceiro = Boolean(currentUser && currentUser.role === 'financeiro');
 
   const [viewMode, setViewMode] = useState<'kanban' | 'tabela'>('kanban');
   const [searchTerm, setSearchTerm] = useState(initialSearchTerm);
@@ -563,9 +563,9 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
           </p>
         </div>
 
-        {/* Kanban vs Table Mode & Geovanne Buttons */}
+        {/* Kanban vs Table Mode & Financeiro Buttons */}
         <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
-          {isGeovanne && (
+          {isFinanceiro && (
             <div className="flex items-center gap-1.5">
               <button
                 onClick={() => setIsImportModalOpen(true)}

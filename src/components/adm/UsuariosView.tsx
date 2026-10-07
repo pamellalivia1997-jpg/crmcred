@@ -115,11 +115,11 @@ export const UsuariosView: React.FC = () => {
   };
 
   const roleLabels: Record<UserRole, string> = {
-    proprietaria: 'Gerencial (Proprietária)',
-    adm: 'Administrador (ADM)',
-    financeiro: 'Financeiro / Controladoria',
-    vendedora: 'Vendedora (Comercial)',
-    digitador: 'Digitador(a) Operacional'
+    proprietaria: 'GERENCIAL',
+    adm: 'ADMINISTRADOR',
+    financeiro: 'FINANCEIRO',
+    vendedora: 'VENDEDOR(A)',
+    digitador: 'DIGITADOR(A)'
   };
 
   const roleBadges: Record<UserRole, string> = {
@@ -295,10 +295,10 @@ export const UsuariosView: React.FC = () => {
                           onChange={(e) => setSelectedLinkUser({ ...selectedLinkUser, [pending.id]: e.target.value })}
                           className="flex-1 py-1.5 px-2 text-xs font-semibold rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-teal-500"
                         >
-                          <option value="vendedora">Vendedora (Comercial)</option>
-                          <option value="digitador">Digitador(a) Operacional</option>
-                          <option value="financeiro">Financeiro / Controladoria</option>
-                          <option value="adm">Administrador (ADM)</option>
+                          <option value="vendedora">VENDEDOR(A)</option>
+                          <option value="digitador">DIGITADOR(A)</option>
+                          <option value="financeiro">FINANCEIRO</option>
+                          <option value="adm">ADMINISTRADOR</option>
                         </select>
                         <button
                           onClick={() => {
@@ -371,7 +371,6 @@ export const UsuariosView: React.FC = () => {
               <tr className="bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200/80 dark:border-slate-800 text-slate-500 uppercase text-[10px] font-extrabold tracking-wider">
                 <th className="py-3 px-4">Usuário / Colaborador</th>
                 <th className="py-3 px-3">Cargo / Perfil</th>
-                <th className="py-3 px-3">Status</th>
                 <th className="py-3 px-3">Telefone</th>
                 <th className="py-3 px-3">Senha de Acesso</th>
                 <th className="py-3 px-4 text-right">Ações</th>
@@ -380,7 +379,7 @@ export const UsuariosView: React.FC = () => {
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
               {filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-center py-8 text-slate-400 text-xs">
+                  <td colSpan={5} className="text-center py-8 text-slate-400 text-xs">
                     Nenhum usuário encontrado com os filtros aplicados.
                   </td>
                 </tr>
@@ -408,23 +407,6 @@ export const UsuariosView: React.FC = () => {
                       <td className="py-3 px-3">
                         <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${roleBadges[user.role]}`}>
                           {roleLabels[user.role]}
-                        </span>
-                      </td>
-
-                      <td className="py-3 px-3">
-                        <span
-                          className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            user.status === 'ativo'
-                              ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                              : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
-                          }`}
-                        >
-                          <span
-                            className={`w-1.5 h-1.5 rounded-full ${
-                              user.status === 'ativo' ? 'bg-emerald-500' : 'bg-amber-500'
-                            }`}
-                          />
-                          {user.status === 'ativo' ? 'Ativo' : 'Inativo'}
                         </span>
                       </td>
 
@@ -584,37 +566,21 @@ export const UsuariosView: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Cargo / Nível de Permissão *
-                  </label>
-                  <select
-                    value={formRole}
-                    onChange={(e) => setFormRole(e.target.value as UserRole)}
-                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 font-semibold"
-                  >
-                    <option value="vendedora">Vendedora (Comercial)</option>
-                    <option value="digitador">Digitador(a) Operacional</option>
-                    <option value="financeiro">Financeiro / Controladoria</option>
-                    <option value="adm">Administrador (ADM)</option>
-                    <option value="proprietaria">Gerencial (Proprietária)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Status da Conta *
-                  </label>
-                  <select
-                    value={formStatus}
-                    onChange={(e) => setFormStatus(e.target.value as 'ativo' | 'inativo')}
-                    className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 font-semibold"
-                  >
-                    <option value="ativo">Ativo (Acesso Liberado)</option>
-                    <option value="inativo">Inativo / Bloqueado</option>
-                  </select>
-                </div>
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Cargo / Nível de Permissão *
+                </label>
+                <select
+                  value={formRole}
+                  onChange={(e) => setFormRole(e.target.value as UserRole)}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 font-semibold"
+                >
+                  <option value="vendedora">VENDEDOR(A)</option>
+                  <option value="digitador">DIGITADOR(A)</option>
+                  <option value="financeiro">FINANCEIRO</option>
+                  <option value="adm">ADMINISTRADOR</option>
+                  <option value="proprietaria">GERENCIAL</option>
+                </select>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

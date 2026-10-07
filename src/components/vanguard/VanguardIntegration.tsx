@@ -134,7 +134,7 @@ export const VanguardIntegration: React.FC = () => {
           id: cleanCpf,
           cpf: cleanCpf,
           nome: nome || 'Cliente Vanguard',
-          dataNascimento: dataNascimento || '1975-01-01',
+          dataNascimento: dataNascimento || '',
           telefone: telefone || '(81) 98000-0000',
           email: `${cleanCpf}@cliente.com`,
           cidade: 'Igarassu',

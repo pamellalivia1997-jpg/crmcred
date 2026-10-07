@@ -8,6 +8,7 @@ import {
   Clock,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   FileSpreadsheet,
   X,
   CreditCard,
@@ -57,7 +58,7 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
     importClientPortfolio
   } = useCRM();
   const { currentUser, isManager } = useAuth();
-  const isAdm = currentUser?.role === 'adm' || currentUser?.role === 'proprietaria';
+  const isAdm = currentUser?.role === 'adm' || currentUser?.role === 'proprietaria' || currentUser?.role === 'financeiro';
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
@@ -155,6 +156,21 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
     return badges;
   };
 
+  const renderBirthDateInfo = (dataNascimento?: string) => {
+    const isInvalid = !dataNascimento || dataNascimento === '1975-01-01' || dataNascimento === '01/01/1975' || dataNascimento.trim() === '';
+    if (isInvalid) {
+      return (
+        <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400 font-bold text-[11px]">
+          <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+          <span>Nascimento: Sem Informação cadastrada</span>
+        </span>
+      );
+    }
+    return (
+      <span>Nascimento {formatDate(dataNascimento)}</span>
+    );
+  };
+
   return (
     <div className="space-y-4 pb-20 md:pb-8">
       {/* Top Search & Filter Bar */}
@@ -176,7 +192,7 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
                 setEditingClient({
                   nome: '',
                   cpf: '',
-                  dataNascimento: '1975-01-01',
+                  dataNascimento: '',
                   telefone: '',
                   cidade: 'Igarassu',
                   convenioPrincipal: 'INSS',
@@ -264,14 +280,19 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
+                        <div className="min-w-0 space-y-0.5">
                           <p className="text-xs font-bold text-slate-900 dark:text-white truncate">
                             {c.nome}
                           </p>
-                          <p className="text-[11px] text-slate-500 tabular-nums mt-0.5 flex items-center flex-wrap gap-1">
+                          <p className="text-[11px] text-slate-500 tabular-nums flex items-center flex-wrap gap-1">
                             <span>CPF: {formatCPF(c.cpf)}</span>
                             <CPFValidationBadge cpf={c.cpf} />
-                            <span>· {c.convenioPrincipal}</span>
+                          </p>
+                          <p className="text-[11px] text-slate-500 tabular-nums">
+                            {renderBirthDateInfo(c.dataNascimento)}
+                          </p>
+                          <p className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                            · {c.convenioPrincipal}
                           </p>
                           <p className="text-[11px] text-slate-400">
                             {c.cidade} · Tel: {formatPhone(c.telefone)}
@@ -320,7 +341,7 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
                     <span>CPF: <strong>{formatCPF(selectedCliente.cpf)}</strong></span>
                     <CPFValidationBadge cpf={selectedCliente.cpf} />
                   </span>
-                  <span>Nascimento: {formatDate(selectedCliente.dataNascimento)}</span>
+                  <span className="inline-flex items-center gap-1">{renderBirthDateInfo(selectedCliente.dataNascimento)}</span>
                   <span>{selectedCliente.cidade}</span>
                 </div>
               </div>
@@ -345,7 +366,10 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
 
               <button
                 onClick={() => {
-                  setEditingClient(selectedCliente);
+                  setEditingClient({
+                    ...selectedCliente,
+                    observacoes: (selectedCliente.observacoes && selectedCliente.observacoes.toLowerCase().includes('cliente importado via planilha')) ? '' : (selectedCliente.observacoes || '')
+                  });
                   setModalError('');
                   setIsClientModalOpen(true);
                 }}
@@ -386,8 +410,10 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
               </div>
             </div>
 
-            {/* Client Notes */}
-            {selectedCliente.observacoes && (
+            {/* Client Notes (Exibe apenas anotações reais de atendimento, omitindo texto padrão de importação) */}
+            {selectedCliente.observacoes && 
+             selectedCliente.observacoes.trim() !== '' && 
+             !selectedCliente.observacoes.toLowerCase().includes('cliente importado via planilha') && (
               <div className="p-3 rounded-2xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/40 text-xs">
                 <span className="font-bold text-amber-800 dark:text-amber-300">Observações de Atendimento:</span>
                 <p className="text-slate-600 dark:text-slate-300 mt-0.5">{selectedCliente.observacoes}</p>
@@ -453,20 +479,22 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
                           </div>
                         </div>
 
-                        {/* Comissão Promotora (Visibilidade Restrita: ADM) */}
+                        {/* Comissão Promotora / Repasse (Visibilidade Restrita: ADM, Proprietária, Financeiro) */}
                         {isAdm && (() => {
                           const comItem = comissoesPromotoras.find(
                             c => c.propostaId === prop.id || (prop.numeroContrato && c.numeroContrato && c.numeroContrato.trim().toLowerCase() === prop.numeroContrato.trim().toLowerCase())
                           );
+                          const repValue = (prop.valorRepasse && prop.valorRepasse > 0) ? prop.valorRepasse : (comItem ? comItem.valorRecebido : 0);
+                          const repProm = prop.promotoraRepasse || comItem?.promotora || prop.promotora;
                           return (
                             <div className="mt-2 p-2 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/60 dark:border-emerald-800/60 flex items-center justify-between text-xs">
                               <div>
                                 <span className="text-[10px] text-emerald-800 dark:text-emerald-300 font-bold block">
-                                  Comissão Promotora (ADM):
+                                  Repasse Promotora:
                                 </span>
-                                {comItem && comItem.valorRecebido > 0 ? (
+                                {repValue > 0 ? (
                                   <span className="font-extrabold text-emerald-700 dark:text-emerald-300 tabular-nums">
-                                    {formatCurrency(comItem.valorRecebido)} ({comItem.promotora})
+                                    {formatCurrency(repValue)} ({repProm})
                                   </span>
                                 ) : (
                                   <span className="text-amber-700 dark:text-amber-400 font-semibold text-[11px]">
@@ -475,11 +503,11 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
                                 )}
                               </div>
                               <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                                comItem && comItem.valorRecebido > 0
+                                repValue > 0
                                   ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200'
                                   : 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200'
                               }`}>
-                                {comItem && comItem.valorRecebido > 0 ? 'CONCILIADO' : 'SEM REPASSE'}
+                                {repValue > 0 ? 'CONCILIADO' : 'SEM REPASSE'}
                               </span>
                             </div>
                           );
@@ -632,8 +660,8 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1 flex items-center justify-between">
-                    <span>Data de Nascimento *</span>
-                    {editingClient.dataNascimento && calculateAge(editingClient.dataNascimento) !== null && (
+                    <span>Data de Nascimento</span>
+                    {editingClient.dataNascimento && editingClient.dataNascimento !== '1975-01-01' && calculateAge(editingClient.dataNascimento) !== null && (
                       <span className="text-[10px] text-teal-700 dark:text-teal-400 font-bold bg-teal-50 dark:bg-teal-950/60 px-1.5 py-0.5 rounded">
                         {calculateAge(editingClient.dataNascimento)} anos
                       </span>
@@ -641,8 +669,7 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
                   </label>
                   <input
                     type="date"
-                    required
-                    value={editingClient.dataNascimento || '1975-01-01'}
+                    value={(editingClient.dataNascimento && editingClient.dataNascimento !== '1975-01-01' && editingClient.dataNascimento !== '01/01/1975') ? editingClient.dataNascimento : ''}
                     onChange={(e) => setEditingClient({ ...editingClient, dataNascimento: e.target.value })}
                     className="w-full px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                   />

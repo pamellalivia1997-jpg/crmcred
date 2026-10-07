@@ -156,9 +156,16 @@ export function calculateMetaForPeriod(
       }
     });
 
-    const sum = Array.from(uniqueMetasMap.values()).reduce((acc, val) => acc + val, 0);
-    if (sum > 0) {
-      storeMetaMonthly = sum;
+    // Valid if all active sellers have a meta > 0 saved
+    const allActiveSellersHaveSavedMeta = activeSellerIds.size > 0 && Array.from(activeSellerIds).every(id => (uniqueMetasMap.get(id) || 0) > 0);
+
+    if (allActiveSellersHaveSavedMeta) {
+      const sum = Array.from(uniqueMetasMap.values()).reduce((acc, val) => acc + val, 0);
+      if (sum > 0) {
+        storeMetaMonthly = sum;
+      }
+    } else {
+      storeMetaMonthly = 400000;
     }
   }
 
@@ -250,14 +257,24 @@ export function calculateDashboardMetrics(
   const diffDays = Math.max(1, Math.round((eDate.getTime() - sDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
   const periodMultiplier = isFullClosedMonth(dataInicio, dataFim) ? 1.0 : (diffDays / 30);
 
+  const activeSellerIds = new Set(activeSellers.map(u => u.id));
+  const savedMetasForMonth = metas.filter(m => m.mesAno === activeCompetenceMonth);
+  const allActiveSellersHaveSavedMeta = activeSellerIds.size > 0 && Array.from(activeSellerIds).every(id => {
+    const m = savedMetasForMonth.find(sm => sm.vendedoraId === id || isSameSeller(sm.vendedoraNome, users.find(u => u.id === id)?.name || ''));
+    return m && (m.metaVenda || 0) > 0;
+  });
+
   const getSellerPeriodMeta = (user: any): number => {
-    const foundMeta = metas.find(m => 
-      (m.vendedoraId === user.id || isSameSeller(m.vendedoraNome, user.name)) && 
-      m.mesAno === activeCompetenceMonth
-    );
-    return (foundMeta && foundMeta.metaVenda > 0) 
-      ? foundMeta.metaVenda * periodMultiplier
-      : 0;
+    if (allActiveSellersHaveSavedMeta) {
+      const foundMeta = savedMetasForMonth.find(m => 
+        (m.vendedoraId === user.id || isSameSeller(m.vendedoraNome, user.name))
+      );
+      if (foundMeta && foundMeta.metaVenda > 0) {
+        return foundMeta.metaVenda * periodMultiplier;
+      }
+    }
+    const count = Math.max(1, activeSellers.length);
+    return Math.round(400000 / count) * periodMultiplier;
   };
 
   // 6. Sales and Fees grouped by standardized vendedora name using looser matching
@@ -348,11 +365,13 @@ export function calculateDashboardMetrics(
 
   const metaPeriodo = calculateMetaForPeriod(dataInicio, dataFim, metas, users);
 
-  // 9. Total commissions and expenses
-  const paidIds = new Set(contratosFormalizadosEPagos.map(p => p.id));
-  const totalComissoesPromotoras = comissoesPromotoras
-    .filter(c => paidIds.has(c.propostaId) && c.status === 'confirmada')
-    .reduce((acc, c) => acc + (c.valorRecebido || 0), 0);
+  // 9. Total commissions directly from proposals (single-source of truth) with legacy fallback
+  const totalComissoesPromotoras = contratosFormalizadosEPagos.reduce((acc, p) => {
+    const directVal = Number(p.valorRepasse || 0);
+    if (directVal > 0) return acc + directVal;
+    const legacyCom = comissoesPromotoras.find(c => c.propostaId === p.id && c.status === 'confirmada');
+    return acc + (legacyCom ? Number(legacyCom.valorRecebido || 0) : 0);
+  }, 0);
 
   let totalDespesas = 0;
   if (sheetExpenses && sheetExpenses.length > 0) {
@@ -376,9 +395,12 @@ export function calculateDashboardMetrics(
     const vendas = empProps.reduce((acc, p) => acc + (p.valorEmprestimo || 0), 0);
     const taxas = empTaxProps.reduce((acc, p) => acc + (p.valorTaxa || 0), 0);
 
-    const comissaoPromotora = comissoesPromotoras
-      .filter(c => empProps.some(p => p.id === c.propostaId) && c.status === 'confirmada')
-      .reduce((acc, c) => acc + c.valorRecebido, 0);
+    const comissaoPromotora = empProps.reduce((acc, p) => {
+      const directVal = Number(p.valorRepasse || 0);
+      if (directVal > 0) return acc + directVal;
+      const legacyCom = comissoesPromotoras.find(c => c.propostaId === p.id && c.status === 'confirmada');
+      return acc + (legacyCom ? Number(legacyCom.valorRecebido || 0) : 0);
+    }, 0);
 
     let custo = 0;
     if (sheetExpenses && sheetExpenses.length > 0) {

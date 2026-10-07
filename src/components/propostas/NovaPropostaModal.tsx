@@ -181,7 +181,7 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
         telefone: telefone || '(81) 98000-0000',
         email: `${nomeCliente.trim().toLowerCase().split(' ')[0]}@cliente.com`,
         cidade: cidade || 'Igarassu',
-        dataNascimento: dataNascimento || '1975-01-01',
+        dataNascimento: dataNascimento || '',
         convenioPrincipal: convenio,
         observacoes: isDadosCompletosProposta
           ? 'Cadastrado com proposta formalizada.'

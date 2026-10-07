@@ -232,6 +232,27 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   const ticketMedio = paidPropostas.length > 0 ? totalVendas / paidPropostas.length : 0;
   const percentualMedioTaxa = totalVendas > 0 ? (totalTaxas / totalVendas) * 100 : 0;
 
+  // Helper to get previous month YYYY-MM
+  const getPreviousMonthStr = (ym: string): string => {
+    const parts = ym.split('-');
+    if (parts.length < 2) return ym;
+    let yr = parseInt(parts[0], 10);
+    let mo = parseInt(parts[1], 10) - 1;
+    if (mo === 0) {
+      mo = 12;
+      yr -= 1;
+    }
+    return `${yr}-${String(mo).padStart(2, '0')}`;
+  };
+
+  // 4. Dynamic Competence Month derived from dateRange.dataInicio (e.g. '2026-09-01' -> '2026-09')
+  const activeCompetenceMonth = useMemo(() => {
+    if (dateRange.dataInicio && dateRange.dataInicio.length >= 7) {
+      return dateRange.dataInicio.substring(0, 7);
+    }
+    return baseDateInfo.currentMonthStr;
+  }, [dateRange, baseDateInfo]);
+
   // Comparative period deltas
   const { prevPeriodVendas, prevPeriodTaxas, deltaLabel } = useMemo(() => {
     let prevProps: Proposta[] = [];
@@ -256,36 +277,32 @@ export const ProprietariaDashboard: React.FC<Props> = ({
       label = 'vs semana ant.';
     } else if (periodo === 'semana_anterior') {
       label = 'vs semana ant.';
-    } else if (periodo === 'mes') {
-      prevProps = propostas.filter(p => p.dataDigitacao.startsWith(baseDateInfo.prevMonthStr) && p.status === 'Paga');
+    } else if (periodo === 'mes' || periodo === 'mes_anterior') {
+      const prevMoStr = getPreviousMonthStr(activeCompetenceMonth);
+      prevProps = propostas.filter(p => {
+        const d = p.dataDigitacao ? p.dataDigitacao.substring(0, 10) : '';
+        return d.startsWith(prevMoStr) && p.status === 'Paga';
+      });
       label = 'vs mês ant.';
-    } else if (periodo === 'mes_anterior') {
-      prevProps = propostas.filter(p => p.dataDigitacao.startsWith(baseDateInfo.prev2MonthsStr) && p.status === 'Paga');
-      label = 'vs mês ant.';
-    } else if (periodo === 'ultimos_3_meses') {
-      label = 'vs período ant.';
     } else if (periodo === 'ano') {
       const prevYear = String((anoSelecionado || 2026) - 1);
       prevProps = propostas.filter(p => p.dataDigitacao.startsWith(prevYear) && p.status === 'Paga');
       label = 'vs ano ant.';
     } else {
-      label = 'vs período ant.';
+      const prevMoStr = getPreviousMonthStr(activeCompetenceMonth);
+      prevProps = propostas.filter(p => {
+        const d = p.dataDigitacao ? p.dataDigitacao.substring(0, 10) : '';
+        return d.startsWith(prevMoStr) && p.status === 'Paga';
+      });
+      label = 'vs mês ant.';
     }
 
     const pVendas = prevProps.reduce((acc, p) => acc + (p.valorEmprestimo || 0), 0);
     const pTaxas = prevProps.reduce((acc, p) => acc + (p.valorTaxa || 0), 0);
     return { prevPeriodVendas: pVendas, prevPeriodTaxas: pTaxas, deltaLabel: label };
-  }, [propostas, periodo, baseDateInfo, anoSelecionado]);
+  }, [propostas, periodo, baseDateInfo, anoSelecionado, activeCompetenceMonth]);
 
   const deltaVendas = prevPeriodVendas > 0 ? ((totalVendas - prevPeriodVendas) / prevPeriodVendas) * 100 : 0;
-
-  // 4. Dynamic Competence Month derived from dateRange.dataInicio (e.g. '2026-09-01' -> '2026-09')
-  const activeCompetenceMonth = useMemo(() => {
-    if (dateRange.dataInicio && dateRange.dataInicio.length >= 7) {
-      return dateRange.dataInicio.substring(0, 7);
-    }
-    return baseDateInfo.currentMonthStr;
-  }, [dateRange, baseDateInfo]);
 
   // Map of normalized name/salesName to User for easy lookup
   const userMap = useMemo(() => {
@@ -334,12 +351,16 @@ export const ProprietariaDashboard: React.FC<Props> = ({
       }
     });
 
-    const sum = Array.from(uniqueMetasMap.values()).reduce((acc, val) => acc + val, 0);
-    if (sum > 0) {
-      return sum;
+    const allActiveSellersHaveSavedMeta = activeSellerIds.size > 0 && Array.from(activeSellerIds).every(id => (uniqueMetasMap.get(id) || 0) > 0);
+
+    if (allActiveSellersHaveSavedMeta) {
+      const sum = Array.from(uniqueMetasMap.values()).reduce((acc, val) => acc + val, 0);
+      if (sum > 0) {
+        return sum;
+      }
     }
 
-    return 320000;
+    return 400000;
   }, [metas, activeCompetenceMonth, allUsers]);
 
   const metaLoja = dashboardMetrics.metaPeriodo;
@@ -741,9 +762,12 @@ export const ProprietariaDashboard: React.FC<Props> = ({
           <p className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white tabular-nums">
             {formatCurrency(totalComissoesPromotoras)}
           </p>
-          <p className="text-[11px] text-slate-400 mt-1">
-            J2, Sempre, DG & GFT
-          </p>
+          <div className="flex items-center gap-1.5 mt-1 text-[11px]">
+            <span className="font-bold text-blue-600 dark:text-blue-400 tabular-nums">
+              {formatPercent(totalVendas > 0 ? (totalComissoesPromotoras / totalVendas) * 100 : 0)}
+            </span>
+            <span className="text-slate-400">da venda total</span>
+          </div>
         </div>
 
         {/* Card 4: Faturamento Bruto */}
@@ -758,7 +782,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
             {formatCurrency(faturamentoBruto)}
           </p>
           <p className="text-[11px] text-slate-400 mt-1">
-            Taxas + Comissões bancárias
+            Taxas + Repasses
           </p>
         </div>
       </div>
@@ -839,25 +863,34 @@ export const ProprietariaDashboard: React.FC<Props> = ({
               <div
                 key={vendedora.nome}
                 onClick={() => {
-                  const sellerUser = allUsers.find(
-                    u =>
-                      (u.salesName && u.salesName === vendedora.nome) ||
-                      u.name === vendedora.nome ||
-                      normalizeSellerName(u.name) === normalizeSellerName(vendedora.nome) ||
-                      (u.salesName && normalizeSellerName(u.salesName) === normalizeSellerName(vendedora.nome))
-                  );
-
                   let propsForSeller: Proposta[];
                   if (vendedora.nome === 'Outros') {
-                    propsForSeller = filteredPropostas.filter(p => !allUsers.some(emp => matchesSeller(p.vendedora, emp)));
-                  } else if (sellerUser) {
-                    propsForSeller = filteredPropostas.filter(
-                      p => matchesSeller(p.vendedora, sellerUser) || (!p.vendedora && matchesSeller(p.digitador, sellerUser))
-                    );
+                    // Contratos que não pertencem a nenhuma vendedora ativa no período (ex-colaboradores, canais externos, etc.)
+                    propsForSeller = filteredPropostas.filter(p => !activeSellers.some(emp => matchesSeller(p.vendedora, emp)));
                   } else {
-                    propsForSeller = filteredPropostas.filter(
-                      p => isSameSeller(p.vendedora, vendedora.nome) || normalizeSellerName(p.vendedora) === normalizeSellerName(vendedora.nome)
+                    const sellerUser = activeSellers.find(
+                      u =>
+                        (u.salesName && u.salesName === vendedora.nome) ||
+                        u.name === vendedora.nome ||
+                        normalizeSellerName(u.name) === normalizeSellerName(vendedora.nome) ||
+                        (u.salesName && normalizeSellerName(u.salesName) === normalizeSellerName(vendedora.nome))
+                    ) || allUsers.find(
+                      u =>
+                        (u.salesName && u.salesName === vendedora.nome) ||
+                        u.name === vendedora.nome ||
+                        normalizeSellerName(u.name) === normalizeSellerName(vendedora.nome) ||
+                        (u.salesName && normalizeSellerName(u.salesName) === normalizeSellerName(vendedora.nome))
                     );
+
+                    if (sellerUser) {
+                      propsForSeller = filteredPropostas.filter(
+                        p => matchesSeller(p.vendedora, sellerUser) || (!p.vendedora && matchesSeller(p.digitador, sellerUser))
+                      );
+                    } else {
+                      propsForSeller = filteredPropostas.filter(
+                        p => isSameSeller(p.vendedora, vendedora.nome) || normalizeSellerName(p.vendedora) === normalizeSellerName(vendedora.nome)
+                      );
+                    }
                   }
 
                   // Sort proposals with paid first, then by date descending
@@ -958,8 +991,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
                     </div>
                   </div>
                 ) : (
-                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800/60 text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-between">
-                    <span>Contratos de balcão / ex-colaboradores / canais externos</span>
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800/60 text-[10px] text-slate-500 dark:text-slate-400 flex items-center justify-end">
                     <span className="font-bold text-teal-700 dark:text-teal-400">Ver contratos ➔</span>
                   </div>
                 )}

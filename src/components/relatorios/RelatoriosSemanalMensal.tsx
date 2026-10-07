@@ -148,6 +148,7 @@ export const RelatoriosSemanalMensal: React.FC = () => {
       { key: '2026-07', label: 'Jul/26' },
       { key: '2026-08', label: 'Ago/26' },
       { key: '2026-09', label: 'Set/26' },
+      { key: '2026-10', label: 'Out/26' },
     ];
 
     // Valores reais consolidados das despesas por mês do Google Sheets (fallback seguro)
@@ -177,9 +178,12 @@ export const RelatoriosSemanalMensal: React.FC = () => {
         .filter(p => p.taxaPaga === true || p.clientePagouTaxa === true)
         .reduce((acc, p) => acc + p.valorTaxa, 0);
 
-      const comissoes = comissoesPromotoras
-        .filter(c => c.dataRecebimento && c.dataRecebimento.startsWith(m.key) && c.status === 'confirmada')
-        .reduce((acc, c) => acc + c.valorRecebido, 0);
+      const comissoes = mProps.reduce((acc, p) => {
+        const directVal = Number(p.valorRepasse || 0);
+        if (directVal > 0) return acc + directVal;
+        const legacyCom = comissoesPromotoras.find(c => c.propostaId === p.id && c.status === 'confirmada');
+        return acc + (legacyCom ? Number(legacyCom.valorRecebido || 0) : 0);
+      }, 0);
 
       const receitaTotal = taxasPagas + comissoes;
       
@@ -205,22 +209,24 @@ export const RelatoriosSemanalMensal: React.FC = () => {
     });
   }, [propostas, comissoesPromotoras, sheetExpenses]);
 
-  // Promotoras received amounts filtered by the period's paid proposals (strictly linked by propostaId)
+  // Promotoras received amounts filtered by the period's paid proposals (single source from proposals)
   const promotorasRecebidos = useMemo(() => {
     const map = new Map<Promotora, number>();
     const contratosPeriodo = dashboardMetrics.contratosFormalizadosEPagos || [];
 
-    comissoesPromotoras
-      .filter(c => c.status === 'confirmada' && (c.valorRecebido || 0) > 0 && c.propostaId)
-      .forEach(c => {
-        const matchingProp = contratosPeriodo.find(p => p.id === c.propostaId);
-        if (matchingProp) {
-          const promo = (c.promotora || matchingProp.promotora) as Promotora;
-          if (promo) {
-            map.set(promo, (map.get(promo) || 0) + c.valorRecebido);
-          }
+    contratosPeriodo.forEach(p => {
+      const repVal = Number(p.valorRepasse || 0);
+      const promo = (p.promotoraRepasse || p.promotora) as Promotora;
+      if (repVal > 0 && promo) {
+        map.set(promo, (map.get(promo) || 0) + repVal);
+      } else {
+        const legacyCom = comissoesPromotoras.find(c => c.propostaId === p.id && c.status === 'confirmada' && (c.valorRecebido || 0) > 0);
+        if (legacyCom) {
+          const legPromo = (legacyCom.promotora || promo) as Promotora;
+          if (legPromo) map.set(legPromo, (map.get(legPromo) || 0) + legacyCom.valorRecebido);
         }
-      });
+      }
+    });
 
     return Array.from(map.entries()).map(([promotora, valor]) => ({ promotora, valor }));
   }, [comissoesPromotoras, dashboardMetrics.contratosFormalizadosEPagos]);
@@ -259,7 +265,7 @@ export const RelatoriosSemanalMensal: React.FC = () => {
           <p className="text-2xl font-black text-blue-600 dark:text-blue-400 font-mono tabular-nums mt-0.5">
             {formatCurrency(totalFaturamentoPeriodo)}
           </p>
-          <p className="text-[11px] text-slate-400 mt-1">Taxas arrecadadas + repasses de comissões</p>
+          <p className="text-[11px] text-slate-400 mt-1">Taxas + Repasses</p>
         </div>
 
         <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
@@ -267,7 +273,7 @@ export const RelatoriosSemanalMensal: React.FC = () => {
           <p className="text-2xl font-black text-rose-600 dark:text-rose-400 font-mono tabular-nums mt-0.5">
             {formatCurrency(totalDespesasPeriodo)}
           </p>
-          <p className="text-[11px] text-slate-400 mt-1">Custo operacional + folha salarial</p>
+          <p className="text-[11px] text-slate-400 mt-1">Contas e custos do período</p>
         </div>
 
         <div className={`p-4 rounded-2xl border shadow-xs transition-colors ${

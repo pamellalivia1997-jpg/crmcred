@@ -191,20 +191,22 @@ export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavig
                       </div>
 
                       <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between px-1">
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            if (window.confirm('Deseja realmente zerar todo o banco de dados (funil, clientes e controladoria)? Esta ação apagará permanentemente todos os registros da nuvem.')) {
-                              await clearAllTestData();
-                              setShowUserMenu(false);
-                            }
-                          }}
-                          className="flex items-center gap-1 text-[10px] font-bold text-rose-600 dark:text-rose-400 hover:underline py-0.5"
-                          title="Zerar todo o banco de dados da nuvem"
-                        >
-                          <Trash2 className="w-3 h-3 text-rose-600" />
-                          <span>Zerar Banco</span>
-                        </button>
+                        {currentUser?.role === 'financeiro' ? (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              if (window.confirm('Deseja realmente zerar todo o banco de dados (funil, clientes e controladoria)? Esta ação apagará permanentemente todos os registros da nuvem.')) {
+                                await clearAllTestData();
+                                setShowUserMenu(false);
+                              }
+                            }}
+                            className="flex items-center gap-1 text-[10px] font-bold text-rose-600 dark:text-rose-400 hover:underline py-0.5"
+                            title="Zerar todo o banco de dados da nuvem"
+                          >
+                            <Trash2 className="w-3 h-3 text-rose-600" />
+                            <span>Zerar Banco</span>
+                          </button>
+                        ) : <div />}
 
                         <button
                           type="button"

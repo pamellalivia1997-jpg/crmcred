@@ -22,6 +22,7 @@ export const FinanceiroView: React.FC = () => {
   const {
     propostas,
     comissoesPromotoras,
+    saveProposta,
     saveComissaoPromotora,
     saveComissaoPromotoraBatch,
     deleteComissaoPromotora,
@@ -33,10 +34,13 @@ export const FinanceiroView: React.FC = () => {
   } = useCRM();
   const { currentUser, canAccessFinancial } = useAuth();
 
+  const isFinanceiro = Boolean(currentUser && currentUser.role === 'financeiro');
+
   const [activeTab, setActiveTab] = useState<'pendentes' | 'conciliados'>('pendentes');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedContrato, setSelectedContrato] = useState<Proposta | null>(null);
   const [valorRecebidoInput, setValorRecebidoInput] = useState('');
+  const [dataRecebimentoInput, setDataRecebimentoInput] = useState('');
   const [sucessoNotice, setSucessoNotice] = useState<string | null>(null);
   const [erroNotice, setErroNotice] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -52,20 +56,22 @@ export const FinanceiroView: React.FC = () => {
   const [filterPendOperacao, setFilterPendOperacao] = useState('todas');
 
   const hasFinancialAccess = canAccessFinancial();
-  const isAllowedSyncUser = hasFinancialAccess || Boolean(
-    currentUser && (currentUser.role === 'proprietaria' || currentUser.role === 'adm' || currentUser.role === 'financeiro')
-  );
 
-  // Set of proposal IDs with confirmed commission repasse (strictly linked by propostaId)
+  // Set of proposal IDs with confirmed commission repasse (strictly linked by direct proposal field or legacy comissoesPromotoras)
   const confirmedPropostaIds = useMemo(() => {
     const setIds = new Set<string>();
-    comissoesPromotoras
+    propostas.forEach(p => {
+      if (p.valorRepasse && p.valorRepasse > 0) {
+        setIds.add(p.id);
+      }
+    });
+    (comissoesPromotoras || [])
       .filter(c => c.status === 'confirmada' && c.valorRecebido > 0 && c.propostaId)
       .forEach(c => {
         setIds.add(c.propostaId);
       });
     return setIds;
-  }, [comissoesPromotoras]);
+  }, [propostas, comissoesPromotoras]);
 
   const bancosList = useMemo(() => Array.from(new Set(propostas.map(p => p.banco).filter(Boolean))), [propostas]);
   const operacoesList = useMemo(() => Array.from(new Set(propostas.map(p => p.operacao).filter(Boolean))), [propostas]);
@@ -75,7 +81,7 @@ export const FinanceiroView: React.FC = () => {
     return propostas
       .filter(p => p.status === 'Paga')
       .filter(p => {
-        const hasCommission = confirmedPropostaIds.has(p.id);
+        const hasCommission = (p.valorRepasse && p.valorRepasse > 0) || confirmedPropostaIds.has(p.id);
         return !hasCommission;
       })
       .filter(p => {
@@ -114,9 +120,29 @@ export const FinanceiroView: React.FC = () => {
       });
   }, [propostas, confirmedPropostaIds, searchTerm, filterPromotora, filterPendPromotora, filterPendBanco, filterPendOperacao, filterPendContrato, filterPendCliente, dataInicioPersonalizada, dataFimPersonalizada]);
 
-  // Histórico de Repasses Conciliados
+  // Histórico de Repasses Conciliados (Entidade Única - Vínculo direto às propostas)
   const repassesConciliados = useMemo(() => {
-    return comissoesPromotoras
+    const directRepasses = propostas
+      .filter(p => (p.valorRepasse && p.valorRepasse > 0))
+      .map(p => ({
+        id: `rep-${p.id}`,
+        propostaId: p.id,
+        numeroContrato: p.numeroContrato || '',
+        clienteNome: p.nomeCliente,
+        promotora: p.promotoraRepasse || p.promotora || 'J2 Promotora',
+        valorRecebido: Number(p.valorRepasse || 0),
+        dataRecebimento: p.dataRecebimentoRepasse || p.dataPagamentoCliente || p.dataDigitacao || '',
+        tipo: p.tipoRepasse || ('fixo' as const),
+        percentualAplicado: p.percentualRepasse || 0,
+        status: p.statusRepasse || ('confirmada' as const),
+        observacao: p.observacaoRepasse || 'Repasse conciliado diretamente no contrato.'
+      }));
+
+    const seenPropIds = new Set(directRepasses.map(r => r.propostaId));
+    const legacyComs = (comissoesPromotoras || []).filter(c => !seenPropIds.has(c.propostaId));
+    const combined = [...directRepasses, ...legacyComs];
+
+    return combined
       .filter(c => {
         const term = searchTerm.toLowerCase().trim();
         if (!term) return true;
@@ -127,10 +153,10 @@ export const FinanceiroView: React.FC = () => {
         );
       })
       .sort((a, b) => (b.dataRecebimento || '').localeCompare(a.dataRecebimento || ''));
-  }, [comissoesPromotoras, searchTerm]);
+  }, [propostas, comissoesPromotoras, searchTerm]);
 
   const totalVolumePendente = contratosPendentesRepasse.reduce((acc, p) => acc + p.valorEmprestimo, 0);
-  const totalComissoesRecebidas = comissoesPromotoras.reduce((acc, c) => acc + c.valorRecebido, 0);
+  const totalComissoesRecebidas = repassesConciliados.reduce((acc, c) => acc + c.valorRecebido, 0);
 
   const promotorasList = useMemo(() => {
     return Array.from(new Set(propostas.map(p => p.promotora).filter(Boolean)));
@@ -164,6 +190,18 @@ export const FinanceiroView: React.FC = () => {
     e.preventDefault();
     if (!selectedContrato) return;
     const valor = parseFloat(valorRecebidoInput) || 0;
+    const dataRec = dataRecebimentoInput || new Date().toISOString().split('T')[0];
+
+    const updatedProp: Proposta = {
+      ...selectedContrato,
+      valorRepasse: valor,
+      dataRecebimentoRepasse: dataRec,
+      statusRepasse: 'confirmada',
+      promotoraRepasse: selectedContrato.promotora,
+      updatedAt: new Date().toISOString()
+    };
+
+    saveProposta(updatedProp);
 
     saveComissaoPromotora({
       id: `com-prom-${Date.now()}`,
@@ -172,15 +210,63 @@ export const FinanceiroView: React.FC = () => {
       clienteNome: selectedContrato.nomeCliente,
       promotora: selectedContrato.promotora,
       valorRecebido: valor,
-      dataRecebimento: new Date().toISOString().split('T')[0],
+      dataRecebimento: dataRec,
       tipo: 'fixo',
       status: 'confirmada',
       observacao: 'Repasse confirmado manualmente via Controladoria.'
     });
 
-    setSucessoNotice(`Repasse do contrato #${selectedContrato.numeroContrato} confirmado com sucesso!`);
+    setSucessoNotice(`Repasse de ${formatCurrency(valor)} do contrato #${selectedContrato.numeroContrato} salvo na nuvem com sucesso!`);
     setSelectedContrato(null);
     setValorRecebidoInput('');
+    setDataRecebimentoInput('');
+    setTimeout(() => setSucessoNotice(null), 4000);
+  };
+
+  const handleExcluirRepasseProposta = (p: Proposta) => {
+    if (!window.confirm(`Deseja realmente excluir o repasse do contrato #${p.numeroContrato || p.id} (${p.nomeCliente})?`)) {
+      return;
+    }
+
+    const updatedProp: Proposta = {
+      ...p,
+      valorRepasse: 0,
+      dataRecebimentoRepasse: '',
+      statusRepasse: 'pendente',
+      promotoraRepasse: '' as any,
+      updatedAt: new Date().toISOString()
+    };
+
+    saveProposta(updatedProp);
+    deleteComissaoPromotora(`com-${p.id}`);
+    deleteComissaoPromotora(p.id);
+
+    setSucessoNotice(`Repasse do contrato #${p.numeroContrato || p.id} excluído e atualizado na nuvem com sucesso!`);
+    setTimeout(() => setSucessoNotice(null), 4000);
+  };
+
+  const handleExcluirRepassePropostaId = (propostaId: string, valor: number, clienteNome: string) => {
+    if (!window.confirm(`Deseja realmente excluir o repasse de ${formatCurrency(valor)} do cliente ${clienteNome}?`)) {
+      return;
+    }
+
+    const matchingProp = propostas.find(p => p.id === propostaId);
+    if (matchingProp) {
+      const updatedProp: Proposta = {
+        ...matchingProp,
+        valorRepasse: 0,
+        dataRecebimentoRepasse: '',
+        statusRepasse: 'pendente',
+        promotoraRepasse: '' as any,
+        updatedAt: new Date().toISOString()
+      };
+      saveProposta(updatedProp);
+    }
+
+    deleteComissaoPromotora(propostaId);
+    deleteComissaoPromotora(`com-${propostaId}`);
+
+    setSucessoNotice(`Repasse de ${clienteNome} excluído e atualizado na nuvem com sucesso!`);
     setTimeout(() => setSucessoNotice(null), 4000);
   };
 
@@ -203,14 +289,14 @@ export const FinanceiroView: React.FC = () => {
           </p>
         </div>
 
-        {/* Action Button: Automated Google Sheets Sync & Zerar Controladoria (Restricted) */}
-        {isAllowedSyncUser && (
+        {/* Action Buttons: Google Sheets Sync & Zerar Controladoria (Exclusivo Perfil Financeiro) */}
+        {isFinanceiro && (
           <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={handleGoogleSheetsSync}
               disabled={isSyncing}
               title="Sincronizar Extratos Google Sheets"
-              className="p-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white shadow-sm transition-all active:scale-95 flex items-center justify-center"
+              className="p-2.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white shadow-sm transition-all active:scale-95 flex items-center justify-center cursor-pointer"
             >
               <RefreshCw className={`w-4 h-4 text-emerald-200 ${isSyncing ? 'animate-spin' : ''}`} />
             </button>
@@ -445,15 +531,32 @@ export const FinanceiroView: React.FC = () => {
                         {p.dataPagamentoCliente ? formatDate(p.dataPagamentoCliente) : formatDate(p.dataDigitacao)}
                       </td>
                       <td className="py-2.5 px-3 text-center">
-                        <button
-                          onClick={() => {
-                            setSelectedContrato(p);
-                            setValorRecebidoInput('');
-                          }}
-                          className="px-3 py-1 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-300 font-bold text-[11px] border border-emerald-200 dark:border-emerald-800 transition-all"
-                        >
-                          Lançar Repasse
-                        </button>
+                        {isFinanceiro ? (
+                          <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                            <button
+                              onClick={() => {
+                                setSelectedContrato(p);
+                                setValorRecebidoInput('');
+                                setDataRecebimentoInput(new Date().toISOString().split('T')[0]);
+                              }}
+                              className="px-2.5 py-1 rounded-xl bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:hover:bg-emerald-900 text-emerald-700 dark:text-emerald-300 font-bold text-[11px] border border-emerald-200 dark:border-emerald-800 transition-all cursor-pointer"
+                              title="Lançar repasse recebido da promotora"
+                            >
+                              Lançar Repasse
+                            </button>
+                            <button
+                              onClick={() => handleExcluirRepasseProposta(p)}
+                              className="px-2.5 py-1 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 dark:hover:bg-rose-900 text-rose-700 dark:text-rose-300 font-bold text-[11px] border border-rose-200 dark:border-rose-800 transition-all cursor-pointer"
+                              title="Excluir repasse deste contrato"
+                            >
+                              Excluir Repasse
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                            Pendente
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))
@@ -481,7 +584,7 @@ export const FinanceiroView: React.FC = () => {
               <span className="text-xs font-bold px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                 {repassesConciliados.length} Repasses Registrados
               </span>
-              {isAllowedSyncUser && repassesConciliados.length > 0 && (
+              {isFinanceiro && repassesConciliados.length > 0 && (
                 <button
                   onClick={() => setIsClearControladoriaModalOpen(true)}
                   className="px-3 py-1 text-xs font-bold rounded-full bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/60 transition-colors flex items-center gap-1.5 cursor-pointer"
@@ -504,17 +607,17 @@ export const FinanceiroView: React.FC = () => {
                   <th className="py-2.5 px-3">Promotora</th>
                   <th className="py-2.5 px-3 text-right">Valor Repassado (R$)</th>
                   <th className="py-2.5 px-3 text-center">Status</th>
-                  <th className="py-2.5 px-3 text-center">Ações</th>
+                  {isFinanceiro && <th className="py-2.5 px-3 text-center">Ações</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-medium">
                 {repassesConciliados.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center text-slate-400">
+                    <td colSpan={isFinanceiro ? 7 : 6} className="py-12 text-center text-slate-400">
                       <FileSpreadsheet className="w-8 h-8 text-slate-300 dark:text-slate-600 mx-auto mb-2 stroke-1" />
                       <p className="font-semibold text-slate-600 dark:text-slate-400">Nenhum repasse registrado ainda</p>
                       <p className="text-[11px] text-slate-400 mt-0.5">
-                        Clique em "Sincronizar Extratos Google Sheets" para buscar as comissões das promotoras.
+                        {isFinanceiro ? 'Clique em "Sincronizar Extratos Google Sheets" para buscar as comissões das promotoras.' : 'Aguardando conciliação do setor financeiro.'}
                       </p>
                     </td>
                   </tr>
@@ -533,19 +636,17 @@ export const FinanceiroView: React.FC = () => {
                           {c.status.toUpperCase()}
                         </span>
                       </td>
-                      <td className="py-2.5 px-3 text-center">
-                        <button
-                          onClick={() => {
-                            if (window.confirm(`Deseja excluir o repasse de ${renderMoney(c.valorRecebido)} do cliente ${c.clienteNome}?`)) {
-                              deleteComissaoPromotora(c.id);
-                            }
-                          }}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
-                          title="Excluir este repasse"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </td>
+                      {isFinanceiro && (
+                        <td className="py-2.5 px-3 text-center">
+                          <button
+                            onClick={() => handleExcluirRepassePropostaId(c.propostaId || c.id, c.valorRecebido, c.clienteNome)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
+                            title="Excluir este repasse"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))
                 )}
@@ -555,8 +656,8 @@ export const FinanceiroView: React.FC = () => {
         </div>
       )}
 
-      {/* Manual Commission Launch Modal */}
-      {selectedContrato && (
+      {/* Manual Commission Launch Modal (Exclusivo Perfil Financeiro) */}
+      {isFinanceiro && selectedContrato && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 animate-in fade-in duration-150">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-md w-full p-5 shadow-2xl space-y-4">
             <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
@@ -582,6 +683,18 @@ export const FinanceiroView: React.FC = () => {
                 />
               </div>
 
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Data de Recebimento
+                </label>
+                <input
+                  type="date"
+                  value={dataRecebimentoInput}
+                  onChange={(e) => setDataRecebimentoInput(e.target.value)}
+                  className="w-full px-3 py-2 text-sm font-bold rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                 <button
                   type="button"
@@ -592,7 +705,7 @@ export const FinanceiroView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all active:scale-95"
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all active:scale-95 cursor-pointer"
                 >
                   Confirmar Repasse
                 </button>
@@ -601,8 +714,9 @@ export const FinanceiroView: React.FC = () => {
           </div>
         </div>
       )}
-      {/* Clear Controladoria Modal */}
-      {isClearControladoriaModalOpen && (
+
+      {/* Clear Controladoria Modal (Exclusivo Perfil Financeiro) */}
+      {isFinanceiro && isClearControladoriaModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800 space-y-4 text-center">
             <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-400 flex items-center justify-center mx-auto">

@@ -89,7 +89,7 @@ export const DigitadorHome: React.FC<Props> = ({
       telefone: alerta.clienteTelefone,
       email: '',
       cidade: 'Igarassu',
-      dataNascimento: '1975-01-01',
+      dataNascimento: '',
       convenioPrincipal: 'INSS',
       observacoes: `Lead de Portabilidade autorizado por ${alerta.liberadoPor || 'ADM'}: ${alerta.motivo}`,
       vendedoraResponsavel: alerta.vendedoraResponsavel || 'Digitadora',

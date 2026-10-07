@@ -69,7 +69,7 @@ const MainApp: React.FC = () => {
       telefone: alerta.clienteTelefone,
       email: '',
       cidade: 'Igarassu',
-      dataNascimento: '1975-01-01',
+      dataNascimento: '',
       convenioPrincipal: 'INSS',
       observacoes: `Convertido a partir de oportunidade de ${alerta.tipo}: ${alerta.motivo}`,
       vendedoraResponsavel: alerta.vendedoraResponsavel,
