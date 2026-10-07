@@ -21,6 +21,7 @@ export interface DigisacContactPayload {
   cpf?: string;
   convenio?: string;
   observacoes?: string;
+  vendedora?: string;
 }
 
 export interface DigisacChatResult {
@@ -227,6 +228,109 @@ export async function findDigisacContact(
 }
 
 /**
+ * Resolves the appropriate DigiSac WhatsApp service (connection) ID based on the seller / operator.
+ * Prioritizes matching the seller name (Hellen, Taciana, Bianca) and defaults to Pamella Santana
+ * (the primary business line) rather than defaulting to Bianca.
+ */
+export async function resolveDigisacServiceId(
+  sellerOrOperator: string | undefined,
+  token: string,
+  apiUrl: string
+): Promise<string> {
+  try {
+    const cleanUrl = apiUrl.replace(/\/$/, '');
+    const servicesRes = await fetch(`${cleanUrl}/services`, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json'
+      }
+    });
+    if (!servicesRes.ok) return '';
+    const sData = await servicesRes.json();
+    const sList = Array.isArray(sData) ? sData : (sData?.data || []);
+    if (sList.length === 0) return '';
+
+    const target = (sellerOrOperator || '').toLowerCase().trim();
+
+    // 1. Try matching by responsible seller or operator name
+    if (target) {
+      if (target.includes('hellen')) {
+        const h = sList.find((s: any) => String(s.name || '').toLowerCase().includes('hellen'));
+        if (h?.id) return h.id;
+      }
+      if (target.includes('taci') || target.includes('taciana')) {
+        const t = sList.find((s: any) => String(s.name || '').toLowerCase().includes('taci'));
+        if (t?.id) return t.id;
+      }
+      if (target.includes('bianca')) {
+        const b = sList.find((s: any) => String(s.name || '').toLowerCase().includes('bianca'));
+        if (b?.id) return b.id;
+      }
+      const matched = sList.find((s: any) => {
+        const sName = String(s.name || '').toLowerCase();
+        return sName.includes(target) || target.includes(sName);
+      });
+      if (matched?.id) return matched.id;
+    }
+
+    // 2. Default to the primary business line: Pamella Santana / Lívia Cred Saúde
+    const pamella = sList.find((s: any) => {
+      const sName = String(s.name || '').toLowerCase();
+      return sName.includes('pamella') || sName.includes('santana') || sName.includes('livia');
+    });
+    if (pamella?.id) return pamella.id;
+
+    return sList[0]?.id || '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Updates an existing contact in DigiSac with their real name and CPF metadata.
+ * Corrects placeholder names (like 'Teste Integracao' or 'CPF: 01477985409').
+ */
+export async function updateDigisacContact(
+  contactId: string,
+  name: string,
+  token: string,
+  apiUrl: string,
+  cpf?: string,
+  convenio?: string
+): Promise<void> {
+  try {
+    const cleanUrl = apiUrl.replace(/\/$/, '');
+    const cleanName = name.trim();
+    const body: any = {
+      name: cleanName,
+      internalName: cleanName
+    };
+    const extraInfo: Array<{ name: string; value: string }> = [];
+    if (cpf) {
+      extraInfo.push({ name: 'CPF', value: cpf });
+    }
+    if (convenio) {
+      extraInfo.push({ name: 'Convênio', value: convenio });
+    }
+    if (extraInfo.length > 0) {
+      body.extraInfo = extraInfo;
+    }
+
+    await fetch(`${cleanUrl}/contacts/${contactId}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+  } catch {
+    // Non-blocking update failure
+  }
+}
+
+/**
  * Creates a new contact in DigiSac.
  */
 export async function createDigisacContact(
@@ -239,46 +343,33 @@ export async function createDigisacContact(
     const cleanUrl = apiUrl.replace(/\/$/, '');
     const endpoint = `${cleanUrl}/contacts`;
 
-    // Retrieve active services (WhatsApp connections) in DigiSac to assign serviceId
-    let targetServiceId = '';
-    try {
-      const servicesRes = await fetch(`${cleanUrl}/services`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json'
-        }
-      });
-      if (servicesRes.ok) {
-        const sData = await servicesRes.json();
-        const sList = Array.isArray(sData) ? sData : (sData?.data || []);
-        if (sList.length > 0) {
-          // If a responsible seller is mentioned, match by name
-          const respName = (payload.observacoes || '').toLowerCase();
-          const matched = sList.find((s: any) => respName.includes(String(s.name || '').toLowerCase()));
-          targetServiceId = (matched || sList[0])?.id || '';
-        }
-      }
-    } catch {
-      // Ignore service listing error
-    }
+    // Resolve WhatsApp connection
+    const sellerCandidate = payload.vendedora || payload.observacoes;
+    const targetServiceId = await resolveDigisacServiceId(sellerCandidate, token, apiUrl);
 
+    const cleanName = payload.nome.trim() || 'Cliente';
+
+    // In DigiSac, internalName is the primary display name in chats & lists.
+    // It must ALWAYS be the client's actual name, never the CPF!
     const bodyData: any = {
       number: normalizedPhone,
-      name: payload.nome.trim() || 'Cliente Lívia Cred'
+      name: cleanName,
+      internalName: cleanName
     };
 
     if (targetServiceId) {
       bodyData.serviceId = targetServiceId;
     }
 
+    const extraInfo: Array<{ name: string; value: string }> = [];
     if (payload.cpf) {
-      bodyData.internalName = `CPF: ${payload.cpf}`;
-      bodyData.extraInfo = [
-        { name: 'CPF', value: payload.cpf }
-      ];
-      if (payload.convenio) {
-        bodyData.extraInfo.push({ name: 'Convênio', value: payload.convenio });
-      }
+      extraInfo.push({ name: 'CPF', value: payload.cpf });
+    }
+    if (payload.convenio) {
+      extraInfo.push({ name: 'Convênio', value: payload.convenio });
+    }
+    if (extraInfo.length > 0) {
+      bodyData.extraInfo = extraInfo;
     }
 
     const res = await fetch(endpoint, {
@@ -335,34 +426,12 @@ export async function findOrCreateDigisacTicket(
     if (searchRes.ok) {
       const ticketsData = await searchRes.json();
       const list = Array.isArray(ticketsData) ? ticketsData : (ticketsData?.data || ticketsData?.tickets || []);
-      if (list.length > 0 && list[0]?.id) {
+      if (list.length > 0 && list[0]?.id && list[0]?.isOpen) {
         return { ticketId: list[0].id, isNew: false };
       }
     }
-
-    // 2. If no open ticket, attempt to initialize ticket
-    const createTicketUrl = `${cleanUrl}/tickets`;
-    const createRes = await fetch(createTicketUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify({
-        contactId
-      })
-    });
-
-    if (createRes.ok) {
-      const newTicketData = await createRes.json();
-      const ticketId = newTicketData?.id || newTicketData?.ticket?.id;
-      if (ticketId) {
-        return { ticketId, isNew: true };
-      }
-    }
   } catch (e) {
-    // Ticket lookup/creation optional fallback; contact view remains available
+    // Ticket lookup optional
   }
 
   return {};
@@ -414,7 +483,6 @@ export async function prepareDigisacChat(
       error: 'Token da API do DigiSac não configurado nas variáveis de ambiente do servidor.',
       normalizedPhone: normalized,
       fallbackUrl: directWaUrl,
-      // Provide direct contact search with country code as emergency fallback
       url: `${cleanWebDomain}/contacts?search=${normalized}`
     };
   }
@@ -439,25 +507,39 @@ export async function prepareDigisacChat(
     }
     contact = createResult.contact;
     isNewContact = true;
+  } else {
+    // If contact already exists, ensure real name is set (not 'Teste Integracao' or 'CPF: 0147...')
+    if (payload.nome) {
+      const cleanName = payload.nome.trim();
+      const currName = String(contact.name || '').trim();
+      const currInternal = String(contact.internalName || '').trim();
+      if (
+        currName === 'Teste Integracao' ||
+        currName.startsWith('CPF:') ||
+        currInternal.startsWith('CPF:') ||
+        /^\d+$/.test(currName) ||
+        (cleanName && currName !== cleanName && !currName.includes(' '))
+      ) {
+        await updateDigisacContact(contact.id, cleanName, apiToken, apiUrl, payload.cpf, payload.convenio);
+        contact.name = cleanName;
+        contact.internalName = cleanName;
+      }
+    }
   }
 
   const contactId = contact.id;
 
-  // 5. Look for or create ticket (checks contact.currentTicketId first for speed)
-  let ticketId = contact.currentTicketId || null;
+  // 5. Look for active ticket if any
+  let ticketId = (contact.currentTicketId && contact.isOpen) ? contact.currentTicketId : null;
   if (!ticketId) {
     const ticketResult = await findOrCreateDigisacTicket(contactId, apiToken, apiUrl);
     ticketId = ticketResult.ticketId || null;
   }
 
-  // 6. Build the most direct link to chat/contact
-  let finalChatUrl: string;
-  if (ticketId) {
-    finalChatUrl = `${cleanWebDomain}/chat/tickets/${ticketId}`;
-  } else {
-    // If ticket endpoint is restricted by service/connection, direct contact view is opened
-    finalChatUrl = `${cleanWebDomain}/chat/contacts/${contactId}`;
-  }
+  // 6. Build the authentic DigiSac conversation URL!
+  // DigiSac mounts the active chat at /?contactId={id}.
+  // Using /?contactId={contactId} automatically focuses the contact in DigiSac's chat panel without blank screen!
+  const finalChatUrl = `${cleanWebDomain}/?contactId=${contactId}`;
 
   return {
     success: true,
@@ -578,7 +660,7 @@ export async function requestDigisacChat(
   if (backendData && backendData.success) {
     return {
       ...backendData,
-      url: ensureAbsoluteUrl(backendData.url || `${cleanDomain}/chat/tickets/${backendData.ticketId}`),
+      url: ensureAbsoluteUrl(backendData.url || `${cleanDomain}/?contactId=${backendData.contactId}`),
       fallbackUrl: ensureAbsoluteUrl(backendData.fallbackUrl || `https://wa.me/${norm.normalized}`)
     };
   }
@@ -598,7 +680,7 @@ export async function requestDigisacChat(
         const directResult = await prepareDigisacChat(payload, firestoreToken, firestoreApiUrl, firestoreWebDomain);
         return {
           ...directResult,
-          url: ensureAbsoluteUrl(directResult.url || `${cleanDomain}/contacts?search=${norm.normalized}`),
+          url: ensureAbsoluteUrl(directResult.url || `${cleanDomain}/?contactId=${directResult.contactId}`),
           fallbackUrl: ensureAbsoluteUrl(directResult.fallbackUrl || `https://wa.me/${norm.normalized}`)
         };
       }

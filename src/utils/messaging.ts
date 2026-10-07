@@ -60,7 +60,7 @@ export async function openMessagingApp(
   phone: string,
   text: string,
   settings = getMessagingSettings(),
-  clientInfo?: { nome?: string; cpf?: string; convenio?: string }
+  clientInfo?: { nome?: string; cpf?: string; convenio?: string; vendedora?: string }
 ): Promise<{ success: boolean; url?: string; error?: string }> {
   // If text is provided, copy to clipboard for convenience
   if (text && typeof navigator !== 'undefined' && navigator.clipboard) {
@@ -132,7 +132,8 @@ export async function openMessagingApp(
         telefone: phone,
         cpf: clientInfo?.cpf,
         convenio: clientInfo?.convenio,
-        observacoes: text
+        observacoes: text,
+        vendedora: clientInfo?.vendedora
       }, settings.digisacDomain);
 
       let targetUrl = result.url || result.fallbackUrl || buildMessagingUrl(phone, text, settings);

@@ -103,7 +103,8 @@ export const VendedoraHome: React.FC<Props> = ({
     openMessagingApp(cliente.telefone, mensagem, undefined, {
       nome: cliente.nome,
       cpf: cliente.cpf,
-      convenio: cliente.convenioPrincipal
+      convenio: cliente.convenioPrincipal,
+      vendedora: sellerName
     });
   };
 

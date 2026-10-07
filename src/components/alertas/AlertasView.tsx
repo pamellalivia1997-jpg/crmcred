@@ -471,7 +471,8 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
         msgSettings,
         {
           nome: targetContact.nome,
-          cpf: targetContact.cpf
+          cpf: targetContact.cpf,
+          vendedora: currentUser?.name
         }
       );
 

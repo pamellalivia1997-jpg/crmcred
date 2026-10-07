@@ -131,7 +131,8 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
     openMessagingApp(cliente.telefone, msg, undefined, {
       nome: cliente.nome,
       cpf: cliente.cpf,
-      convenio: cliente.convenioPrincipal
+      convenio: cliente.convenioPrincipal,
+      vendedora: cliente.vendedoraResponsavel || currentUser?.name
     });
   };
 

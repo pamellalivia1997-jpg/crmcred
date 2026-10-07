@@ -97,7 +97,8 @@ async function startServer() {
         telefone: phoneNorm.normalized,
         cpf: req.body?.cpf ? String(req.body.cpf).trim() : undefined,
         convenio: req.body?.convenio ? String(req.body.convenio).trim() : undefined,
-        observacoes: req.body?.observacoes ? String(req.body.observacoes).trim() : undefined
+        observacoes: req.body?.observacoes ? String(req.body.observacoes).trim() : undefined,
+        vendedora: req.body?.vendedora ? String(req.body.vendedora).trim() : undefined
       };
 
       const result = await prepareDigisacChat(payload, apiToken, targetApiUrl, targetWebDomain);
