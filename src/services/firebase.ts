@@ -3,15 +3,17 @@ import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChang
 import { getFirestore, doc, getDocFromServer, collection, onSnapshot, setDoc, getDocs, deleteDoc, writeBatch } from 'firebase/firestore';
 import rawConfig from '../../firebase-applet-config.json';
 
+const env = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : (process?.env || {});
+
 // Support environment variables from GitHub Actions / Vite with fallback to rawConfig
 const activeConfig = {
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || rawConfig.projectId,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || rawConfig.appId,
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || rawConfig.apiKey,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || rawConfig.authDomain,
-  firestoreDatabaseId: import.meta.env.VITE_FIREBASE_DATABASE_ID || rawConfig.firestoreDatabaseId,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || rawConfig.storageBucket,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || rawConfig.messagingSenderId,
+  projectId: env.VITE_FIREBASE_PROJECT_ID || rawConfig.projectId,
+  appId: env.VITE_FIREBASE_APP_ID || rawConfig.appId,
+  apiKey: env.VITE_FIREBASE_API_KEY || rawConfig.apiKey,
+  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || rawConfig.authDomain,
+  firestoreDatabaseId: env.VITE_FIREBASE_DATABASE_ID || rawConfig.firestoreDatabaseId,
+  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || rawConfig.storageBucket,
+  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || rawConfig.messagingSenderId,
 };
 
 // Initialize Firebase App

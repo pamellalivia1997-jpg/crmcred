@@ -369,6 +369,19 @@ export async function findOrCreateDigisacTicket(
 }
 
 /**
+ * Utility to guarantee URLs have absolute https:// protocol.
+ * Prevents browser treating domain as relative route which duplicates CRM tab.
+ */
+export function ensureAbsoluteUrl(urlOrDomain: string): string {
+  let val = (urlOrDomain || '').trim();
+  if (!val) return 'https://liviacredsaude.digisac.io';
+  if (!val.startsWith('http://') && !val.startsWith('https://')) {
+    val = `https://${val.replace(/^\/+/, '')}`;
+  }
+  return val;
+}
+
+/**
  * Orchestrates the full secure chat preparation flow.
  */
 export async function prepareDigisacChat(
@@ -389,7 +402,7 @@ export async function prepareDigisacChat(
   }
 
   const normalized = phoneNorm.normalized;
-  const cleanWebDomain = webDomain.replace(/\/$/, '');
+  const cleanWebDomain = ensureAbsoluteUrl(webDomain).replace(/\/$/, '');
   const directWaUrl = `https://wa.me/${normalized}`;
 
   // 2. Validate token
@@ -448,7 +461,7 @@ export async function prepareDigisacChat(
 
   return {
     success: true,
-    url: finalChatUrl,
+    url: ensureAbsoluteUrl(finalChatUrl),
     contactId,
     ticketId,
     isNewContact,
@@ -476,6 +489,8 @@ export async function requestDigisacChat(
     };
   }
 
+  const cleanDomain = ensureAbsoluteUrl(webDomain).replace(/\/$/, '');
+
   // 2. Determine backend endpoint URL
   const baseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL)
     ? String(import.meta.env.VITE_API_URL).replace(/\/$/, '')
@@ -498,20 +513,37 @@ export async function requestDigisacChat(
     // Ignore
   }
 
-  if (!authHeader) {
+  if (!userIdHeader) {
     try {
-      const stored = localStorage.getItem('livia_credsaude_current_user');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed?.id) {
-          userIdHeader = parsed.id;
-          authHeader = `UserSession ${parsed.id}`;
+      const savedUserId = localStorage.getItem('livia_credsaude_current_user_id')
+        || localStorage.getItem('crm_current_user_id')
+        || localStorage.getItem('livia_credsaude_current_user');
+      if (savedUserId) {
+        let uid = savedUserId;
+        try {
+          const parsed = JSON.parse(savedUserId);
+          if (parsed && typeof parsed === 'object' && parsed.id) {
+            uid = parsed.id;
+          }
+        } catch {
+          // plain string ID
         }
+        userIdHeader = String(uid);
       }
     } catch {
       // Ignore
     }
   }
+
+  if (!userIdHeader) {
+    userIdHeader = 'crm_user';
+  }
+  if (!authHeader) {
+    authHeader = `UserSession ${userIdHeader}`;
+  }
+
+  let backendFailed = false;
+  let backendData: DigisacChatResult | null = null;
 
   try {
     const res = await fetch(endpoint, {
@@ -519,40 +551,73 @@ export async function requestDigisacChat(
       headers: {
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        ...(authHeader ? { 'Authorization': authHeader } : {}),
-        ...(userIdHeader ? { 'x-user-id': userIdHeader } : {})
+        'Authorization': authHeader,
+        'x-user-id': userIdHeader
       },
       body: JSON.stringify({
         ...payload,
         telefone: norm.normalized,
-        webDomain
+        webDomain: cleanDomain
       })
     });
 
-    const data = await res.json().catch(() => null);
-
-    if (!res.ok) {
-      return {
-        success: false,
-        code: data?.code || `HTTP_${res.status}`,
-        error: data?.error || `Erro HTTP ${res.status} ao conectar com o serviço DigiSac.`,
-        url: data?.url || data?.fallbackUrl || `${webDomain.replace(/\/$/, '')}/contacts?search=${norm.normalized}`,
-        fallbackUrl: data?.fallbackUrl,
-        normalizedPhone: norm.normalized
-      };
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('application/json')) {
+      backendData = await res.json();
+    } else {
+      backendFailed = true;
+      const maybeJson = contentType.includes('application/json') ? await res.json().catch(() => null) : null;
+      if (maybeJson?.code) {
+        backendData = maybeJson;
+      }
     }
+  } catch {
+    backendFailed = true;
+  }
 
-    return data as DigisacChatResult;
-  } catch (err: any) {
-    const cleanDomain = webDomain.replace(/\/$/, '');
+  if (backendData && backendData.success) {
     return {
-      success: false,
-      code: 'NETWORK_ERROR',
-      error: `Não foi possível alcançar o servidor backend do DigiSac: ${err?.message || 'Falha de rede'}`,
-      url: `${cleanDomain}/contacts?search=${norm.normalized}`,
-      fallbackUrl: `https://wa.me/${norm.normalized}`,
-      normalizedPhone: norm.normalized
+      ...backendData,
+      url: ensureAbsoluteUrl(backendData.url || `${cleanDomain}/chat/tickets/${backendData.ticketId}`),
+      fallbackUrl: ensureAbsoluteUrl(backendData.fallbackUrl || `https://wa.me/${norm.normalized}`)
     };
   }
+
+  // If backend call failed (e.g. running statically on GitHub Pages without separate Node server),
+  // check secure Firestore configuration where admin saved the integration
+  try {
+    const { db } = await import('./firebase');
+    const { doc, getDoc } = await import('firebase/firestore');
+    const configSnap = await getDoc(doc(db, 'integrations', 'digisac'));
+    if (configSnap.exists()) {
+      const config = configSnap.data();
+      const firestoreToken = config?.token;
+      if (firestoreToken) {
+        const firestoreApiUrl = config?.apiUrl || 'https://liviacredsaude.digisac.io/api/v1';
+        const firestoreWebDomain = config?.webDomain || cleanDomain;
+        const directResult = await prepareDigisacChat(payload, firestoreToken, firestoreApiUrl, firestoreWebDomain);
+        return {
+          ...directResult,
+          url: ensureAbsoluteUrl(directResult.url || `${cleanDomain}/contacts?search=${norm.normalized}`),
+          fallbackUrl: ensureAbsoluteUrl(directResult.fallbackUrl || `https://wa.me/${norm.normalized}`)
+        };
+      }
+    }
+  } catch {
+    // Ignore and proceed to fallback
+  }
+
+  // Safe fallback (guaranteed absolute URL)
+  const directWaFallback = `https://wa.me/${norm.normalized}?text=${encodeURIComponent(payload.observacoes || '')}`;
+  const directSearchFallback = `${cleanDomain}/contacts?search=${norm.normalized}`;
+
+  return {
+    success: Boolean(backendData?.success),
+    code: backendData?.code || (backendFailed ? 'BACKEND_OFFLINE' : 'ERROR'),
+    error: backendData?.error || 'Não foi possível conectar ao DigiSac.',
+    url: ensureAbsoluteUrl(backendData?.url || directSearchFallback),
+    fallbackUrl: ensureAbsoluteUrl(backendData?.fallbackUrl || directWaFallback),
+    normalizedPhone: norm.normalized
+  };
 }
 

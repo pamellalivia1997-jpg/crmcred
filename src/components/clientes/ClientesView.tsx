@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
-import { openMessagingApp } from '../../utils/messaging';
+import { openMessagingApp, getMessagingSettings } from '../../utils/messaging';
 import { Cliente, Proposta, Convenio } from '../../types';
 import {
   formatCPF,
@@ -362,10 +362,11 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               <button
                 onClick={() => openWhatsApp(selectedCliente)}
-                className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all"
+                title={getMessagingSettings().provider === 'digisac' ? 'Iniciar atendimento no DigiSac' : 'Abrir conversa no WhatsApp'}
+                className="flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all active:scale-95"
               >
                 <MessageCircle className="w-4 h-4" />
-                <span>WhatsApp</span>
+                <span>{getMessagingSettings().provider === 'digisac' ? 'DigiSac' : 'WhatsApp'}</span>
               </button>
 
               <button

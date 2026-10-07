@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { useCRM, PeriodoFiltro } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
-import { openMessagingApp } from '../../utils/messaging';
+import { openMessagingApp, getMessagingSettings } from '../../utils/messaging';
 import {
   formatCurrency,
   formatPercent,
@@ -783,7 +783,7 @@ export const VendedoraHome: React.FC<Props> = ({
                     className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition-all active:scale-98"
                   >
                     <MessageCircle className="w-4 h-4" />
-                    <span>Mandar Parabéns no WhatsApp</span>
+                    <span>Mandar Parabéns no {getMessagingSettings().provider === 'digisac' ? 'DigiSac' : 'WhatsApp'}</span>
                   </button>
                 </div>
               );

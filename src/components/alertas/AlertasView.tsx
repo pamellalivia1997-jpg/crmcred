@@ -1394,8 +1394,8 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
             </div>
 
             {chatNotice && (
-              <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-[11px] text-amber-900 dark:text-amber-200">
-                {chatNotice}
+              <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-[11px] text-amber-900 dark:text-amber-200 flex items-center justify-between gap-2">
+                <span>{chatNotice}</span>
               </div>
             )}
 
@@ -1421,8 +1421,8 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
                 )}
                 <span>
                   {isOpeningChat
-                    ? 'Preparando no DigiSac...'
-                    : `Abrir Chat no ${msgSettings.provider === 'digisac' ? 'DigiSac' : 'WhatsApp'}`}
+                    ? 'Iniciando no DigiSac...'
+                    : `Iniciar Atendimento no ${msgSettings.provider === 'digisac' ? 'DigiSac' : 'WhatsApp'}`}
                 </span>
               </button>
             </div>

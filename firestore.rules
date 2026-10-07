@@ -51,5 +51,10 @@ service cloud.firestore {
     match /auditLogs/{logId} {
       allow read, write: if true;
     }
+
+    // Configurações e Chaves Seguras de Integrações (ex: DigiSac)
+    match /integrations/{serviceId} {
+      allow read, write: if true;
+    }
   }
 }

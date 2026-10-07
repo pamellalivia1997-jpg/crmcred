@@ -72,6 +72,60 @@ export async function openMessagingApp(
   }
 
   if (settings.provider === 'digisac') {
+    // 1. Open popup window immediately inside user click gesture to avoid browser popup blockers
+    let popupTab: Window | null = null;
+    if (typeof window !== 'undefined') {
+      try {
+        popupTab = window.open('about:blank', '_blank');
+        if (popupTab && popupTab.document) {
+          popupTab.document.write(`
+            <!DOCTYPE html>
+            <html lang="pt-BR">
+            <head>
+              <meta charset="utf-8">
+              <title>Conectando ao DigiSac...</title>
+              <style>
+                body {
+                  margin: 0;
+                  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                  background-color: #0f172a;
+                  color: #f8fafc;
+                  display: flex;
+                  flex-direction: column;
+                  align-items: center;
+                  justify-content: center;
+                  height: 100vh;
+                  text-align: center;
+                  padding: 24px;
+                  box-sizing: border-box;
+                }
+                .spinner {
+                  width: 50px;
+                  height: 50px;
+                  border: 4px solid rgba(255,255,255,0.1);
+                  border-top-color: #10b981;
+                  border-radius: 50%;
+                  animation: spin 0.8s linear infinite;
+                  margin-bottom: 24px;
+                }
+                @keyframes spin { to { transform: rotate(360deg); } }
+                h2 { font-size: 22px; margin: 0 0 10px; font-weight: 700; color: #ffffff; }
+                p { font-size: 14px; margin: 0; color: #94a3b8; max-width: 400px; line-height: 1.5; }
+              </style>
+            </head>
+            <body>
+              <div class="spinner"></div>
+              <h2>Conectando ao DigiSac...</h2>
+              <p>Localizando contato e abrindo a conversa em instantes. Sua mensagem já foi copiada para a área de transferência.</p>
+            </body>
+            </html>
+          `);
+        }
+      } catch (e) {
+        console.warn('Popup window.open inicial ignorado pelo navegador:', e);
+      }
+    }
+
     try {
       const result = await requestDigisacChat({
         nome: clientInfo?.nome || 'Cliente',
@@ -81,9 +135,16 @@ export async function openMessagingApp(
         observacoes: text
       }, settings.digisacDomain);
 
-      const targetUrl = result.url || result.fallbackUrl || buildMessagingUrl(phone, text, settings);
+      let targetUrl = result.url || result.fallbackUrl || buildMessagingUrl(phone, text, settings);
       
-      if (typeof window !== 'undefined') {
+      // Ensure targetUrl is strictly absolute and NEVER navigates back to the current CRM origin!
+      if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+        targetUrl = `https://${targetUrl.replace(/^\/+/, '')}`;
+      }
+
+      if (popupTab && !popupTab.closed) {
+        popupTab.location.href = targetUrl;
+      } else if (typeof window !== 'undefined') {
         window.open(targetUrl, '_blank', 'noopener,noreferrer');
       }
 
@@ -93,8 +154,13 @@ export async function openMessagingApp(
         error: result.error
       };
     } catch (err: any) {
-      const fallback = buildMessagingUrl(phone, text, settings);
-      if (typeof window !== 'undefined') {
+      let fallback = buildMessagingUrl(phone, text, settings);
+      if (!fallback.startsWith('http://') && !fallback.startsWith('https://')) {
+        fallback = `https://${fallback.replace(/^\/+/, '')}`;
+      }
+      if (popupTab && !popupTab.closed) {
+        popupTab.location.href = fallback;
+      } else if (typeof window !== 'undefined') {
         window.open(fallback, '_blank', 'noopener,noreferrer');
       }
       return { success: false, url: fallback, error: err?.message };
@@ -102,7 +168,10 @@ export async function openMessagingApp(
   }
 
   // WhatsApp / WhatsApp Web
-  const url = buildMessagingUrl(phone, text, settings);
+  let url = buildMessagingUrl(phone, text, settings);
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = `https://${url.replace(/^\/+/, '')}`;
+  }
   if (typeof window !== 'undefined') {
     window.open(url, '_blank', 'noopener,noreferrer');
   }
