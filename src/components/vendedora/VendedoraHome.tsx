@@ -100,7 +100,11 @@ export const VendedoraHome: React.FC<Props> = ({
   const handleMandarParabens = (cliente: Cliente, bInfo: BirthdayInfo) => {
     const primeiroNome = cliente.nome.split(' ')[0];
     const mensagem = `Olá ${primeiroNome}, parabéns! 🎉 Toda a equipe da Lívia Cred Saúde e eu (${sellerName.split(' ')[0]}) desejamos muita saúde, paz e muitas felicidades pelo seu aniversário! Que seu novo ciclo seja abençoado e repleto de realizações. Um grande abraço carinhoso!`;
-    openMessagingApp(cliente.telefone, mensagem);
+    openMessagingApp(cliente.telefone, mensagem, undefined, {
+      nome: cliente.nome,
+      cpf: cliente.cpf,
+      convenio: cliente.convenioPrincipal
+    });
   };
 
   // Base dates memo

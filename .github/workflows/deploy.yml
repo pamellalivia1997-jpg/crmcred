@@ -31,6 +31,7 @@ jobs:
         env:
           GITHUB_PAGES: 'true'
           CI: false
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
 
       - name: Create 404.html for SPA routing support
         run: cp dist/index.html dist/404.html

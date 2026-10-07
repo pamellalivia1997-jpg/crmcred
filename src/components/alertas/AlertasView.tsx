@@ -456,13 +456,41 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
   };
 
   // Trigger Send via DigiSac / WhatsApp
-  const handleSendComposition = () => {
+  const [isOpeningChat, setIsOpeningChat] = useState(false);
+  const [chatNotice, setChatNotice] = useState<string | null>(null);
+
+  const handleSendComposition = async () => {
     if (!targetContact) return;
-    openMessagingApp(targetContact.telefone, composedMessage, msgSettings);
-    if (targetContact.alertaId) {
-      updateAlertaStatus(targetContact.alertaId, 'em_contato');
+    setIsOpeningChat(true);
+    setChatNotice(null);
+
+    try {
+      const res = await openMessagingApp(
+        targetContact.telefone,
+        composedMessage,
+        msgSettings,
+        {
+          nome: targetContact.nome,
+          cpf: targetContact.cpf
+        }
+      );
+
+      if (targetContact.alertaId) {
+        updateAlertaStatus(targetContact.alertaId, 'em_contato');
+      }
+
+      if (!res.success && res.error) {
+        setChatNotice(`Aviso: ${res.error}`);
+      } else {
+        setToastMessage('Mensagem copiada para a área de transferência e conversa aberta no DigiSac!');
+        setTimeout(() => setToastMessage(null), 5000);
+        setTargetContact(null);
+      }
+    } catch (err: any) {
+      setChatNotice(`Erro ao abrir conversa: ${err?.message || 'Falha de conexão'}`);
+    } finally {
+      setIsOpeningChat(false);
     }
-    setTargetContact(null);
   };
 
   // Save Messaging Channel Settings
@@ -1365,21 +1393,37 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
               </strong>
             </div>
 
+            {chatNotice && (
+              <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-[11px] text-amber-900 dark:text-amber-200">
+                {chatNotice}
+              </div>
+            )}
+
             <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
               <button
                 type="button"
+                disabled={isOpeningChat}
                 onClick={() => setTargetContact(null)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
               >
                 Cancelar
               </button>
               <button
                 type="button"
+                disabled={isOpeningChat}
                 onClick={handleSendComposition}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition active:scale-95"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white font-bold text-xs shadow-md transition active:scale-95"
               >
-                <Send className="w-4 h-4" />
-                <span>Abrir Chat no {msgSettings.provider === 'digisac' ? 'DigiSac' : 'WhatsApp'}</span>
+                {isOpeningChat ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-4 h-4" />
+                )}
+                <span>
+                  {isOpeningChat
+                    ? 'Preparando no DigiSac...'
+                    : `Abrir Chat no ${msgSettings.provider === 'digisac' ? 'DigiSac' : 'WhatsApp'}`}
+                </span>
               </button>
             </div>
           </div>

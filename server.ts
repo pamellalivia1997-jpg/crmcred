@@ -1,10 +1,23 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'path';
 import fs from 'fs';
+import { prepareDigisacChat, DigisacContactPayload, normalizeBrazilianPhone } from './src/services/digisacService';
 
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: '10mb' }));
+
+  // CORS Middleware allowing requests from GitHub Pages, local dev, or custom frontend origins
+  app.use((req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-user-id, x-user-role');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(204);
+    }
+    next();
+  });
 
   // Explicit JSON API route for Google Sheets expenses proxy
   app.get('/api/expenses/sheet', async (_req, res) => {
@@ -22,6 +35,85 @@ async function startServer() {
       console.error('Erro na rota /api/expenses/sheet:', err);
       const message = err instanceof Error ? err.message : 'Erro ao obter planilha de despesas';
       return res.status(500).json({ success: false, error: message });
+    }
+  });
+
+  // Health/status check for DigiSac configuration
+  app.get('/api/digisac/status', (_req, res) => {
+    const hasToken = Boolean(process.env.DIGISAC_API_TOKEN || process.env.DIGISAC_TOKEN);
+    const domain = process.env.DIGISAC_WEB_DOMAIN || 'https://liviacredsaude.digisac.io';
+    return res.status(200).json({
+      configured: hasToken,
+      domain,
+      authRequired: true
+    });
+  });
+
+  // Protected route: Prepare and open chat in DigiSac
+  app.post('/api/digisac/chat', async (req, res) => {
+    try {
+      // 1. Authentication check
+      const authHeader = req.headers.authorization;
+      const userIdHeader = req.headers['x-user-id'];
+
+      if (!authHeader && !userIdHeader) {
+        return res.status(401).json({
+          success: false,
+          code: 'UNAUTHORIZED',
+          error: 'Acesso negado: autenticação de usuário necessária para acessar este recurso do CRM.'
+        });
+      }
+
+      // 2. Secret Token retrieval
+      const apiToken = process.env.DIGISAC_API_TOKEN || process.env.DIGISAC_TOKEN;
+      const targetApiUrl = process.env.DIGISAC_API_URL || 'https://liviacredsaude.digisac.io/api/v1';
+      const targetWebDomain = req.body?.webDomain || process.env.DIGISAC_WEB_DOMAIN || 'https://liviacredsaude.digisac.io';
+
+      const rawPhone = String(req.body?.telefone || '').trim();
+      const phoneNorm = normalizeBrazilianPhone(rawPhone);
+
+      if (!phoneNorm.valid || !phoneNorm.normalized) {
+        return res.status(400).json({
+          success: false,
+          code: 'INVALID_PHONE',
+          error: phoneNorm.error || 'Telefone inválido ou incompleto.',
+          fallbackUrl: `https://wa.me/?text=${encodeURIComponent(req.body?.observacoes || '')}`
+        });
+      }
+
+      if (!apiToken || apiToken.trim() === '') {
+        const cleanDomain = targetWebDomain.replace(/^https?:\/\//, '').replace(/\/$/, '');
+        return res.status(503).json({
+          success: false,
+          code: 'TOKEN_NOT_CONFIGURED',
+          error: 'Token da API do DigiSac não configurado nas variáveis de ambiente do servidor.',
+          normalizedPhone: phoneNorm.normalized,
+          fallbackUrl: `https://${cleanDomain}/contacts?search=${phoneNorm.normalized}`
+        });
+      }
+
+      const payload: DigisacContactPayload = {
+        nome: String(req.body?.nome || '').trim(),
+        telefone: phoneNorm.normalized,
+        cpf: req.body?.cpf ? String(req.body.cpf).trim() : undefined,
+        convenio: req.body?.convenio ? String(req.body.convenio).trim() : undefined,
+        observacoes: req.body?.observacoes ? String(req.body.observacoes).trim() : undefined
+      };
+
+      const result = await prepareDigisacChat(payload, apiToken, targetApiUrl, targetWebDomain);
+
+      if (!result.success) {
+        return res.status(result.code === 'INVALID_PHONE' ? 400 : 502).json(result);
+      }
+
+      return res.status(200).json(result);
+    } catch (err: any) {
+      console.error('[DigiSac API Route] Erro interno:', err?.message || err);
+      return res.status(500).json({
+        success: false,
+        code: 'INTERNAL_ERROR',
+        error: 'Erro interno ao processar conversa no DigiSac.'
+      });
     }
   });
 

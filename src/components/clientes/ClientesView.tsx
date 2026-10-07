@@ -128,7 +128,11 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
   // Open WhatsApp / DigiSac link
   const openWhatsApp = (cliente: Cliente) => {
     const msg = `Olá ${cliente.nome.split(' ')[0]}, tudo bem? Aqui é ${currentUser?.name} da Lívia Cred Saúde. Temos ótimas condições de crédito e portabilidade consignada disponíveis para seu convênio. Gostaria de uma simulação sem compromisso?`;
-    openMessagingApp(cliente.telefone, msg);
+    openMessagingApp(cliente.telefone, msg, undefined, {
+      nome: cliente.nome,
+      cpf: cliente.cpf,
+      convenio: cliente.convenioPrincipal
+    });
   };
 
   // Helper tags
@@ -599,9 +603,9 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
                   id: cleanCpf,
                   cpf: cleanCpf,
                   nome: editingClient.nome.trim(),
-                  dataNascimento: editingClient.dataNascimento || '1975-01-01',
-                  telefone: editingClient.telefone || '(81) 98000-0000',
-                  email: editingClient.email || `${editingClient.nome.trim().toLowerCase().split(' ')[0]}@cliente.com`,
+                  dataNascimento: (editingClient.dataNascimento && editingClient.dataNascimento !== '1975-01-01' && editingClient.dataNascimento !== '01/01/1975') ? editingClient.dataNascimento : '',
+                  telefone: editingClient.telefone || '',
+                  email: editingClient.email || '',
                   cidade: editingClient.cidade || 'Igarassu',
                   convenioPrincipal: (editingClient.convenioPrincipal as Convenio) || 'INSS',
                   observacoes: editingClient.observacoes || '',
