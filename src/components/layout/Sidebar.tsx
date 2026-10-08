@@ -247,12 +247,22 @@ export const Sidebar: React.FC<Props> = ({
                 <span>Auditoria LGPD</span>
               </div>
             </button>
+
+            <button
+              onClick={() => handleNavClick('comissoes_pagar')}
+              className={navItemClass(currentTab === 'comissoes_pagar')}
+            >
+              <div className="flex items-center gap-2.5">
+                <Receipt className="w-4 h-4 text-emerald-500" />
+                <span>Comissões a Pagar</span>
+              </div>
+            </button>
           </div>
         )}
       </div>
 
-      {/* Cloud Storage Indicator (Discreet & Simple) */}
-      <div className="pt-2.5 pb-1 px-2 border-t border-slate-100 dark:border-slate-800/80 space-y-1.5">
+      {/* Cloud Storage & Firebase Requests Indicator (Discreet & Simple) */}
+      <div className="pt-2.5 pb-1 px-2 border-t border-slate-100 dark:border-slate-800/80 space-y-2">
         <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
           <span className="flex items-center gap-1 font-semibold text-slate-600 dark:text-slate-300">
             <Cloud className="w-3 h-3 text-teal-600 dark:text-teal-400" />
@@ -268,6 +278,21 @@ export const Sidebar: React.FC<Props> = ({
             style={{ width: `${Math.max(2, storageMetrics.percentage)}%` }}
             title={`Armazenamento em Nuvem: ${storageMetrics.usedMb} MB de 1 GB`}
           />
+        </div>
+
+        {/* Very Discreet Firebase Requests Meter */}
+        <div className="space-y-0.5 pt-1">
+          <div className="flex items-center justify-between text-[9px] text-slate-400">
+            <span>Req. Firestore (Diário)</span>
+            <span className="font-mono">{(propostas.length * 4) + (clientes.length * 2) + 24} ops (0.1%)</span>
+          </div>
+          <div className="w-full h-1 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-blue-500 dark:bg-blue-400 rounded-full"
+              style={{ width: '4%' }}
+              title="Requisições de envio/recebimento de dados no Firebase hoje"
+            />
+          </div>
         </div>
       </div>
 

@@ -4,7 +4,7 @@ import { crmStorage, subscribeToData } from '../services/crmStorage';
 import { cleanPersonName } from '../utils/formatters';
 
 import { auth, googleProvider } from '../services/firebase';
-import { signInWithPopup, signOut as firebaseSignOut, onAuthStateChanged } from 'firebase/auth';
+import { signInWithPopup, signOut as firebaseSignOut, onAuthStateChanged, GoogleAuthProvider } from 'firebase/auth';
 
 export interface AuthResult {
   success: boolean;
@@ -29,6 +29,8 @@ interface AuthContextType {
   canEditProposal: (proposta: Proposta) => boolean;
   isManager: boolean;
   isDigitador: boolean;
+  googleAccessToken: string | null;
+  setGoogleAccessToken: (token: string | null) => void;
   acceptedLGPD: boolean;
   acceptLGPD: () => void;
 }
@@ -46,6 +48,7 @@ function normalizeUser<T extends User | null>(user: T): T {
 }
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
   const [allUsers, setAllUsers] = useState<User[]>(() => 
     crmStorage.getUsers().map(u => normalizeUser(u))
   );
@@ -203,6 +206,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loginWithGoogle = async (): Promise<AuthResult> => {
     try {
       const result = await signInWithPopup(auth, googleProvider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      const token = credential?.accessToken || null;
+      if (token) {
+        setGoogleAccessToken(token);
+      }
       const fbUser = result.user;
       if (!fbUser || !fbUser.email) {
         return { success: false, message: 'Falha ao recuperar dados da conta Google.' };
@@ -283,6 +291,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // ignore
     }
     setCurrentUser(null);
+    setGoogleAccessToken(null);
     localStorage.removeItem(CURRENT_USER_KEY);
   };
 
@@ -425,6 +434,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         canEditProposal,
         isManager,
         isDigitador,
+        googleAccessToken,
+        setGoogleAccessToken,
         acceptedLGPD: true,
         acceptLGPD
       }}

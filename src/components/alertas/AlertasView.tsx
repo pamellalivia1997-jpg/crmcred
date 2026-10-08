@@ -25,7 +25,8 @@ import {
   UserCheck,
   Calendar,
   CalendarClock,
-  CheckSquare
+  CheckSquare,
+  ExternalLink
 } from 'lucide-react';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
@@ -48,6 +49,28 @@ import {
   openMessagingApp,
   MessagingSettings
 } from '../../utils/messaging';
+
+export interface GroupedOpportunity {
+  id: string;
+  clienteCpf: string;
+  clienteNome: string;
+  clienteTelefone: string;
+  vendedoraResponsavel: string;
+  tipo: 'portabilidade' | 'refin' | 'indicacao' | 'aniversario' | 'todas';
+  status: 'nova' | 'em_contato' | 'convertida' | 'descartada' | 'adiada' | 'concluida';
+  valorPotencial: number;
+  liberadoParaDigitador?: boolean;
+  propostas: {
+    id: string;
+    banco: string;
+    operacao: string;
+    numeroContrato: string;
+    valorEmprestimo: number;
+    mesesPagos: number;
+    status?: string;
+    data: string;
+  }[];
+}
 
 interface Props {
   onConverterEmProposta?: (alerta: AlertaOportunidade) => void;
@@ -74,12 +97,25 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
   const [filterStatus, setFilterStatus] = useState<string>('todos');
 
   // Productivity Modals State
-  const [alertaParaAdiar, setAlertaParaAdiar] = useState<AlertaOportunidade | null>(null);
+  const [alertaParaAdiar, setAlertaParaAdiar] = useState<GroupedOpportunity | any | null>(null);
   const [diasAdiar, setDiasAdiar] = useState<number | 'custom'>(30);
   const [dataAdiarCustom, setDataAdiarCustom] = useState<string>('');
 
-  const [alertaParaConcluir, setAlertaParaConcluir] = useState<AlertaOportunidade | null>(null);
+  const [alertaParaConcluir, setAlertaParaConcluir] = useState<GroupedOpportunity | any | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Detailed client timeline modal state
+  const [selectedTimelineClient, setSelectedTimelineClient] = useState<{ clienteCpf: string; clienteNome: string } | null>(null);
+
+  // Vanguard integration link handler
+  const handleVanguardClick = (e: React.MouseEvent, cpf: string) => {
+    e.stopPropagation();
+    const cleanCpf = cpf.replace(/\D/g, '');
+    navigator.clipboard.writeText(cleanCpf);
+    setToastMessage(`CPF copiado com sucesso! Abrindo Vanguard...`);
+    setTimeout(() => setToastMessage(null), 4000);
+    window.open("https://gestao.sistemacorban.com.br/index.php/", "_blank");
+  };
 
   // Messaging Channel Settings Modal
   const [isMessagingSettingsOpen, setIsMessagingSettingsOpen] = useState(false);
@@ -149,6 +185,28 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
     return false;
   };
 
+  // Proposta Finder helper to display and track unique installments / paid months
+  const getClientProposals = (cpf: string) => {
+    const cleanCpf = cpf.replace(/\D/g, '');
+    return propostas
+      .filter(p => p.cpf.replace(/\D/g, '') === cleanCpf && (p.status === 'Paga' || p.status === 'Em análise'))
+      .map(p => {
+        const pDate = p.dataPagamentoCliente || p.dataDigitacao;
+        const diffDays = pDate ? getDiffDays(pDate) : 0;
+        const mesesPagos = Math.floor(diffDays / 30);
+        return {
+          id: p.id,
+          banco: p.banco,
+          operacao: p.operacao,
+          numeroContrato: p.numeroContrato,
+          valorEmprestimo: p.valorEmprestimo,
+          mesesPagos,
+          status: p.status,
+          data: pDate || ''
+        };
+      });
+  };
+
   // 1. Post-Sales Indication Opportunities (Propostas digitadas entre 3 e 7 dias)
   const indicacaoOpportunities = useMemo(() => {
     return propostas
@@ -183,6 +241,34 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
       })
       .sort((a, b) => a.indInfo.daysSincePayment - b.indInfo.daysSincePayment);
   }, [propostas, clientes, isVendedora, sellerName, alertas]);
+
+  // Grouped Indicação
+  const indicacaoGrouped = useMemo(() => {
+    const groups: { [cpf: string]: GroupedOpportunity } = {};
+    
+    indicacaoOpportunities.forEach(({ proposta, client, indInfo }) => {
+      const cleanCpf = proposta.cpf.replace(/\D/g, '');
+      const clientProps = getClientProposals(cleanCpf);
+      if (!groups[cleanCpf]) {
+        groups[cleanCpf] = {
+          id: `grouped-ind-${cleanCpf}`,
+          clienteCpf: proposta.cpf,
+          clienteNome: proposta.nomeCliente,
+          clienteTelefone: client?.telefone || '(81) 98000-0000',
+          vendedoraResponsavel: proposta.vendedora || sellerName,
+          tipo: 'indicacao' as any,
+          status: 'nova',
+          valorPotencial: proposta.valorEmprestimo,
+          liberadoParaDigitador: false,
+          propostas: clientProps
+        };
+      } else {
+        groups[cleanCpf].valorPotencial = (groups[cleanCpf].valorPotencial || 0) + proposta.valorEmprestimo;
+      }
+    });
+
+    return Object.values(groups);
+  }, [indicacaoOpportunities, sellerName, propostas]);
 
   // 2. Weekly Birthday Opportunities
   const aniversarioOpportunities = useMemo(() => {
@@ -255,7 +341,7 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
         clienteNome: p.nomeCliente,
         clienteTelefone: tel,
         tipo: 'portabilidade',
-        motivo: `Operação de ${p.operacao} realizada em ${formatDate(pDate)} (${anosDecorridos} ano(s) atrás) no banco ${p.banco} (Contrato #${p.numeroContrato}). O cliente já atingiu o prazo regulamentar para Portabilidade com redução da taxa e liberação estimada de troco de aproximadamente ${formatCurrency(valorPot)}.`,
+        motivo: `Operação de ${p.operacao} realizada em ${formatDate(pDate)} (${anosDecorridos} ano(s) atrás) no banco ${p.banco} (Contrato #${p.numeroContrato}).`,
         vendedoraResponsavel: p.vendedora || sellerName,
         status: 'nova',
         dataCriacao: pDate,
@@ -267,6 +353,35 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
 
     return list;
   }, [propostas, clientes, alertas, isVendedora, sellerName]);
+
+  // Grouped Portabilidade by client CPF
+  const portabilidadeGrouped = useMemo(() => {
+    const groups: { [cpf: string]: GroupedOpportunity } = {};
+    portabilidadeAlertas.forEach(alerta => {
+      const cleanCpf = alerta.clienteCpf.replace(/\D/g, '');
+      const clientProps = getClientProposals(cleanCpf);
+      if (!groups[cleanCpf]) {
+        groups[cleanCpf] = {
+          id: `grouped-port-${cleanCpf}`,
+          clienteCpf: alerta.clienteCpf,
+          clienteNome: alerta.clienteNome,
+          clienteTelefone: alerta.clienteTelefone,
+          vendedoraResponsavel: alerta.vendedoraResponsavel,
+          tipo: 'portabilidade',
+          status: alerta.status,
+          valorPotencial: alerta.valorPotencial || 0,
+          liberadoParaDigitador: alerta.liberadoParaDigitador,
+          propostas: clientProps
+        };
+      } else {
+        groups[cleanCpf].valorPotencial += alerta.valorPotencial || 0;
+        if (alerta.liberadoParaDigitador) {
+          groups[cleanCpf].liberadoParaDigitador = true;
+        }
+      }
+    });
+    return Object.values(groups);
+  }, [portabilidadeAlertas, propostas]);
 
   // 4. Refinanciamento (Regra de Negócio: Ofertas de refinanciamento para contratos de empréstimo há pelo menos 6 meses / 180 dias)
   const refinAlertas = useMemo(() => {
@@ -313,7 +428,6 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
       const client = clientes.find(c => c.cpf.replace(/\D/g, '') === cleanCpf);
       const tel = client?.telefone || '(81) 98000-0000';
       const valorPot = Math.round(p.valorEmprestimo * 0.12) || 1900;
-      const mesesDecorridos = Math.round(diffDays / 30);
 
       list.push({
         id: dynamicId,
@@ -321,7 +435,7 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
         clienteNome: p.nomeCliente,
         clienteTelefone: tel,
         tipo: 'refin',
-        motivo: `Contrato de ${p.operacao} no ${p.banco} (#${p.numeroContrato}) com ${mesesDecorridos} meses de vigência pagos. O cliente está elegível para Refinanciamento mantendo o mesmo valor de parcela e liberando troco estimado de ${formatCurrency(valorPot)}.`,
+        motivo: `Contrato de ${p.operacao} no ${p.banco} (#${p.numeroContrato}) com carência concluída.`,
         vendedoraResponsavel: p.vendedora || sellerName,
         status: 'nova',
         dataCriacao: pDate,
@@ -334,24 +448,79 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
     return list;
   }, [propostas, clientes, alertas, isVendedora, sellerName]);
 
-  // All Alertas Filtered for "Todas"
-  const filteredAllAlertas = useMemo(() => {
-    const combined = [...portabilidadeAlertas, ...refinAlertas];
-    return combined.filter(a => {
-      if (isDigitador) return a.tipo === 'portabilidade' && a.liberadoParaDigitador === true;
-      if (isVendedora && !isSameSeller(a.vendedoraResponsavel, sellerName)) return false;
+  // Grouped Refinanciamento by client CPF
+  const refinGrouped = useMemo(() => {
+    const groups: { [cpf: string]: GroupedOpportunity } = {};
+    refinAlertas.forEach(alerta => {
+      const cleanCpf = alerta.clienteCpf.replace(/\D/g, '');
+      const clientProps = getClientProposals(cleanCpf);
+      if (!groups[cleanCpf]) {
+        groups[cleanCpf] = {
+          id: `grouped-refin-${cleanCpf}`,
+          clienteCpf: alerta.clienteCpf,
+          clienteNome: alerta.clienteNome,
+          clienteTelefone: alerta.clienteTelefone,
+          vendedoraResponsavel: alerta.vendedoraResponsavel,
+          tipo: 'refin',
+          status: alerta.status,
+          valorPotencial: alerta.valorPotencial || 0,
+          liberadoParaDigitador: alerta.liberadoParaDigitador,
+          propostas: clientProps
+        };
+      } else {
+        groups[cleanCpf].valorPotencial += alerta.valorPotencial || 0;
+        if (alerta.liberadoParaDigitador) {
+          groups[cleanCpf].liberadoParaDigitador = true;
+        }
+      }
+    });
+    return Object.values(groups);
+  }, [refinAlertas, propostas]);
+
+  // All Grouped Alertas Filtered for "Todas"
+  const filteredAllGroupedAlertas = useMemo(() => {
+    const groups: { [cpf: string]: GroupedOpportunity } = {};
+    
+    portabilidadeGrouped.forEach(g => {
+      const cleanCpf = g.clienteCpf.replace(/\D/g, '');
+      groups[cleanCpf] = {
+        ...g,
+        id: `grouped-all-${cleanCpf}`,
+        tipo: 'todas' as any
+      };
+    });
+
+    refinGrouped.forEach(g => {
+      const cleanCpf = g.clienteCpf.replace(/\D/g, '');
+      if (groups[cleanCpf]) {
+        groups[cleanCpf].valorPotencial = (groups[cleanCpf].valorPotencial || 0) + (g.valorPotencial || 0);
+        if (g.liberadoParaDigitador) {
+          groups[cleanCpf].liberadoParaDigitador = true;
+        }
+      } else {
+        groups[cleanCpf] = {
+          ...g,
+          id: `grouped-all-${cleanCpf}`,
+          tipo: 'todas' as any
+        };
+      }
+    });
+
+    return Object.values(groups).filter(g => {
+      if (isDigitador) return g.propostas.some(p => p.operacao.toLowerCase().includes('port')) && g.liberadoParaDigitador === true;
+      if (isVendedora && !isSameSeller(g.vendedoraResponsavel, sellerName)) return false;
 
       const term = searchTerm.toLowerCase().trim();
       const matchSearch =
         !term ||
-        a.clienteNome.toLowerCase().includes(term) ||
-        a.clienteCpf.includes(term) ||
-        a.motivo.toLowerCase().includes(term);
-      const matchStatus = filterStatus === 'todos' || a.status === filterStatus;
+        g.clienteNome.toLowerCase().includes(term) ||
+        g.clienteCpf.includes(term) ||
+        g.propostas.some(p => p.banco.toLowerCase().includes(term) || p.numeroContrato.includes(term));
+      const matchStatus = filterStatus === 'todos' || g.status === filterStatus;
 
       return matchSearch && matchStatus;
     });
-  }, [portabilidadeAlertas, refinAlertas, isDigitador, isVendedora, sellerName, searchTerm, filterStatus]);
+  }, [portabilidadeGrouped, refinGrouped, isDigitador, isVendedora, sellerName, searchTerm, filterStatus]);
 
   // Ação de Produtividade 1: Executar Adiar
   const handleConfirmarAdiar = (e: React.FormEvent) => {
@@ -371,7 +540,25 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
       targetDateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     }
 
-    adiarAlerta(alertaParaAdiar.id, targetDateStr, alertaParaAdiar);
+    // Update status of all underlying alerts for this CPF of this type
+    const cleanCpf = alertaParaAdiar.clienteCpf.replace(/\D/g, '');
+    const affectedAlerts = alertas.filter(a => a.clienteCpf.replace(/\D/g, '') === cleanCpf && a.tipo === alertaParaAdiar.tipo);
+
+    if (affectedAlerts.length > 0) {
+      affectedAlerts.forEach(a => {
+        adiarAlerta(a.id, targetDateStr, a);
+      });
+    } else {
+      adiarAlerta(alertaParaAdiar.id, targetDateStr, {
+        clienteCpf: alertaParaAdiar.clienteCpf,
+        clienteNome: alertaParaAdiar.clienteNome,
+        clienteTelefone: alertaParaAdiar.clienteTelefone,
+        tipo: alertaParaAdiar.tipo,
+        vendedoraResponsavel: alertaParaAdiar.vendedoraResponsavel,
+        status: 'nova',
+        dataCriacao: new Date().toISOString().split('T')[0]
+      });
+    }
 
     setToastMessage(`Oportunidade de ${alertaParaAdiar.clienteNome} adiada para ${formatDate(targetDateStr)}. O registro foi ocultado e retornará automaticamente na data agendada.`);
     setAlertaParaAdiar(null);
@@ -383,11 +570,39 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
   const handleConfirmarConcluir = (fechouNovoContrato: boolean) => {
     if (!alertaParaConcluir) return;
 
-    concluirAlerta(alertaParaConcluir.id, alertaParaConcluir);
+    const cleanCpf = alertaParaConcluir.clienteCpf.replace(/\D/g, '');
+    const affectedAlerts = alertas.filter(a => a.clienteCpf.replace(/\D/g, '') === cleanCpf && a.tipo === alertaParaConcluir.tipo);
+
+    if (affectedAlerts.length > 0) {
+      affectedAlerts.forEach(a => {
+        concluirAlerta(a.id, a);
+      });
+    } else {
+      concluirAlerta(alertaParaConcluir.id, {
+        clienteCpf: alertaParaConcluir.clienteCpf,
+        clienteNome: alertaParaConcluir.clienteNome,
+        clienteTelefone: alertaParaConcluir.clienteTelefone,
+        tipo: alertaParaConcluir.tipo,
+        vendedoraResponsavel: alertaParaConcluir.vendedoraResponsavel,
+        status: 'nova',
+        dataCriacao: new Date().toISOString().split('T')[0]
+      });
+    }
 
     if (fechouNovoContrato) {
       if (onConverterEmProposta) {
-        onConverterEmProposta(alertaParaConcluir);
+        const pseudoAlert: AlertaOportunidade = {
+          id: alertaParaConcluir.id,
+          clienteCpf: alertaParaConcluir.clienteCpf,
+          clienteNome: alertaParaConcluir.clienteNome,
+          clienteTelefone: alertaParaConcluir.clienteTelefone,
+          tipo: alertaParaConcluir.tipo === 'todas' ? 'portabilidade' : alertaParaConcluir.tipo as any,
+          motivo: `Convertido a partir de conclusão de oportunidade.`,
+          vendedoraResponsavel: alertaParaConcluir.vendedoraResponsavel,
+          status: 'convertida',
+          dataCriacao: new Date().toISOString().split('T')[0]
+        };
+        onConverterEmProposta(pseudoAlert);
       }
       setToastMessage(`Oportunidade fechada com novo contrato! O cliente entrará no fluxo de Indicação em 3 a 7 dias.`);
     } else {
@@ -398,20 +613,23 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
     setTimeout(() => setToastMessage(null), 5000);
   };
 
-  // Open Messaging Modal for Indication
-  const handleOpenIndicationMessage = (p: Proposta, client?: Cliente) => {
-    const nomePrimeiro = p.nomeCliente.split(' ')[0];
-    const phone = client?.telefone || '(81) 98000-0000';
+  // Open Messaging Modal for Indication (Grouped)
+  const handleOpenIndicationMessageGrouped = (alerta: GroupedOpportunity) => {
+    const nomePrimeiro = alerta.clienteNome.split(' ')[0];
+    const firstProposal = alerta.propostas[0];
+    const opLabel = firstProposal ? firstProposal.operacao : 'crédito';
+    const valLabel = firstProposal ? firstProposal.valorEmprestimo.toLocaleString('pt-BR') : '0,00';
+    const bankLabel = firstProposal ? firstProposal.banco : 'banco';
 
-    const msg = `Olá ${nomePrimeiro}, tudo bem? Aqui é ${currentUser?.name.split(' ')[0]} da Lívia Cred Saúde! 😄\n\nPassando para acompanhar o seu contrato de ${p.operacao} de R$ ${p.valorEmprestimo.toLocaleString('pt-BR')} no ${p.banco}, que foi concluído com sucesso recentemente!\n\nVocê tem algum amigo, colega de trabalho ou familiar que também esteja precisando de um empréstimo consignado ou redução de juros via portabilidade? Se você nos indicar e a pessoa fechar, preparamos uma gratificação especial de agradecimento para você! 🎁`;
+    const msg = `Olá ${nomePrimeiro}, tudo bem? Aqui é ${currentUser?.name.split(' ')[0]} da Lívia Cred Saúde! 😄\n\nPassando para acompanhar o seu contrato de ${opLabel} de R$ ${valLabel} no ${bankLabel}, que foi concluído com sucesso recentemente!\n\nVocê tem algum amigo, colega de trabalho ou familiar que também esteja precisando de um empréstimo consignado ou redução de juros via portabilidade? Se você nos indicar e a pessoa fechar, preparamos uma gratificação especial de agradecimento para você! 🎁`;
 
     setWhatsappMsg(msg);
     setTargetContact({
-      nome: p.nomeCliente,
-      telefone: phone,
-      cpf: p.cpf,
+      nome: alerta.clienteNome,
+      telefone: alerta.clienteTelefone,
+      cpf: alerta.clienteCpf,
       tipoTag: 'Pós-Venda & Indicação',
-      alertaId: `indicacao-${p.id}`
+      alertaId: alerta.id
     });
   };
 
@@ -430,17 +648,15 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
     });
   };
 
-  // Open Messaging Modal for General Alert
-  const handleOpenAlertaMessage = (alerta: AlertaOportunidade) => {
+  // Open Messaging Modal for General Alert (Grouped)
+  const handleOpenAlertaMessageGrouped = (alerta: GroupedOpportunity) => {
     const nomePrimeiro = alerta.clienteNome.split(' ')[0];
     let msg = '';
 
     if (alerta.tipo === 'portabilidade') {
-      msg = `Olá ${nomePrimeiro}, tudo bem? Aqui é ${currentUser?.name.split(' ')[0]} da Lívia Cred Saúde. Identificamos em nosso sistema que seu contrato consignado já atingiu o prazo de mais de 1 ano para Portabilidade com redução da taxa e liberação de troco em dinheiro na conta! Posso fazer uma simulação rápida sem compromisso?`;
+      msg = `Olá ${nomePrimeiro}, tudo bem? Aqui é ${currentUser?.name.split(' ')[0]} da Lívia Cred Saúde. Identificamos em nosso sistema que seu contrato consignado já atingiu o prazo de mais de 1 ano para Portabilidade com redução da taxa de juros! Posso fazer uma simulação rápida sem compromisso?`;
     } else if (alerta.tipo === 'refin') {
       msg = `Olá ${nomePrimeiro}, como vai? Seu contrato consignado já completou a carência mínima para Refinanciamento liberando valor imediato na sua conta mantendo a mesma parcela mensal. Posso calcular o valor para você hoje?`;
-    } else if (alerta.tipo === 'cartao_credito') {
-      msg = `Olá ${nomePrimeiro}! Identificamos que você possui margem livre para ativação do Cartão Benefício Consignado com saque imediato e sem anuidade. Gostaria de liberar o valor?`;
     } else {
       msg = `Olá ${nomePrimeiro}, tudo bem? Aqui é da Lívia Cred Saúde. Entramos em contato para verificar se podemos lhe ajudar com alguma simulação ou oportunidade de crédito consignado.`;
     }
@@ -477,7 +693,15 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
       );
 
       if (targetContact.alertaId) {
-        updateAlertaStatus(targetContact.alertaId, 'em_contato');
+        const cleanCpf = targetContact.cpf ? targetContact.cpf.replace(/\D/g, '') : '';
+        const affectedAlerts = alertas.filter(a => a.clienteCpf.replace(/\D/g, '') === cleanCpf && a.tipo === targetContact.tipoTag);
+        if (affectedAlerts.length > 0) {
+          affectedAlerts.forEach(a => {
+            updateAlertaStatus(a.id, 'em_contato');
+          });
+        } else {
+          updateAlertaStatus(targetContact.alertaId, 'em_contato');
+        }
       }
 
       if (!res.success && res.error) {
@@ -511,16 +735,6 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
             <span>Oportunidades & Alertas</span>
           </h1>
         </div>
-
-        {/* Messaging Provider Switcher Button */}
-        <button
-          type="button"
-          onClick={() => setIsMessagingSettingsOpen(true)}
-          className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs border border-slate-200 dark:border-slate-700 transition"
-        >
-          <Settings className="w-3.5 h-3.5 text-teal-600" />
-          <span>Configurar DigiSac / WhatsApp</span>
-        </button>
       </div>
 
       {/* Toast Feedback */}
@@ -542,7 +756,7 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
           }`}
         >
           <RefreshCw className="w-3.5 h-3.5 text-cyan-400" />
-          <span>Portabilidade ({portabilidadeAlertas.length})</span>
+          <span>Portabilidade ({portabilidadeGrouped.length})</span>
         </button>
 
         <button
@@ -554,7 +768,7 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
           }`}
         >
           <TrendingUp className="w-3.5 h-3.5 text-amber-400" />
-          <span>Refinanciamento ({refinAlertas.length})</span>
+          <span>Refinanciamento ({refinGrouped.length})</span>
         </button>
 
         <button
@@ -566,7 +780,7 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
           }`}
         >
           <Share2 className="w-3.5 h-3.5 text-purple-300" />
-          <span>Pedir Indicação (3 a 7d) ({indicacaoOpportunities.length})</span>
+          <span>Pedir Indicação (3 a 7d) ({indicacaoGrouped.length})</span>
         </button>
 
         <button
@@ -590,14 +804,14 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
           }`}
         >
           <Filter className="w-3.5 h-3.5" />
-          <span>Todas ({filteredAllAlertas.length})</span>
+          <span>Todas ({filteredAllGroupedAlertas.length})</span>
         </button>
       </div>
 
       {/* CATEGORY 1: PORTABILIDADE */}
       {activeCategory === 'portabilidade' && (
         <div className="space-y-3">
-          {portabilidadeAlertas.length === 0 ? (
+          {portabilidadeGrouped.length === 0 ? (
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 text-center border border-slate-200/80 dark:border-slate-800">
               <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-1.5" />
               <p className="text-xs font-bold text-slate-800 dark:text-white">Nenhum lead de portabilidade pendente</p>
@@ -606,34 +820,65 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
               </p>
             </div>
           ) : (
-            portabilidadeAlertas.map(alerta => (
+            portabilidadeGrouped.map(alerta => (
               <div key={alerta.id} className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="min-w-0 space-y-0.5">
+                  <div 
+                    onClick={() => setSelectedTimelineClient({ clienteCpf: alerta.clienteCpf, clienteNome: alerta.clienteNome })}
+                    className="min-w-0 space-y-0.5 cursor-pointer hover:opacity-85 transition"
+                    title="Clique para ver a linha do tempo completa do cliente"
+                  >
                     <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-900 dark:bg-cyan-950 dark:text-cyan-300">
                       Portabilidade Elegível (+1 ano)
                     </span>
-                    <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mt-1">
-                      {alerta.clienteNome}
+                    <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mt-1 flex items-center gap-1.5 flex-wrap">
+                      <span className="hover:underline">{alerta.clienteNome}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => handleVanguardClick(e, alerta.clienteCpf)}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-600 hover:text-teal-700 dark:text-teal-400 dark:hover:text-teal-300 hover:underline bg-teal-50 dark:bg-teal-950/40 px-2 py-0.5 rounded-md transition"
+                        title="Copiar CPF e abrir Vanguard"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        <span>Vanguard</span>
+                      </button>
                     </h3>
                     <p className="text-xs text-slate-500">
                       CPF: {formatCPF(alerta.clienteCpf)} · Tel: {formatPhone(alerta.clienteTelefone)} · Vendedora: <strong>{alerta.vendedoraResponsavel}</strong>
                     </p>
                   </div>
-
-                  {alerta.valorPotencial && (
-                    <div className="text-left sm:text-right bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-2xl border border-slate-100 dark:border-slate-800">
-                      <span className="text-[10px] uppercase font-bold text-slate-400">Troco Potencial Liberado</span>
-                      <p className="text-sm font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
-                        {formatCurrency(alerta.valorPotencial)}
-                      </p>
-                    </div>
-                  )}
                 </div>
 
-                <p className="text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-100 dark:border-slate-800">
-                  {alerta.motivo}
-                </p>
+                {/* Proposals details listing instead of generic static reason text */}
+                <div 
+                  onClick={() => setSelectedTimelineClient({ clienteCpf: alerta.clienteCpf, clienteNome: alerta.clienteNome })}
+                  className="bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-2 cursor-pointer hover:bg-slate-100/80 dark:hover:bg-slate-800/80 transition"
+                  title="Clique para ver a linha do tempo completa do cliente"
+                >
+                  <span className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 block mb-1">
+                    Propostas de Portabilidade deste Cliente:
+                  </span>
+                  <div className="space-y-1.5">
+                    {alerta.propostas.map(p => (
+                      <div key={p.id} className="text-xs text-slate-700 dark:text-slate-300 flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-1.5 border-b border-slate-100 dark:border-slate-850 last:border-0 last:pb-0">
+                        <div>
+                          <span className="font-extrabold text-[#0F5C63] dark:text-teal-400">{p.operacao}</span>
+                          <span className="text-slate-400"> no </span>
+                          <span className="font-bold text-slate-800 dark:text-slate-200">{p.banco}</span>
+                          <span className="text-slate-400"> (Contrato #{p.numeroContrato})</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded-md bg-teal-50 dark:bg-teal-950 text-teal-800 dark:text-teal-300 font-bold text-[10px]">
+                            {p.mesesPagos} meses pagos
+                          </span>
+                          <span className="font-black text-slate-850 dark:text-slate-100">
+                            {formatCurrency(p.valorEmprestimo)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
 
                 {/* Authorization Control for Digitadora */}
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-cyan-50/60 dark:bg-cyan-950/30 border border-cyan-200/80 dark:border-cyan-800/60 text-xs">
@@ -660,7 +905,7 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => handleOpenAlertaMessage(alerta)}
+                      onClick={() => handleOpenAlertaMessageGrouped(alerta)}
                       className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition"
                     >
                       <MessageCircle className="w-3.5 h-3.5" />
@@ -670,8 +915,26 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
                     <button
                       type="button"
                       onClick={() => {
-                        updateAlertaStatus(alerta.id, 'convertida');
-                        if (onConverterEmProposta) onConverterEmProposta(alerta);
+                        // Update status of all underlying alerts for this CPF
+                        const cleanCpf = alerta.clienteCpf.replace(/\D/g, '');
+                        const affectedAlerts = alertas.filter(a => a.clienteCpf.replace(/\D/g, '') === cleanCpf && a.tipo === 'portabilidade');
+                        affectedAlerts.forEach(a => {
+                          updateAlertaStatus(a.id, 'convertida');
+                        });
+                        if (onConverterEmProposta) {
+                          const pseudoAlert: AlertaOportunidade = {
+                            id: alerta.id,
+                            clienteCpf: alerta.clienteCpf,
+                            clienteNome: alerta.clienteNome,
+                            clienteTelefone: alerta.clienteTelefone,
+                            tipo: 'portabilidade',
+                            motivo: `Oportunidade de portabilidade convertida.`,
+                            vendedoraResponsavel: alerta.vendedoraResponsavel,
+                            status: 'convertida',
+                            dataCriacao: todayStr
+                          };
+                          onConverterEmProposta(pseudoAlert);
+                        }
                       }}
                       className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-xs transition"
                     >
@@ -714,54 +977,85 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
           <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-amber-600 shrink-0" />
             <span>
-              <strong>Ofertas de Refinanciamento:</strong> Contratos com carência mínima de <strong>6 meses</strong> de parcelas pagas, permitindo refinanciar mantendo a mesma parcela mensal e liberando troco em conta.
+              <strong>Ofertas de Refinanciamento:</strong> Contratos com carência mínima de <strong>6 meses</strong> de parcelas pagas, permitindo refinanciar mantendo o mesmo valor de parcela.
             </span>
           </div>
 
-          {refinAlertas.length === 0 ? (
+          {refinGrouped.length === 0 ? (
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 text-center border border-slate-200/80 dark:border-slate-800">
               <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-1.5" />
               <p className="text-xs font-bold text-slate-800 dark:text-white">Nenhum contrato pendente de refinanciamento</p>
               <p className="text-[11px] text-slate-400 mt-1">
-                Contratos pagos há mais de 6 meses aparecerão aqui com cálculo automático de troco estimado.
+                Contratos pagos há mais de 6 meses aparecerão aqui.
               </p>
             </div>
           ) : (
-            refinAlertas.map(alerta => (
+            refinGrouped.map(alerta => (
               <div key={alerta.id} className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-3">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <div className="min-w-0 space-y-0.5">
+                  <div 
+                    onClick={() => setSelectedTimelineClient({ clienteCpf: alerta.clienteCpf, clienteNome: alerta.clienteNome })}
+                    className="min-w-0 space-y-0.5 cursor-pointer hover:opacity-85 transition"
+                    title="Clique para ver a linha do tempo completa do cliente"
+                  >
                     <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-300">
                       Refinanciamento Disponível (+6 meses)
                     </span>
-                    <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mt-1">
-                      {alerta.clienteNome}
+                    <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mt-1 flex items-center gap-1.5 flex-wrap">
+                      <span className="hover:underline">{alerta.clienteNome}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => handleVanguardClick(e, alerta.clienteCpf)}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-600 hover:text-teal-700 dark:text-teal-400 dark:hover:text-teal-300 hover:underline bg-teal-50 dark:bg-teal-950/40 px-2 py-0.5 rounded-md transition"
+                        title="Copiar CPF e abrir Vanguard"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        <span>Vanguard</span>
+                      </button>
                     </h3>
                     <p className="text-xs text-slate-500">
                       CPF: {formatCPF(alerta.clienteCpf)} · Tel: {formatPhone(alerta.clienteTelefone)} · Vendedora: <strong>{alerta.vendedoraResponsavel}</strong>
                     </p>
                   </div>
-
-                  {alerta.valorPotencial && (
-                    <div className="text-left sm:text-right bg-slate-50 dark:bg-slate-800/60 p-2.5 rounded-2xl border border-slate-100 dark:border-slate-800">
-                      <span className="text-[10px] uppercase font-bold text-slate-400">Troco Estimado</span>
-                      <p className="text-sm font-black text-amber-600 dark:text-amber-400 tabular-nums">
-                        {formatCurrency(alerta.valorPotencial)}
-                      </p>
-                    </div>
-                  )}
                 </div>
 
-                <p className="text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-100 dark:border-slate-800">
-                  {alerta.motivo}
-                </p>
+                {/* Proposals details listing instead of generic static reason text */}
+                <div 
+                  onClick={() => setSelectedTimelineClient({ clienteCpf: alerta.clienteCpf, clienteNome: alerta.clienteNome })}
+                  className="bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-2 cursor-pointer hover:bg-slate-100/80 dark:hover:bg-slate-800/80 transition"
+                  title="Clique para ver a linha do tempo completa do cliente"
+                >
+                  <span className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 block mb-1">
+                    Propostas de Refinanciamento deste Cliente:
+                  </span>
+                  <div className="space-y-1.5">
+                    {alerta.propostas.map(p => (
+                      <div key={p.id} className="text-xs text-slate-700 dark:text-slate-300 flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-1.5 border-b border-slate-100 dark:border-slate-850 last:border-0 last:pb-0">
+                        <div>
+                          <span className="font-extrabold text-[#0F5C63] dark:text-teal-400">{p.operacao}</span>
+                          <span className="text-slate-400"> no </span>
+                          <span className="font-bold text-slate-800 dark:text-slate-200">{p.banco}</span>
+                          <span className="text-slate-400"> (Contrato #{p.numeroContrato})</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded-md bg-teal-50 dark:bg-teal-950 text-teal-800 dark:text-teal-300 font-bold text-[10px]">
+                            {p.mesesPagos} meses pagos
+                          </span>
+                          <span className="font-black text-slate-850 dark:text-slate-100">
+                            {formatCurrency(p.valorEmprestimo)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
 
                 {/* Productivity Action Buttons */}
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => handleOpenAlertaMessage(alerta)}
+                      onClick={() => handleOpenAlertaMessageGrouped(alerta)}
                       className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition"
                     >
                       <MessageCircle className="w-3.5 h-3.5" />
@@ -771,8 +1065,26 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
                     <button
                       type="button"
                       onClick={() => {
-                        updateAlertaStatus(alerta.id, 'convertida');
-                        if (onConverterEmProposta) onConverterEmProposta(alerta);
+                        // Update status of all underlying alerts for this CPF
+                        const cleanCpf = alerta.clienteCpf.replace(/\D/g, '');
+                        const affectedAlerts = alertas.filter(a => a.clienteCpf.replace(/\D/g, '') === cleanCpf && a.tipo === 'refin');
+                        affectedAlerts.forEach(a => {
+                          updateAlertaStatus(a.id, 'convertida');
+                        });
+                        if (onConverterEmProposta) {
+                          const pseudoAlert: AlertaOportunidade = {
+                            id: alerta.id,
+                            clienteCpf: alerta.clienteCpf,
+                            clienteNome: alerta.clienteNome,
+                            clienteTelefone: alerta.clienteTelefone,
+                            tipo: 'refin',
+                            motivo: `Oportunidade de refinanciamento convertida.`,
+                            vendedoraResponsavel: alerta.vendedoraResponsavel,
+                            status: 'convertida',
+                            dataCriacao: todayStr
+                          };
+                          onConverterEmProposta(pseudoAlert);
+                        }
                       }}
                       className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-xs transition"
                     >
@@ -824,7 +1136,7 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
             </p>
           </div>
 
-          {indicacaoOpportunities.length === 0 ? (
+          {indicacaoGrouped.length === 0 ? (
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 text-center border border-slate-200/80 dark:border-slate-800 space-y-2">
               <Gift className="w-8 h-8 text-purple-400 mx-auto" />
               <p className="text-xs font-bold text-slate-800 dark:text-white">
@@ -835,115 +1147,153 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
               </p>
             </div>
           ) : (
-            indicacaoOpportunities.map(({ proposta, client, indInfo }) => {
-              const alertaMock: AlertaOportunidade = {
-                id: `indicacao-${proposta.id}`,
-                clienteCpf: proposta.cpf,
-                clienteNome: proposta.nomeCliente,
-                clienteTelefone: client?.telefone || '(81) 98000-0000',
-                tipo: 'proposta_parada',
-                motivo: `Contrato #${proposta.numeroContrato} digitado há ${indInfo.daysSincePayment} dias. Janela ideal para pós-venda e solicitação de indicação premiada.`,
-                vendedoraResponsavel: proposta.vendedora || sellerName,
-                status: 'nova',
-                dataCriacao: proposta.dataDigitacao,
-                propostaOrigemId: proposta.id
-              };
-
-              return (
-                <div
-                  key={proposta.id}
-                  className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-5 border border-purple-200 dark:border-purple-900/60 shadow-xs hover:border-purple-300 transition-all space-y-3"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="min-w-0 space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-900 dark:bg-purple-950 dark:text-purple-300">
-                          {indInfo.badgeLabel}
-                        </span>
-                        <span className="text-xs text-slate-400 font-bold">
-                          Contrato #{proposta.numeroContrato}
-                        </span>
-                      </div>
-
-                      <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                        {proposta.nomeCliente}
-                      </h3>
-
-                      <p className="text-xs text-slate-500 flex items-center gap-1 flex-wrap">
-                        <span>CPF: {formatCPF(proposta.cpf)}</span>
-                        <CPFValidationBadge cpf={proposta.cpf} />
-                        <span>· {proposta.operacao} ({proposta.banco}) · Vendedora: <strong>{proposta.vendedora}</strong></span>
-                      </p>
-                    </div>
-
-                    <div className="text-left sm:text-right bg-purple-50 dark:bg-purple-950/40 p-3 rounded-2xl border border-purple-200/80 dark:border-purple-800/80">
-                      <span className="text-[10px] uppercase font-bold text-purple-700 dark:text-purple-300 block">Valor do Contrato</span>
-                      <span className="text-base font-black text-purple-900 dark:text-purple-100 tabular-nums">
-                        {formatCurrency(proposta.valorEmprestimo)}
-                      </span>
-                      <span className="text-[10px] text-slate-400 block mt-0.5">
-                        Digitado em {formatDate(proposta.dataDigitacao)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300 flex items-start gap-2">
-                    <Gift className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
-                    <div>
-                      <span className="font-bold text-purple-800 dark:text-purple-300 block">Roteiro Recomendado de Abordagem:</span>
-                      <span>Agradeça a confiança no atendimento e peça a indicação de 2 a 3 amigos ou colegas de trabalho que também precisem de crédito consignado ou redução de juros.</span>
-                    </div>
-                  </div>
-
-                  {/* Productivity Action Buttons */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+            indicacaoGrouped.map(alerta => (
+              <div
+                key={alerta.id}
+                className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-5 border border-purple-200 dark:border-purple-900/60 shadow-xs hover:border-purple-300 transition-all space-y-3"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div 
+                    onClick={() => setSelectedTimelineClient({ clienteCpf: alerta.clienteCpf, clienteNome: alerta.clienteNome })}
+                    className="min-w-0 space-y-1 cursor-pointer hover:opacity-85 transition"
+                    title="Clique para ver a linha do tempo completa do cliente"
+                  >
                     <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleOpenIndicationMessage(proposta, client)}
-                        className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs shadow-md transition active:scale-95"
-                      >
-                        <Share2 className="w-3.5 h-3.5" />
-                        <span>Pedir Indicação no {msgSettings.provider === 'digisac' ? 'DigiSac' : 'WhatsApp'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (onConverterEmProposta) onConverterEmProposta(alertaMock);
-                        }}
-                        className="flex items-center gap-1 px-3 py-2 rounded-xl bg-purple-100 dark:bg-purple-950 text-purple-900 dark:text-purple-200 hover:bg-purple-200 font-bold text-xs transition"
-                      >
-                        <PlusCircle className="w-3.5 h-3.5" />
-                        <span>Novo Contrato</span>
-                      </button>
+                      <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-900 dark:bg-purple-950 dark:text-purple-300">
+                        Janela de Indicação (3 a 7 dias)
+                      </span>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
+                    <h3 className="text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
+                      <span className="hover:underline">{alerta.clienteNome}</span>
                       <button
                         type="button"
-                        onClick={() => setAlertaParaAdiar(alertaMock)}
-                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 font-bold text-xs transition"
-                        title="Adiar contato de indicação"
+                        onClick={(e) => handleVanguardClick(e, alerta.clienteCpf)}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-600 hover:text-teal-700 dark:text-teal-400 dark:hover:text-teal-300 hover:underline bg-teal-50 dark:bg-teal-950/40 px-2 py-0.5 rounded-md transition"
+                        title="Copiar CPF e abrir Vanguard"
                       >
-                        <CalendarClock className="w-3.5 h-3.5 text-amber-500" />
-                        <span>Adiar</span>
+                        <ExternalLink className="w-3 h-3" />
+                        <span>Vanguard</span>
                       </button>
+                    </h3>
 
-                      <button
-                        type="button"
-                        onClick={() => setAlertaParaConcluir(alertaMock)}
-                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-emerald-100 dark:hover:bg-emerald-950 text-slate-700 dark:text-slate-300 hover:text-emerald-700 font-bold text-xs transition"
-                        title="Marcar indicação como concluída"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                        <span>Concluir</span>
-                      </button>
+                    <p className="text-xs text-slate-500 flex items-center gap-1 flex-wrap">
+                      <span>CPF: {formatCPF(alerta.clienteCpf)}</span>
+                      <CPFValidationBadge cpf={alerta.clienteCpf} />
+                      <span>· Tel: {formatPhone(alerta.clienteTelefone)} · Vendedora: <strong>{alerta.vendedoraResponsavel}</strong></span>
+                    </p>
+                  </div>
+
+                  {alerta.valorPotencial > 0 && (
+                    <div className="text-left sm:text-right bg-purple-50 dark:bg-purple-950/40 p-3 rounded-2xl border border-purple-200/80 dark:border-purple-800/80">
+                      <span className="text-[10px] uppercase font-bold text-purple-700 dark:text-purple-300 block font-bold">Valor Consolidado</span>
+                      <span className="text-base font-black text-purple-900 dark:text-purple-100 tabular-nums">
+                        {formatCurrency(alerta.valorPotencial)}
+                      </span>
                     </div>
+                  )}
+                </div>
+
+                {/* Proposals list box */}
+                <div 
+                  onClick={() => setSelectedTimelineClient({ clienteCpf: alerta.clienteCpf, clienteNome: alerta.clienteNome })}
+                  className="bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-2 cursor-pointer hover:bg-slate-100/80 dark:hover:bg-slate-800/80 transition"
+                  title="Clique para ver a linha do tempo completa do cliente"
+                >
+                  <span className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 block mb-1">
+                    Propostas Digitadas na Janela:
+                  </span>
+                  <div className="space-y-1.5">
+                    {alerta.propostas.map(p => (
+                      <div key={p.id} className="text-xs text-slate-700 dark:text-slate-300 flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-1.5 border-b border-slate-100 dark:border-slate-850 last:border-0 last:pb-0">
+                        <div>
+                          <span className="font-extrabold text-purple-700 dark:text-purple-400">{p.operacao}</span>
+                          <span className="text-slate-400"> no </span>
+                          <span className="font-bold text-slate-800 dark:text-slate-200">{p.banco}</span>
+                          <span className="text-slate-400"> (Contrato #{p.numeroContrato})</span>
+                        </div>
+                        <div className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-200">
+                          <span>{formatCurrency(p.valorEmprestimo)}</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              );
-            })
+
+                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 text-xs text-slate-600 dark:text-slate-300 flex items-start gap-2">
+                  <Gift className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold text-purple-800 dark:text-purple-300 block">Roteiro Recomendado de Abordagem:</span>
+                    <span>Agradeça a confiança no atendimento e peça a indicação de 2 a 3 amigos ou colegas de trabalho que também precisem de crédito consignado ou redução de juros.</span>
+                  </div>
+                </div>
+
+                {/* Productivity Action Buttons */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenIndicationMessageGrouped(alerta)}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs shadow-md transition active:scale-95"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                      <span>Pedir Indicação no {msgSettings.provider === 'digisac' ? 'DigiSac' : 'WhatsApp'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const cleanCpf = alerta.clienteCpf.replace(/\D/g, '');
+                        const affectedAlerts = alertas.filter(a => a.clienteCpf.replace(/\D/g, '') === cleanCpf && a.tipo === 'proposta_parada');
+                        affectedAlerts.forEach(a => {
+                          updateAlertaStatus(a.id, 'convertida');
+                        });
+                        if (onConverterEmProposta) {
+                          const pseudoAlert: AlertaOportunidade = {
+                            id: alerta.id,
+                            clienteCpf: alerta.clienteCpf,
+                            clienteNome: alerta.clienteNome,
+                            clienteTelefone: alerta.clienteTelefone,
+                            tipo: 'proposta_parada',
+                            motivo: `Oportunidade de indicação convertida.`,
+                            vendedoraResponsavel: alerta.vendedoraResponsavel,
+                            status: 'convertida',
+                            dataCriacao: todayStr
+                          };
+                          onConverterEmProposta(pseudoAlert);
+                        }
+                      }}
+                      className="flex items-center gap-1 px-3 py-2 rounded-xl bg-purple-100 dark:bg-purple-950 text-purple-900 dark:text-purple-200 hover:bg-purple-200 font-bold text-xs transition"
+                    >
+                      <PlusCircle className="w-3.5 h-3.5" />
+                      <span>Novo Contrato</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setAlertaParaAdiar(alerta)}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 font-bold text-xs transition"
+                      title="Adiar contato de indicação"
+                    >
+                      <CalendarClock className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Adiar</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setAlertaParaConcluir(alerta)}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-emerald-100 dark:hover:bg-emerald-950 text-slate-700 dark:text-slate-300 hover:text-emerald-700 font-bold text-xs transition"
+                      title="Marcar indicação como concluída"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>Concluir</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))
           )}
         </div>
       )}
@@ -965,6 +1315,7 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
             </div>
           ) : (
             aniversarioOpportunities.map(({ cliente, bInfo }) => {
+              const clientProposals = getClientProposals(cliente.cpf);
               const alertaMock: AlertaOportunidade = {
                 id: `aniv-${cliente.cpf}`,
                 clienteCpf: cliente.cpf,
@@ -980,7 +1331,11 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
               return (
                 <div key={cliente.cpf} className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-3">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="space-y-1">
+                    <div 
+                      onClick={() => setSelectedTimelineClient({ clienteCpf: cliente.cpf, clienteNome: cliente.nome })}
+                      className="space-y-1 cursor-pointer hover:opacity-85 transition"
+                      title="Clique para ver a linha do tempo completa do cliente"
+                    >
                       <div className="flex items-center gap-2">
                         <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase ${
                           bInfo.isToday ? 'bg-pink-500 text-white animate-pulse' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
@@ -990,8 +1345,17 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
                         <span className="text-xs text-slate-400 font-bold">{bInfo.dayMonth}</span>
                       </div>
 
-                      <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                        {cliente.nome}
+                      <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mt-1 flex items-center gap-1.5 flex-wrap">
+                        <span className="hover:underline">{cliente.nome}</span>
+                        <button
+                          type="button"
+                          onClick={(e) => handleVanguardClick(e, cliente.cpf)}
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-600 hover:text-teal-700 dark:text-teal-400 dark:hover:text-teal-300 hover:underline bg-teal-50 dark:bg-teal-950/40 px-2 py-0.5 rounded-md transition"
+                          title="Copiar CPF e abrir Vanguard"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          <span>Vanguard</span>
+                        </button>
                       </h3>
                       <p className="text-xs text-slate-500">
                         Completando <strong className="text-teal-700 dark:text-teal-400">{bInfo.turningAge} anos</strong> · {cliente.convenioPrincipal}
@@ -1002,6 +1366,29 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
                       🎁
                     </div>
                   </div>
+
+                  {/* Client active proposals display */}
+                  {clientProposals.length > 0 && (
+                    <div 
+                      onClick={() => setSelectedTimelineClient({ clienteCpf: cliente.cpf, clienteNome: cliente.nome })}
+                      className="bg-slate-50 dark:bg-slate-800/40 p-3 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-1.5 cursor-pointer hover:bg-slate-100/80 dark:hover:bg-slate-800/80 transition"
+                      title="Clique para ver a linha do tempo completa do cliente"
+                    >
+                      <span className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 block mb-1">
+                        Contratos deste Aniversariante:
+                      </span>
+                      <div className="space-y-1">
+                        {clientProposals.map(p => (
+                          <div key={p.id} className="text-xs text-slate-700 dark:text-slate-300 flex items-center justify-between gap-1 pb-1 border-b border-slate-100 dark:border-slate-855 last:border-0 last:pb-0">
+                            <span>{p.operacao} ({p.banco})</span>
+                            <span className="font-bold text-slate-800 dark:text-slate-200">
+                              {p.mesesPagos}m pagos · {formatCurrency(p.valorEmprestimo)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                     <div className="flex items-center gap-2">
@@ -1086,13 +1473,17 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
             </div>
           </div>
 
-          {filteredAllAlertas.map(alerta => (
+          {filteredAllGroupedAlertas.map(alerta => (
             <div key={alerta.id} className="bg-white dark:bg-slate-900 rounded-3xl p-4 sm:p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-3">
               <div className="flex items-start justify-between gap-2">
-                <div className="space-y-0.5">
+                <div 
+                  onClick={() => setSelectedTimelineClient({ clienteCpf: alerta.clienteCpf, clienteNome: alerta.clienteNome })}
+                  className="space-y-0.5 cursor-pointer hover:opacity-85 transition"
+                  title="Clique para ver a linha do tempo completa do cliente"
+                >
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200">
-                      {alerta.tipo}
+                      Grupo Consolidado
                     </span>
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                       alerta.status === 'nova' ? 'bg-amber-100 text-amber-900' :
@@ -1102,31 +1493,61 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
                       {alerta.status}
                     </span>
                   </div>
-                  <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mt-1">
-                    {alerta.clienteNome}
+                  <h3 className="text-sm font-extrabold text-slate-900 dark:text-white mt-1 flex items-center gap-1.5 flex-wrap">
+                    <span className="hover:underline">{alerta.clienteNome}</span>
+                    <button
+                      type="button"
+                      onClick={(e) => handleVanguardClick(e, alerta.clienteCpf)}
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-600 hover:text-teal-700 dark:text-teal-400 dark:hover:text-teal-300 hover:underline bg-teal-50 dark:bg-teal-950/40 px-2 py-0.5 rounded-md transition"
+                      title="Copiar CPF e abrir Vanguard"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      <span>Vanguard</span>
+                    </button>
                   </h3>
                   <p className="text-xs text-slate-400">
                     CPF: {formatCPF(alerta.clienteCpf)} · Tel: {formatPhone(alerta.clienteTelefone)}
                   </p>
                 </div>
-
-                {alerta.valorPotencial && (
-                  <span className="text-sm font-extrabold text-teal-600 dark:text-teal-400 tabular-nums">
-                    {formatCurrency(alerta.valorPotencial)}
-                  </span>
-                )}
               </div>
 
-              <p className="text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/40 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800">
-                {alerta.motivo}
-              </p>
+              {/* Proposals details listing instead of generic static reason text */}
+              <div 
+                onClick={() => setSelectedTimelineClient({ clienteCpf: alerta.clienteCpf, clienteNome: alerta.clienteNome })}
+                className="bg-slate-50 dark:bg-slate-800/40 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-2 cursor-pointer hover:bg-slate-100/80 dark:hover:bg-slate-800/80 transition"
+                title="Clique para ver a linha do tempo completa do cliente"
+              >
+                <span className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 block mb-1">
+                  Todas as Propostas Elegíveis deste Cliente:
+                </span>
+                <div className="space-y-1.5">
+                  {alerta.propostas.map(p => (
+                    <div key={p.id} className="text-xs text-slate-700 dark:text-slate-300 flex flex-col sm:flex-row sm:items-center justify-between gap-1 pb-1.5 border-b border-slate-100 dark:border-slate-850 last:border-0 last:pb-0">
+                      <div>
+                        <span className="font-extrabold text-[#0F5C63] dark:text-teal-400">{p.operacao}</span>
+                        <span className="text-slate-400"> no </span>
+                        <span className="font-bold text-slate-800 dark:text-slate-200">{p.banco}</span>
+                        <span className="text-slate-400"> (Contrato #{p.numeroContrato})</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-md bg-teal-50 dark:bg-teal-950 text-teal-800 dark:text-teal-300 font-bold text-[10px]">
+                          {p.mesesPagos} meses pagos
+                        </span>
+                        <span className="font-black text-slate-850 dark:text-slate-100">
+                          {formatCurrency(p.valorEmprestimo)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
               {/* Productivity Action Buttons */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => handleOpenAlertaMessage(alerta)}
+                    onClick={() => handleOpenAlertaMessageGrouped(alerta)}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs transition"
                   >
                     <MessageCircle className="w-3.5 h-3.5" />
@@ -1136,12 +1557,29 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
                   <button
                     type="button"
                     onClick={() => {
-                      updateAlertaStatus(alerta.id, 'convertida');
-                      if (onConverterEmProposta) onConverterEmProposta(alerta);
+                      const cleanCpf = alerta.clienteCpf.replace(/\D/g, '');
+                      const affectedAlerts = alertas.filter(a => a.clienteCpf.replace(/\D/g, '') === cleanCpf);
+                      affectedAlerts.forEach(a => {
+                        updateAlertaStatus(a.id, 'convertida');
+                      });
+                      if (onConverterEmProposta) {
+                        const pseudoAlert: AlertaOportunidade = {
+                          id: alerta.id,
+                          clienteCpf: alerta.clienteCpf,
+                          clienteNome: alerta.clienteNome,
+                          clienteTelefone: alerta.clienteTelefone,
+                          tipo: 'portabilidade',
+                          motivo: `Oportunidade convertida.`,
+                          vendedoraResponsavel: alerta.vendedoraResponsavel,
+                          status: 'convertida',
+                          dataCriacao: todayStr
+                        };
+                        onConverterEmProposta(pseudoAlert);
+                      }
                     }}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs shadow-xs transition"
                   >
-                    <PlusCircle className="w-3.5 h-3.5" />
+                    <PlusCircle className="w-3.5 h-3.5 text-slate-950" />
                     <span>Converter</span>
                   </button>
                 </div>
@@ -1170,7 +1608,6 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
           ))}
         </div>
       )}
-
       {/* MODAL: ADIAR OPORTUNIDADE (REAGENDAMENTO COM OCULTAÇÃO TEMPORÁRIA) */}
       {alertaParaAdiar && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
@@ -1466,19 +1903,40 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
                 </select>
               </div>
 
-              {msgSettings.provider === 'digisac' && (
-                <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Endereço / Domínio do seu DigiSac:
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="liviacredsaude.digisac.io"
-                    value={msgSettings.digisacDomain}
-                    onChange={(e) => setMsgSettings({ ...msgSettings, digisacDomain: e.target.value })}
-                    className="w-full px-3 py-2 font-mono text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none"
-                  />
+               {msgSettings.provider === 'digisac' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      Endereço / Domínio do seu DigiSac:
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="liviacredsaude.digisac.io"
+                      value={msgSettings.digisacDomain}
+                      onChange={(e) => setMsgSettings({ ...msgSettings, digisacDomain: e.target.value })}
+                      className="w-full px-3 py-2 font-mono text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none"
+                    />
+                    <div className="mt-1 text-[10px] text-slate-500 leading-normal">
+                      Ex: <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 rounded">liviacredsaude.digisac.io</code> (sem https://)
+                    </div>
+                  </div>
+
+                  <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800">
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      URL do Servidor do CRM (Backend API):
+                    </label>
+                    <input
+                      type="url"
+                      placeholder="https://sua-url-do-crm.run.app"
+                      value={msgSettings.backendApiUrl || ''}
+                      onChange={(e) => setMsgSettings({ ...msgSettings, backendApiUrl: e.target.value })}
+                      className="w-full px-3 py-2 font-mono text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none"
+                    />
+                    <div className="mt-1 text-[10px] text-slate-500 leading-normal">
+                      Preencher <strong>somente</strong> se estiver usando o CRM no GitHub Pages. Informe a URL principal do CRM (Cloud Run/AI Studio) contendo <code className="font-mono bg-slate-100 dark:bg-slate-800 px-1 rounded">https://</code>. Se rodar direto na URL principal, pode deixar em branco.
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -1501,6 +1959,167 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
           </div>
         </div>
       )}
+
+      {/* MODAL: CLIENT TIMELINE & DETAILED PROPOSALS */}
+      {selectedTimelineClient && (() => {
+        const cleanCpf = selectedTimelineClient.clienteCpf.replace(/\D/g, '');
+        const clientObj = clientes.find(c => c.cpf.replace(/\D/g, '') === cleanCpf);
+        const clientPropostas = propostas
+          .filter(p => p.cpf.replace(/\D/g, '') === cleanCpf)
+          .sort((a, b) => new Date(b.dataDigitacao).getTime() - new Date(a.dataDigitacao).getTime());
+        const totalContratado = clientPropostas
+          .filter(p => p.status === 'Paga')
+          .reduce((acc, p) => acc + p.valorEmprestimo, 0);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+            <div className="w-full max-w-2xl rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-5 sm:p-6 space-y-5 max-h-[90vh] overflow-y-auto">
+              {/* Header */}
+              <div className="flex items-start justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5 flex-wrap">
+                      <span>{selectedTimelineClient.clienteNome}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => handleVanguardClick(e, selectedTimelineClient.clienteCpf)}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-teal-600 hover:text-teal-700 dark:text-teal-400 dark:hover:text-teal-300 hover:underline bg-teal-50 dark:bg-teal-950/40 px-2 py-0.5 rounded-md transition"
+                        title="Copiar CPF e abrir Vanguard"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        <span>Vanguard</span>
+                      </button>
+                    </h3>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 text-teal-800 dark:bg-teal-950 dark:text-teal-300">
+                      {clientObj?.convenioPrincipal || 'Consignado'}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500 mt-1 tabular-nums">
+                    <span>CPF: <strong>{formatCPF(selectedTimelineClient.clienteCpf)}</strong></span>
+                    {clientObj?.telefone && <span>Tel: {formatPhone(clientObj.telefone)}</span>}
+                    {clientObj?.cidade && <span>{clientObj.cidade}</span>}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedTimelineClient(null)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Financial History Overview (Without troco estimado) */}
+              <div className="grid grid-cols-3 gap-2 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-2xl border border-slate-100 dark:border-slate-800 text-center">
+                <div>
+                  <p className="text-[10px] uppercase font-bold text-slate-400">Total Contratado</p>
+                  <p className="text-sm font-extrabold text-[#0B2A4A] dark:text-white tabular-nums mt-0.5">
+                    {formatCurrency(totalContratado)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase font-bold text-slate-400">Nº de Propostas</p>
+                  <p className="text-sm font-extrabold text-slate-800 dark:text-slate-200 tabular-nums mt-0.5">
+                    {clientPropostas.length}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase font-bold text-slate-400">Última Operação</p>
+                  <p className="text-sm font-bold text-slate-800 dark:text-slate-200 tabular-nums mt-0.5">
+                    {clientPropostas[0] ? formatDate(clientPropostas[0].dataDigitacao) : '-'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Notes */}
+              {clientObj?.observacoes && 
+               clientObj.observacoes.trim() !== '' && 
+               !clientObj.observacoes.toLowerCase().includes('cliente importado via planilha') && (
+                <div className="p-3 rounded-2xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/40 text-xs">
+                  <span className="font-bold text-amber-800 dark:text-amber-300 font-extrabold">Observações de Atendimento:</span>
+                  <p className="text-slate-600 dark:text-slate-300 mt-0.5">{clientObj.observacoes}</p>
+                </div>
+              )}
+
+              {/* Visual Timeline of Proposals */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Linha do Tempo de Propostas ({clientPropostas.length})</span>
+                </h4>
+
+                {clientPropostas.length === 0 ? (
+                  <p className="text-xs text-slate-400 py-3 text-center">Nenhuma proposta cadastrada para este CPF ainda.</p>
+                ) : (
+                  <div className="space-y-3 relative before:absolute before:inset-0 before:left-3.5 before:w-0.5 before:bg-slate-200 dark:before:bg-slate-800 max-h-[40vh] overflow-y-auto pr-1">
+                    {clientPropostas.map((prop) => {
+                      const diffDays = prop.dataPagamentoCliente || prop.dataDigitacao ? getDiffDays(prop.dataPagamentoCliente || prop.dataDigitacao) : 0;
+                      const mesesPagos = Math.floor(diffDays / 30);
+                      return (
+                        <div key={prop.id} className="relative flex items-start gap-3 pl-1">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 z-10 text-white ${
+                            prop.status === 'Paga' ? 'bg-emerald-500' :
+                            prop.status === 'Cancelada' ? 'bg-rose-500' :
+                            'bg-slate-400 text-slate-800'
+                          }`}>
+                            <Check className="w-3.5 h-3.5" />
+                          </div>
+
+                          <div className="flex-1 bg-slate-50 dark:bg-slate-800/70 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <span className="text-xs font-extrabold text-[#0F5C63] dark:text-teal-400">
+                                {prop.operacao} · {prop.banco}
+                              </span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                prop.status === 'Paga' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' :
+                                prop.status === 'Cancelada' ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300' :
+                                'bg-slate-100 text-slate-850 dark:text-slate-300'
+                              }`}>
+                                {prop.status}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2 text-xs">
+                              <div>
+                                <span className="text-[10px] text-slate-400">Valor Operação:</span>
+                                <p className="font-extrabold text-slate-900 dark:text-white tabular-nums">
+                                  {formatCurrency(prop.valorEmprestimo)}
+                                </p>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-slate-400">Contrato:</span>
+                                <p className="font-semibold text-slate-800 dark:text-slate-200 truncate" title={prop.numeroContrato}>
+                                  #{prop.numeroContrato || '—'}
+                                </p>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-slate-400">Tempo de Vigência:</span>
+                                <p className="font-bold text-teal-800 dark:text-teal-300">
+                                  {mesesPagos} meses pagos
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setSelectedTimelineClient(null)}
+                  className="px-5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold text-xs transition"
+                >
+                  Fechar Linha do Tempo
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

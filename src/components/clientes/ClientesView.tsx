@@ -132,7 +132,7 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
       nome: cliente.nome,
       cpf: cliente.cpf,
       convenio: cliente.convenioPrincipal,
-      vendedora: cliente.vendedoraResponsavel || currentUser?.name
+      vendedora: currentUser?.name || cliente.vendedoraResponsavel
     });
   };
 

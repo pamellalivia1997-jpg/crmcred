@@ -3,6 +3,7 @@ import { requestDigisacChat } from '../services/digisacService';
 export interface MessagingSettings {
   provider: 'whatsapp' | 'digisac' | 'whatsapp_web';
   digisacDomain: string; // Ex: 'liviacredsaude.digisac.io'
+  backendApiUrl?: string; // CRM Backend API server URL
 }
 
 const MESSAGING_SETTINGS_KEY = 'livia_credsaude_messaging_settings';
@@ -14,7 +15,8 @@ export function getMessagingSettings(): MessagingSettings {
       const parsed = JSON.parse(raw);
       return {
         provider: parsed.provider || 'digisac',
-        digisacDomain: parsed.digisacDomain || 'liviacredsaude.digisac.io'
+        digisacDomain: parsed.digisacDomain || 'liviacredsaude.digisac.io',
+        backendApiUrl: parsed.backendApiUrl || ''
       };
     }
   } catch (e) {
@@ -22,7 +24,8 @@ export function getMessagingSettings(): MessagingSettings {
   }
   return {
     provider: 'digisac',
-    digisacDomain: 'liviacredsaude.digisac.io'
+    digisacDomain: 'liviacredsaude.digisac.io',
+    backendApiUrl: ''
   };
 }
 
@@ -30,7 +33,8 @@ export function saveMessagingSettings(settings: MessagingSettings): void {
   try {
     localStorage.setItem(MESSAGING_SETTINGS_KEY, JSON.stringify({
       provider: settings.provider,
-      digisacDomain: settings.digisacDomain
+      digisacDomain: settings.digisacDomain,
+      backendApiUrl: settings.backendApiUrl || ''
     }));
   } catch (e) {
     console.error('Erro ao salvar configuracoes de mensagens:', e);

@@ -1,7 +1,8 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer, collection, onSnapshot, setDoc, getDocs, deleteDoc, writeBatch } from 'firebase/firestore';
-import rawConfig from '../../firebase-applet-config.json';
+import rawConfigImport from '../../firebase-applet-config.json';
+const rawConfig = rawConfigImport as any;
 
 const env = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : (process?.env || {});
 
@@ -25,6 +26,8 @@ export const db = getFirestore(app, activeConfig.firestoreDatabaseId);
 // Initialize Firebase Auth
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.addScope('https://www.googleapis.com/auth/drive');
+googleProvider.addScope('https://www.googleapis.com/auth/drive.file');
 
 // Connection Test
 export async function testFirestoreConnection(): Promise<boolean> {

@@ -14,10 +14,14 @@ import {
   CreditCard,
   DollarSign,
   ExternalLink,
-  Trash2
+  Trash2,
+  Upload,
+  Link2,
+  RefreshCw
 } from 'lucide-react';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
+import { uploadProposalDocument } from '../../services/driveService';
 import {
   Proposta,
   StatusProposta,
@@ -87,7 +91,30 @@ const PROMOTORAS_LIST: Promotora[] = [
 
 export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialProposta, onClose, onProposalUpdated }) => {
   const { saveProposta, deleteProposta, propostas, comissoesPromotoras } = useCRM();
-  const { currentUser, canEditProposal, allUsers } = useAuth();
+  const { currentUser, canEditProposal, allUsers, googleAccessToken, loginWithGoogle } = useAuth();
+
+  const getCustomBancos = (): string[] => {
+    try {
+      const saved = localStorage.getItem('lviacred_custom_bancos');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) { return []; }
+  };
+  const getCustomPromotoras = (): string[] => {
+    try {
+      const saved = localStorage.getItem('lviacred_custom_promotoras');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) { return []; }
+  };
+  const getCustomConvenios = (): string[] => {
+    try {
+      const saved = localStorage.getItem('lviacred_custom_convenios');
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) { return []; }
+  };
+
+  const customBancosList = [...BANCOS_LIST.filter(b => b !== 'Outro'), ...getCustomBancos()];
+  const customPromotorasList = [...PROMOTORAS_LIST.filter(p => p !== 'Outra'), ...getCustomPromotoras()];
+  const customConveniosList = [...CONVENIOS_LIST.filter(c => c !== 'Outros'), ...getCustomConvenios()];
 
   const isAdm = currentUser?.role === 'adm' || currentUser?.role === 'proprietaria' || currentUser?.role === 'financeiro';
 
@@ -128,6 +155,50 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
     observacoes: '',
     linkDocumento: ''
   });
+
+  // Google Drive upload states and handlers
+  const [isUploadingDrive, setIsUploadingDrive] = useState(false);
+  const [uploadSuccess, setUploadSuccess] = useState(false);
+
+  const handleConnectDrive = async () => {
+    setIsUploadingDrive(true);
+    try {
+      await loginWithGoogle();
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setIsUploadingDrive(false);
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!googleAccessToken) {
+      alert("Por favor, conecte sua conta Google primeiro.");
+      return;
+    }
+
+    setIsUploadingDrive(true);
+    setUploadSuccess(false);
+
+    try {
+      const result = await uploadProposalDocument(
+        file,
+        formData.nomeCliente || "Cliente_Sem_Nome",
+        proposta.id,
+        googleAccessToken
+      );
+      setFormData(prev => ({ ...prev, linkDocumento: result.webViewLink }));
+      setUploadSuccess(true);
+    } catch (err: any) {
+      console.error(err);
+      alert(`Falha no upload para o Google Drive: ${err?.message || 'Verifique suas permissões.'}`);
+    } finally {
+      setIsUploadingDrive(false);
+    }
+  };
 
   // Sync state when proposta changes or when opening edit mode
   useEffect(() => {
@@ -525,7 +596,7 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                     onChange={e => setFormData({ ...formData, banco: e.target.value as Banco })}
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs"
                   >
-                    {BANCOS_LIST.map(b => (
+                    {customBancosList.map(b => (
                       <option key={b} value={b}>{b}</option>
                     ))}
                   </select>
@@ -555,7 +626,7 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                     onChange={e => setFormData({ ...formData, promotora: e.target.value as Promotora })}
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs"
                   >
-                    {PROMOTORAS_LIST.map(pr => (
+                    {customPromotorasList.map(pr => (
                       <option key={pr} value={pr}>{pr}</option>
                     ))}
                   </select>
@@ -570,7 +641,7 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                     onChange={e => setFormData({ ...formData, convenio: e.target.value as Convenio })}
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs"
                   >
-                    {CONVENIOS_LIST.map(c => (
+                    {customConveniosList.map(c => (
                       <option key={c} value={c}>{c}</option>
                     ))}
                   </select>
@@ -604,7 +675,7 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
 
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Digitador(a) do Atendimento *
+                    Digitador do Atendimento *
                   </label>
                   <select
                     value={formData.digitador}
@@ -615,7 +686,7 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                     {allUsers
                       .filter(u => u.status === 'ativo' && (u.role === 'digitador' || u.role === 'vendedora'))
                       .map(u => (
-                        <option key={u.id} value={u.name}>{u.name} ({u.role})</option>
+                        <option key={u.id} value={u.name}>{u.name.replace(/\s*\(.*?\)\s*/g, '')}</option>
                       ))}
                     {formData.digitador && !allUsers.some(u => u.name === formData.digitador) && (
                       <option value={formData.digitador}>{formData.digitador}</option>
@@ -681,17 +752,71 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
               </div>
 
               {/* Link do Documento no Drive */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Link do Documento no Drive
-                </label>
-                <input
-                  type="url"
-                  placeholder="https://drive.google.com/..."
-                  value={formData.linkDocumento}
-                  onChange={e => setFormData({ ...formData, linkDocumento: e.target.value })}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-semibold focus:ring-2 focus:ring-teal-500"
-                />
+              <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 space-y-3 mb-3">
+                <div className="flex items-center justify-between">
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 uppercase tracking-wider">
+                    <Link2 className="w-4 h-4 text-[#0F5C63]" />
+                    <span>Documentação da Proposta (Drive)</span>
+                  </label>
+                  {isUploadingDrive && (
+                    <span className="text-[11px] text-[#0F5C63] dark:text-teal-400 font-bold animate-pulse flex items-center gap-1">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Processando...
+                    </span>
+                  )}
+                </div>
+
+                {!googleAccessToken ? (
+                  <div className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Google Drive Desconectado</h4>
+                      <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">Conecte sua conta do Google Drive para anexar arquivos de proposta diretamente.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleConnectDrive}
+                      disabled={isUploadingDrive}
+                      className="px-4 py-2 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-extrabold text-xs rounded-xl shadow-xs transition active:scale-95 whitespace-nowrap shrink-0 flex items-center gap-1.5"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      Conectar Google Drive
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <label className="flex-1 border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-teal-500/50 dark:hover:border-teal-500/50 rounded-xl p-4 flex flex-col items-center justify-center cursor-pointer transition bg-white dark:bg-slate-900 text-center">
+                        <Upload className="w-6 h-6 text-slate-400 dark:text-slate-500 mb-1" />
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Anexar Documento</span>
+                        <span className="text-[10px] text-slate-400 mt-0.5">O sistema comprime o arquivo e salva no seu Google Drive</span>
+                        <input
+                          type="file"
+                          accept="image/*,application/pdf"
+                          onChange={handleFileChange}
+                          disabled={isUploadingDrive}
+                          className="hidden"
+                        />
+                      </label>
+                    </div>
+
+                    {formData.linkDocumento && (
+                      <div className="p-3 rounded-xl bg-teal-50 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-900 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-[10px] text-teal-800 dark:text-teal-400 font-bold uppercase tracking-wider">Documento Pronto & Comprimido</p>
+                          <a
+                            href={formData.linkDocumento}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs font-bold text-teal-600 dark:text-teal-400 hover:underline block truncate mt-0.5"
+                          >
+                            {formData.linkDocumento}
+                          </a>
+                        </div>
+                        <span className="px-2 py-0.5 bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200 font-bold rounded-md text-[10px] shrink-0">No Drive</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Observacoes */}

@@ -513,10 +513,21 @@ export async function prepareDigisacChat(
       const cleanName = payload.nome.trim();
       const currName = String(contact.name || '').trim();
       const currInternal = String(contact.internalName || '').trim();
+      
+      const cleanCurrName = currName.replace(/\D/g, '');
+      const isCurrNameCpf = cleanCurrName.length === 11 && /^\d+$/.test(cleanCurrName);
+      const isTestName = currName === 'Teste Integracao' || 
+                         currName === 'Teste Integração' || 
+                         currName.toLowerCase().includes('teste de integração') || 
+                         currName.toLowerCase().includes('teste de integracao') ||
+                         currName.toLowerCase().includes('teste integracao') ||
+                         currName.toLowerCase().includes('teste integração');
+
       if (
-        currName === 'Teste Integracao' ||
+        isTestName ||
         currName.startsWith('CPF:') ||
         currInternal.startsWith('CPF:') ||
+        isCurrNameCpf ||
         /^\d+$/.test(currName) ||
         (cleanName && currName !== cleanName && !currName.includes(' '))
       ) {
@@ -574,9 +585,24 @@ export async function requestDigisacChat(
   const cleanDomain = ensureAbsoluteUrl(webDomain).replace(/\/$/, '');
 
   // 2. Determine backend endpoint URL
-  const baseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL)
-    ? String(import.meta.env.VITE_API_URL).replace(/\/$/, '')
-    : '';
+  let baseUrl = '';
+  try {
+    const rawSettings = typeof localStorage !== 'undefined' ? localStorage.getItem('livia_credsaude_messaging_settings') : null;
+    if (rawSettings) {
+      const parsed = JSON.parse(rawSettings);
+      if (parsed?.backendApiUrl) {
+        baseUrl = String(parsed.backendApiUrl).trim();
+      }
+    }
+  } catch (e) {
+    console.error('Erro ao ler backendApiUrl do localStorage:', e);
+  }
+
+  if (!baseUrl && typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) {
+    baseUrl = String(import.meta.env.VITE_API_URL);
+  }
+  
+  baseUrl = baseUrl.trim().replace(/\/$/, '');
   const endpoint = `${baseUrl}/api/digisac/chat`;
 
   // 3. Obtain authentication credentials (Firebase Auth token or stored user session)
