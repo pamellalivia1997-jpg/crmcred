@@ -330,20 +330,32 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const cleanPropostas = React.useMemo(() => {
-    return storeState.propostas.map(p => {
-      let v = p.vendedora;
-      let d = p.digitador;
-      if (v) {
-        v = v.replace(/\s*\(Balc[ãa]o\)/gi, '').replace(/\s+Balc[ãa]o/gi, '').trim();
-      }
-      if (d) {
-        d = d.replace(/\s*\(Balc[ãa]o\)/gi, '').replace(/\s+Balc[ãa]o/gi, '').trim();
-      }
-      if (v !== p.vendedora || d !== p.digitador) {
-        return { ...p, vendedora: v, digitador: d };
-      }
-      return p;
-    });
+    // Firestore pode conter documentos antigos parcialmente preenchidos.
+    // Normalizar aqui evita que uma única proposta inválida derrube o funil.
+    const rawPropostas = Array.isArray(storeState.propostas) ? storeState.propostas : [];
+    return rawPropostas
+      .filter((p): p is Proposta => Boolean(p) && typeof p === 'object')
+      .map((p, index) => {
+        const rawVendedora = typeof p.vendedora === 'string' ? p.vendedora : '';
+        const rawDigitador = typeof p.digitador === 'string' ? p.digitador : '';
+        const v = rawVendedora.replace(/\s*\(Balc[ãa]o\)/gi, '').replace(/\s+Balc[ãa]o/gi, '').trim();
+        const d = rawDigitador.replace(/\s*\(Balc[ãa]o\)/gi, '').replace(/\s+Balc[ãa]o/gi, '').trim();
+        return {
+          ...p,
+          id: typeof p.id === 'string' && p.id ? p.id : `legacy-proposta-${index}`,
+          nomeCliente: typeof p.nomeCliente === 'string' ? p.nomeCliente : 'Cliente sem nome',
+          cpf: typeof p.cpf === 'string' ? p.cpf : '',
+          vendedora: v,
+          digitador: d,
+          operacao: (typeof p.operacao === 'string' ? p.operacao : '') as Proposta['operacao'],
+          banco: (typeof p.banco === 'string' ? p.banco : '') as Proposta['banco'],
+          promotora: (typeof p.promotora === 'string' ? p.promotora : '') as Proposta['promotora'],
+          status: typeof p.status === 'string' ? p.status : 'Em análise',
+          dataDigitacao: typeof p.dataDigitacao === 'string' ? p.dataDigitacao : '',
+          dataPagamentoCliente: typeof p.dataPagamentoCliente === 'string' ? p.dataPagamentoCliente : '',
+          numeroContrato: typeof p.numeroContrato === 'string' ? p.numeroContrato : ''
+        };
+      });
   }, [storeState.propostas]);
 
   const cleanMetas = React.useMemo(() => {
@@ -351,10 +363,12 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const uniqueMetas: MetaVendedora[] = [];
     
     // Reverse to process the latest saved metas first, if duplicates exist
-    const reversedMetas = [...storeState.metas].reverse();
+    const reversedMetas = (Array.isArray(storeState.metas) ? storeState.metas : [])
+      .filter((m): m is MetaVendedora => Boolean(m) && typeof m === 'object')
+      .reverse();
     
     reversedMetas.forEach(m => {
-      let cleanedName = m.vendedoraNome || '';
+      let cleanedName = typeof m.vendedoraNome === 'string' ? m.vendedoraNome : '';
       cleanedName = cleanedName.replace(/\s*\(Balc[ãa]o\)/gi, '').replace(/\s+Balc[ãa]o/gi, '');
       const key = `${m.vendedoraId || cleanedName}-${m.mesAno}`;
       if (!seen.has(key)) {
