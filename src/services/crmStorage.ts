@@ -1005,22 +1005,25 @@ export const crmStorage = {
         return;
       }
 
-      const rawSeller = row.vendedora && row.vendedora.trim() && row.vendedora !== '0' ? row.vendedora.trim() : actor.name || 'Hellen Vasconcelos';
+      const rawSellerStr = String(row.vendedora || '').trim();
+      const rawSeller = rawSellerStr && rawSellerStr !== '0' ? rawSellerStr : actor.name || 'Hellen Vasconcelos';
       const sellerName = normalizeSellerName(rawSeller);
-      const rawDigitador = row.digitador && row.digitador.trim() && row.digitador !== '0' ? row.digitador.trim() : sellerName;
+      const rawDigitadorStr = String(row.digitador || '').trim();
+      const rawDigitador = rawDigitadorStr && rawDigitadorStr !== '0' ? rawDigitadorStr : sellerName;
       const digitadorName = normalizeSellerName(rawDigitador);
 
       // 3. Find or Create/Update Client (robust against empty or zero CPFs)
       const isValidCpf = cleanCpf && cleanCpf.length === 11 && cleanCpf !== '00000000000' && !cleanCpf.startsWith('000000');
       let existingClientIdx = -1;
       if (isValidCpf) {
-        existingClientIdx = currentStore.clientes.findIndex(c => c.cpf.replace(/\D/g, '') === cleanCpf);
+        existingClientIdx = currentStore.clientes.findIndex(c => c && c.cpf && c.cpf.replace(/\D/g, '') === cleanCpf);
       } else if (rawNome && !rawNome.toLowerCase().includes('sem nome') && !rawNome.toLowerCase().includes('linha ')) {
-        existingClientIdx = currentStore.clientes.findIndex(c => c.nome.trim().toLowerCase() === rawNome.toLowerCase());
+        existingClientIdx = currentStore.clientes.findIndex(c => c && c.nome && c.nome.trim().toLowerCase() === rawNome.toLowerCase());
       }
       let clientRecord: Cliente;
 
-      const rawPhone = row.telefone && row.telefone.trim() && row.telefone.trim() !== '0' ? row.telefone.trim() : '(81) 98000-0000';
+      const rawPhoneStr = String(row.telefone || '').trim();
+      const rawPhone = rawPhoneStr && rawPhoneStr !== '0' ? rawPhoneStr : '(81) 98000-0000';
       const clientId = isValidCpf
         ? cleanCpf
         : (cleanContract && cleanContract !== '0' && cleanContract !== '-' ? `CLI-CTR-${cleanContract.replace(/\W/g, '')}` : `CLI-OP-${index + 1}`);
@@ -1058,7 +1061,7 @@ export const crmStorage = {
 
       // 4. Map Status
       let statusProp: StatusProposta = 'Paga';
-      const statusRaw = (row.status || '').toUpperCase();
+      const statusRaw = String(row.status || '').toUpperCase();
       if (statusRaw.includes('SIMUL') || statusRaw.includes('MOCK')) statusProp = 'Simuladas';
       else if (statusRaw.includes('ANAL') || statusRaw.includes('ANÁL') || statusRaw.includes('PEND') || statusRaw.includes('APROV')) statusProp = 'Em análise';
       else if (statusRaw.includes('CANCEL') || statusRaw.includes('REPROV')) statusProp = 'Cancelada';
@@ -1079,7 +1082,8 @@ export const crmStorage = {
         ? `prop-ctr-${cleanContractKey}`
         : `prop-cpf-${cleanCpf}-${Math.round(parsedEmp * 100)}-${dateDigitacao.replace(/\W/g, '')}-${index + 1}`;
 
-      const hasLink = row.linkDocumento && row.linkDocumento.trim() && row.linkDocumento.trim() !== '0' ? row.linkDocumento.trim() : undefined;
+      const rawLinkStr = String(row.linkDocumento || '').trim();
+      const hasLink = rawLinkStr && rawLinkStr !== '0' ? rawLinkStr : undefined;
       const newProposta: Proposta = {
         id: proposalId,
         carimboDataHora: row.carimboDataHora || new Date().toISOString(),
@@ -1112,7 +1116,7 @@ export const crmStorage = {
       };
 
       const existingPropIdx = currentStore.propostas.findIndex(p => 
-        p.id === proposalId || (cleanContractKey && p.numeroContrato.trim().toLowerCase() === cleanContract.trim().toLowerCase())
+        Boolean(p) && (p.id === proposalId || (cleanContractKey && Boolean(p.numeroContrato) && String(p.numeroContrato).trim().toLowerCase() === cleanContract.trim().toLowerCase()))
       );
 
       if (existingPropIdx >= 0) {

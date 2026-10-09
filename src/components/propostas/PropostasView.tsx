@@ -57,21 +57,11 @@ type SortField =
 
 // Robust TSV/CSV text parser that handles multiline quoted fields
 function parseSpreadsheetRawText(rawText: string): string[][] {
-  // A planilha oficial é TSV. Algumas células copiadas pelo Excel trazem
-  // aspas soltas em uma célula vizinha; nesse caso, respeitar as aspas como
-  // delimitador faria a linha perder colunas e deslocaria empréstimo/status.
-  // Para TSV, a tabulação é a fonte de verdade das colunas.
-  if (rawText.includes('\t')) {
-    return rawText.split(/\r?\n/)
-      .map(line => line.split('\t').map(cell => cell.trim().replace(/^"|"$/g, '')))
-      .filter(row => row.some(cell => cell.length > 0));
-  }
-
+  if (!rawText) return [];
   const rows: string[][] = [];
   let currentRow: string[] = [];
   let currentField = '';
   let inQuotes = false;
-
   const isTab = rawText.includes('\t');
   const delimiter = isTab ? '\t' : ',';
 
@@ -87,13 +77,13 @@ function parseSpreadsheetRawText(rawText: string): string[][] {
         inQuotes = !inQuotes;
       }
     } else if (char === delimiter && !inQuotes) {
-      currentRow.push(currentField.trim());
+      currentRow.push(String(currentField || '').trim().replace(/^"|"$/g, ''));
       currentField = '';
     } else if ((char === '\r' || char === '\n') && !inQuotes) {
       if (char === '\r' && nextChar === '\n') {
         i++;
       }
-      currentRow.push(currentField.trim());
+      currentRow.push(String(currentField || '').trim().replace(/^"|"$/g, ''));
       if (currentRow.some(cell => cell.length > 0)) {
         rows.push(currentRow);
       }
@@ -105,7 +95,7 @@ function parseSpreadsheetRawText(rawText: string): string[][] {
   }
 
   if (currentField.length > 0 || currentRow.length > 0) {
-    currentRow.push(currentField.trim());
+    currentRow.push(String(currentField || '').trim().replace(/^"|"$/g, ''));
     if (currentRow.some(cell => cell.length > 0)) {
       rows.push(currentRow);
     }
@@ -121,9 +111,6 @@ function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: str
   let headerRow: string[] | null = null;
   let dataRowsIndex = 0;
 
-  // Algumas planilhas começam com uma ou mais linhas de instruções antes do
-  // cabeçalho. Nunca tratar essas instruções como colunas: localizar a linha
-  // que contém os campos financeiros e de competência da tabela real.
   const headerIndex = allRows.findIndex(row => {
     const text = row.map(cell => String(cell || '')).join(' ')
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -133,17 +120,11 @@ function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: str
   });
 
   if (headerIndex >= 0) {
-    // No arquivo oficial, CPF/nome/telefone ficam nas duas primeiras linhas
-    // e as datas/valores/status na terceira. Reunir essas células preserva o
-    // alinhamento com as linhas de dados (inclusive no formato Google Forms).
-    const headerCells = allRows.slice(0, headerIndex + 1).flat()
-      .map(cell => String(cell || '').replace(/^"|"$/g, '').trim())
-      .filter(cell => cell.length > 0);
-    headerRow = headerCells.map(h => h.toLowerCase().trim());
+    headerRow = allRows[headerIndex].map(h => String(h || '').toLowerCase().trim());
     dataRowsIndex = headerIndex + 1;
   } else {
     // Compatibilidade com tabelas antigas sem cabeçalho completo.
-    const firstLineStr = allRows[0].join(' ').toLowerCase();
+    const firstLineStr = allRows[0].map(h => String(h || '')).join(' ').toLowerCase();
     if (firstLineStr.includes('cpf') || firstLineStr.includes('nome') || firstLineStr.includes('cliente') || firstLineStr.includes('vendedor') || firstLineStr.includes('contrato') || firstLineStr.includes('banco')) {
       headerRow = allRows[0].map(h => String(h || '').toLowerCase().trim());
       dataRowsIndex = 1;
@@ -172,7 +153,7 @@ function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: str
 
   if (headerRow) {
     headerRow.forEach((h, idx) => {
-      const raw = h.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+      const raw = String(h || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
       const clean = raw.replace(/[^a-z0-9]/g, '');
 
       // Specific multi-word detection to prevent cross-contamination
