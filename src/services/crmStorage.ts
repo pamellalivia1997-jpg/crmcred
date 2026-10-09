@@ -313,6 +313,9 @@ function cleanPayloadForFirestore(data: any): any {
 
 let quotaExceededState = false;
 let activeUnsubscribes: Array<() => void> = [];
+let firestoreSyncStarted = false;
+let initialSnapshotCollections = new Set<string>();
+let initialSnapshotsComplete = false;
 
 export function isFirestoreQuotaExceeded(): boolean {
   return (
@@ -395,10 +398,15 @@ const suppressSnapshotCollections = new Set<string>();
 
 // Listen to Firestore real-time snapshots with smart cache reconciliation
 export function initFirestoreRealtimeSync() {
+  if (firestoreSyncStarted || activeUnsubscribes.length > 0) return;
   if (isFirestoreQuotaExceeded()) {
     console.info('ℹ️ Modo Offline Local ativo: cota diária do Firestore atingida anteriormente. O CRM permanece 100% funcional localmente.');
     return;
   }
+
+  firestoreSyncStarted = true;
+  initialSnapshotCollections = new Set<string>();
+  initialSnapshotsComplete = false;
 
   const collectionsToSync: Array<keyof CRMDataStore> = [
     'users',
@@ -424,18 +432,10 @@ export function initFirestoreRealtimeSync() {
           }
 
           if (snapshot.empty) {
-            // Se a nuvem estiver vazia para propostas mas o dispositivo local tiver dados (ex: importação na web)
-            const currentList = (currentStore as any)[coll];
-            if (!Array.isArray(currentList) || currentList.length === 0) {
+            // Nuvem vazia é autoridade: não ressuscitar dados locais antigos.
+            // Uma importação nova usa explicitamente o fluxo de importação, nunca auto-upload.
+            if (coll !== 'users') {
               (currentStore as any)[coll] = [];
-              saveLocalStore(currentStore);
-              notify();
-            } else if (coll === 'propostas' && currentList.length > 0 && !suppressSnapshotCollections.has('propostas')) {
-              // Auto-sincronização: sobe o banco local para a nuvem Firebase
-              console.log(`ℹ️ [Firestore] Nuvem vazia para ${coll}. Sincronizando automaticamente ${currentList.length} registros locais para a nuvem...`);
-              setTimeout(() => {
-                crmStorage.uploadLocalStoreToFirestore().catch(e => console.warn('Aviso de auto-upload:', e));
-              }, 1200);
             }
           } else {
             const incomingMap = new Map<string, any>();
@@ -459,10 +459,16 @@ export function initFirestoreRealtimeSync() {
               (currentStore as any)[coll] = Array.from(incomingMap.values());
             }
             
-            // Always sanitize store on any realtime snapshot update (proposals, users, etc.)
+            // Não renderizar estados parciais: cada coleção chega em um snapshot separado.
+            initialSnapshotCollections.add(String(coll));
+            if (initialSnapshotCollections.size === collectionsToSync.length) {
+              initialSnapshotsComplete = true;
+            }
+
+            if (!initialSnapshotsComplete) return;
+
             const { sanitized } = sanitizeStore(currentStore);
             currentStore = sanitized;
-
             saveLocalStore(currentStore);
             notify();
           }
@@ -486,10 +492,6 @@ export function initFirestoreRealtimeSync() {
   });
 }
 
-// Start listeners lazily after initial render to avoid blocking first paint
-setTimeout(() => {
-  initFirestoreRealtimeSync();
-}, 600);
 
 // Helper: Standardize and auto-correct CPF (padding leading zeros if missing, cleaning extra characters)
 export function standardizeCPF(rawCpf: string): { cleanCpf: string; formattedCpf: string; wasCorrected: boolean } {
