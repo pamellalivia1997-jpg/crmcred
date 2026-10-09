@@ -111,8 +111,21 @@ export const AlertasView: React.FC<Props> = ({ onConverterEmProposta }) => {
   const handleVanguardClick = (e: React.MouseEvent, cpf: string) => {
     e.stopPropagation();
     const cleanCpf = cpf.replace(/\D/g, '');
-    navigator.clipboard.writeText(cleanCpf);
-    setToastMessage(`CPF copiado com sucesso! Abrindo Vanguard...`);
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(cleanCpf);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = cleanCpf;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+    } catch (err) {
+      console.warn('Clipboard copy error:', err);
+    }
+    setToastMessage(`CPF copiado com sucesso! (${formatCPF(cpf)})`);
     setTimeout(() => setToastMessage(null), 4000);
     window.open("https://gestao.sistemacorban.com.br/index.php/", "_blank");
   };

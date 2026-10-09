@@ -40,6 +40,8 @@ export const UsuariosView: React.FC = () => {
   const [formCpf, setFormCpf] = useState('');
   const [formPix, setFormPix] = useState('');
   const [formStatus, setFormStatus] = useState<'ativo' | 'inativo'>('ativo');
+  const [formDataAdmissao, setFormDataAdmissao] = useState('');
+  const [formDataDesativacao, setFormDataDesativacao] = useState('');
 
   const [showPasswordMap, setShowPasswordMap] = useState<Record<string, boolean>>({});
   const [userRoleFilter, setUserRoleFilter] = useState<'todos' | UserRole>('todos');
@@ -48,6 +50,8 @@ export const UsuariosView: React.FC = () => {
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [userSuccessMessage, setUserSuccessMessage] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  const currentMonthStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
 
   const handleOpenNewUser = () => {
     setEditingUserId(null);
@@ -61,6 +65,8 @@ export const UsuariosView: React.FC = () => {
     setFormCpf('');
     setFormPix('');
     setFormStatus('ativo');
+    setFormDataAdmissao(currentMonthStr);
+    setFormDataDesativacao('');
     setIsUserModalOpen(true);
   };
 
@@ -76,6 +82,8 @@ export const UsuariosView: React.FC = () => {
     setFormCpf(user.cpf || '');
     setFormPix(user.pix || '');
     setFormStatus(user.status);
+    setFormDataAdmissao(user.dataAdmissao || user.createdAt?.substring(0, 7) || currentMonthStr);
+    setFormDataDesativacao(user.dataDesativacao || '');
     setIsUserModalOpen(true);
   };
 
@@ -85,6 +93,14 @@ export const UsuariosView: React.FC = () => {
 
     const targetId = editingUserId || `user-${Date.now()}`;
     let finalPassword = formPassword.trim();
+    const existing = editingUserId ? allUsers.find(u => u.id === editingUserId) : null;
+
+    let finalDesativacao = formDataDesativacao.trim();
+    if (formStatus === 'inativo' && !finalDesativacao) {
+      finalDesativacao = currentMonthStr;
+    } else if (formStatus === 'ativo') {
+      finalDesativacao = '';
+    }
 
     const updatedUser: User = {
       id: targetId,
@@ -96,7 +112,10 @@ export const UsuariosView: React.FC = () => {
       salesName: formSalesName.trim(),
       cpf: formCpf.trim(),
       pix: formPix.trim(),
-      status: formStatus
+      status: formStatus,
+      dataAdmissao: formDataAdmissao.trim() || existing?.dataAdmissao || currentMonthStr,
+      dataDesativacao: finalDesativacao || undefined,
+      createdAt: existing?.createdAt || new Date().toISOString()
     };
 
     saveUser(updatedUser);
@@ -625,6 +644,57 @@ export const UsuariosView: React.FC = () => {
                   onChange={(e) => setFormPix(e.target.value)}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-teal-50/40 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-800 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 font-mono font-semibold"
                 />
+              </div>
+
+              {/* Status e Controle Temporal de Metas (Admissão / Desativação) */}
+              <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200 dark:border-slate-700/80 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="block font-bold text-slate-800 dark:text-slate-200 text-xs">
+                    Status do Colaborador
+                  </label>
+                  <select
+                    value={formStatus}
+                    onChange={(e) => setFormStatus(e.target.value as 'ativo' | 'inativo')}
+                    className="px-2.5 py-1 text-xs rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 font-bold text-slate-800 dark:text-white"
+                  >
+                    <option value="ativo">Ativo</option>
+                    <option value="inativo">Inativo</option>
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
+                      Mês de Início / Admissão
+                    </label>
+                    <input
+                      type="month"
+                      value={formDataAdmissao}
+                      onChange={(e) => setFormDataAdmissao(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 font-semibold text-slate-800 dark:text-white"
+                    />
+                    <span className="text-[10px] text-slate-400 block mt-0.5 leading-tight">
+                      Não altera metas de meses anteriores à data de admissão.
+                    </span>
+                  </div>
+
+                  {formStatus === 'inativo' && (
+                    <div>
+                      <label className="block text-[11px] font-bold text-rose-600 dark:text-rose-400 mb-1">
+                        Mês de Desativação
+                      </label>
+                      <input
+                        type="month"
+                        value={formDataDesativacao}
+                        onChange={(e) => setFormDataDesativacao(e.target.value)}
+                        className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-800 border border-rose-300 dark:border-rose-700 font-semibold text-slate-800 dark:text-white"
+                      />
+                      <span className="text-[10px] text-rose-500/80 block mt-0.5 leading-tight">
+                        Mantém o histórico retroativo antes deste mês preservado.
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Action Buttons */}

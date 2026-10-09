@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Search,
@@ -12,13 +12,15 @@ import {
   Info,
   CheckCircle2,
   ShieldCheck,
+  Paperclip,
   Upload,
-  Link2,
-  RefreshCw
+  FileCheck,
+  CheckCheck,
+  Plus,
+  AlertTriangle
 } from 'lucide-react';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
-import { uploadProposalDocument } from '../../services/driveService';
 import { Cliente, Proposta, Operacao, Banco, Promotora, Convenio, StatusProposta } from '../../types';
 import {
   cleanDigits,
@@ -28,10 +30,22 @@ import {
   formatCurrency,
   validateCPF,
   calculateAge,
-  getLocalDateString
+  getLocalDateString,
+  cleanPersonName
 } from '../../utils/formatters';
 import { estimarComissaoPromotora, estimarComissaoVendedoraProposta } from '../../utils/commissionRules';
 import { CPFValidationBadge } from '../common/CPFValidationBadge';
+import {
+  compressFileForDrive,
+  CompressedFileResult,
+  GOOGLE_DRIVE_DESTINATION_EMAIL,
+  formatBytes
+} from '../../utils/fileCompressor';
+import {
+  getOptionsForCategory,
+  addCustomOption,
+  OptionCategory
+} from '../../utils/customOptions';
 
 interface Props {
   isOpen: boolean;
@@ -41,76 +55,77 @@ interface Props {
 
 export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselectedCliente }) => {
   const { clientes, saveCliente, saveProposta } = useCRM();
-  const { currentUser, allUsers, googleAccessToken, loginWithGoogle } = useAuth();
+  const { currentUser, allUsers } = useAuth();
   const isDigitadorUser = currentUser?.role === 'digitador';
   const isAdm = currentUser?.role === 'adm' || currentUser?.role === 'proprietaria';
+  const isManager = Boolean(
+    currentUser && (
+      currentUser.role === 'proprietaria' ||
+      currentUser.role === 'adm' ||
+      currentUser.role === 'financeiro' ||
+      (currentUser.role as string) === 'gerente' ||
+      Boolean((currentUser as any)?.canManageTeam)
+    )
+  );
 
-  const canAddCustomOptions = currentUser?.role === 'adm' || currentUser?.role === 'proprietaria' || currentUser?.role === 'financeiro';
+  // Dynamic options lists
+  const [operacoesList, setOperacoesList] = useState<string[]>(() => getOptionsForCategory('operacao'));
+  const [bancosList, setBancosList] = useState<string[]>(() => getOptionsForCategory('banco'));
+  const [conveniosList, setConveniosList] = useState<string[]>(() => getOptionsForCategory('convenio'));
+  const [promotorasList, setPromotorasList] = useState<string[]>(() => getOptionsForCategory('promotora'));
 
-  const defaultBancos = [
-    'Banco Pan', 'C6 Consig', 'Santander', 'Itaú Consig', 'Daycoval', 
-    'Facta', 'Master', 'BMG', 'Mercantil', 'Safra', 'Bradesco'
-  ];
-  const defaultPromotoras = ['J2 Promotora', 'Sempre', 'DG', 'GFT', 'Direto Banco'];
-  const defaultConvenios = [
-    'INSS', 'SIAPE', 'Prefeitura de Igarassu', 'Prefeitura do Recife', 
-    'Governo de PE', 'FGTS', 'Forças Armadas'
-  ];
+  // Custom new item creation inputs (for Manager/ADM/Financeiro)
+  const [novoOperacaoNome, setNovoOperacaoNome] = useState('');
+  const [novoBancoNome, setNovoBancoNome] = useState('');
+  const [novoConvenioNome, setNovoConvenioNome] = useState('');
+  const [novoPromotoraNome, setNovoPromotoraNome] = useState('');
+  const [customItemSuccess, setCustomItemSuccess] = useState<string | null>(null);
 
-  const [customBancos, setCustomBancos] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('lviacred_custom_bancos');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) { return []; }
-  });
+  // File compression and Google Drive attachment state
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isCompressingFile, setIsCompressingFile] = useState(false);
+  const [compressedFile, setCompressedFile] = useState<CompressedFileResult | null>(null);
 
-  const [customPromotoras, setCustomPromotoras] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('lviacred_custom_promotoras');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) { return []; }
-  });
-
-  const [customConvenios, setCustomConvenios] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('lviacred_custom_convenios');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) { return []; }
-  });
-
-  const [bancoCustomValue, setBancoCustomValue] = useState('');
-  const [promotoraCustomValue, setPromotoraCustomValue] = useState('');
-  const [convenioCustomValue, setConvenioCustomValue] = useState('');
-
-  const bancoOptions = useMemo(() => [...defaultBancos, ...customBancos], [customBancos]);
-  const promotoraOptions = useMemo(() => [...defaultPromotoras, ...customPromotoras], [customPromotoras]);
-  const convenioOptions = useMemo(() => [...defaultConvenios, ...customConvenios], [customConvenios]);
-
-  const handleAddCustomBanco = (val: string) => {
-    const trimmed = val.trim();
-    if (!trimmed || defaultBancos.includes(trimmed) || customBancos.includes(trimmed)) return;
-    const newList = [...customBancos, trimmed];
-    setCustomBancos(newList);
-    localStorage.setItem('lviacred_custom_bancos', JSON.stringify(newList));
-    setBanco(trimmed as any);
+  const handleSaveNovoItem = (category: OptionCategory, name: string) => {
+    if (!name.trim()) return;
+    const updated = addCustomOption(category, name.trim());
+    if (category === 'operacao') {
+      setOperacoesList(updated);
+      setOperacao(name.trim() as Operacao);
+      setNovoOperacaoNome('');
+    } else if (category === 'banco') {
+      setBancosList(updated);
+      setBanco(name.trim() as Banco);
+      setNovoBancoNome('');
+    } else if (category === 'convenio') {
+      setConveniosList(updated);
+      setConvenio(name.trim() as Convenio);
+      setNovoConvenioNome('');
+    } else if (category === 'promotora') {
+      setPromotorasList(updated);
+      setPromotora(name.trim() as Promotora);
+      setNovoPromotoraNome('');
+    }
+    setCustomItemSuccess(`Novo item "${name.trim()}" salvo com sucesso no sistema!`);
+    setTimeout(() => setCustomItemSuccess(null), 4000);
   };
 
-  const handleAddCustomPromotora = (val: string) => {
-    const trimmed = val.trim();
-    if (!trimmed || defaultPromotoras.includes(trimmed) || customPromotoras.includes(trimmed)) return;
-    const newList = [...customPromotoras, trimmed];
-    setCustomPromotoras(newList);
-    localStorage.setItem('lviacred_custom_promotoras', JSON.stringify(newList));
-    setPromotora(trimmed as any);
-  };
+  const handleFileAttach = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  const handleAddCustomConvenio = (val: string) => {
-    const trimmed = val.trim();
-    if (!trimmed || defaultConvenios.includes(trimmed) || customConvenios.includes(trimmed)) return;
-    const newList = [...customConvenios, trimmed];
-    setCustomConvenios(newList);
-    localStorage.setItem('lviacred_custom_convenios', JSON.stringify(newList));
-    setConvenio(trimmed as any);
+    try {
+      setIsCompressingFile(true);
+      const res = await compressFileForDrive(file);
+      setCompressedFile(res);
+      // Auto-set link do documento with Drive tag and data/search link
+      const driveUrl = `https://drive.google.com/drive/u/0/search?q=${encodeURIComponent(cleanDigits(cpf) || 'documento')}+${GOOGLE_DRIVE_DESTINATION_EMAIL}`;
+      setLinkDocumento(driveUrl);
+    } catch (err) {
+      console.error('Erro ao comprimir anexo:', err);
+    } finally {
+      setIsCompressingFile(false);
+    }
   };
 
   // Quem digitou o cadastro
@@ -145,64 +160,6 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
   const [observacoes, setObservacoes] = useState('');
   const [linkDocumento, setLinkDocumento] = useState('');
 
-  // Google Drive upload states and handlers
-  const [isUploadingDrive, setIsUploadingDrive] = useState(false);
-  const [uploadSuccess, setUploadSuccess] = useState(false);
-
-  const handleConnectDrive = async () => {
-    setIsUploadingDrive(true);
-    setErrorMsg('');
-    try {
-      const res = await loginWithGoogle();
-      if (!res.success) {
-        setErrorMsg(res.message || 'Falha ao conectar conta Google.');
-      }
-    } catch (err: any) {
-      setErrorMsg(`Erro de conexão Google: ${err?.message || err}`);
-    } finally {
-      setIsUploadingDrive(false);
-    }
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!googleAccessToken) {
-      setErrorMsg("Por favor, conecte sua conta do Google Drive primeiro.");
-      return;
-    }
-
-    setIsUploadingDrive(true);
-    setUploadSuccess(false);
-    setErrorMsg('');
-
-    try {
-      const tempProposalId = `prop-${Date.now()}`;
-      const result = await uploadProposalDocument(
-        file,
-        nomeCliente || "Cliente_Sem_Nome",
-        tempProposalId,
-        googleAccessToken
-      );
-      setLinkDocumento(result.webViewLink);
-      setUploadSuccess(true);
-    } catch (err: any) {
-      console.error(err);
-      setErrorMsg(`Falha no upload para o Google Drive: ${err?.message || 'Verifique suas permissões.'}`);
-    } finally {
-      setIsUploadingDrive(false);
-    }
-  };
-
-  const handleOperacaoChange = (val: string) => {
-    if (val === 'Outro' && !isAdm && currentUser?.role !== 'proprietaria' && currentUser?.role !== 'financeiro') {
-      alert('Solicite inclusão ao gerente');
-      return;
-    }
-    setOperacao(val as Operacao);
-  };
-
   // Mensagens
   const [errorMsg, setErrorMsg] = useState('');
   const [sucessoNotice, setSucessoNotice] = useState<string | null>(null);
@@ -225,6 +182,10 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
 
   useEffect(() => {
     if (isOpen) {
+      setOperacoesList(getOptionsForCategory('operacao'));
+      setBancosList(getOptionsForCategory('banco'));
+      setConveniosList(getOptionsForCategory('convenio'));
+      setPromotorasList(getOptionsForCategory('promotora'));
       setErrorMsg('');
       setSucessoNotice(null);
       if (isDigitadorUser) {
@@ -278,58 +239,30 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
     e.preventDefault();
     setErrorMsg('');
 
-    // Check if they are just saving custom options "com tudo em branco"
-    const isOnlyCustomAdd = !cpf.trim() && !nomeCliente.trim() && (
-      ((banco as any) === 'CUSTOM_NEW' && bancoCustomValue.trim()) ||
-      ((promotora as any) === 'CUSTOM_NEW' && promotoraCustomValue.trim()) ||
-      ((convenio as any) === 'CUSTOM_NEW' && convenioCustomValue.trim())
-    );
-
-    if (isOnlyCustomAdd) {
-      if ((banco as any) === 'CUSTOM_NEW' && bancoCustomValue.trim()) {
-        handleAddCustomBanco(bancoCustomValue);
-      }
-      if ((promotora as any) === 'CUSTOM_NEW' && promotoraCustomValue.trim()) {
-        handleAddCustomPromotora(promotoraCustomValue);
-      }
-      if ((convenio as any) === 'CUSTOM_NEW' && convenioCustomValue.trim()) {
-        handleAddCustomConvenio(convenioCustomValue);
-      }
-      setSucessoNotice('Novas opções registradas permanentemente na lista!');
-      setTimeout(() => {
-        onClose();
-      }, 1500);
-      return;
-    }
-
     const cleanCpf = cleanDigits(cpf);
     if (cleanCpf.length !== 11) {
       setErrorMsg('Informe um CPF válido com 11 dígitos.');
       return;
     }
 
-    if (!nomeCliente.trim()) {
-      setErrorMsg('O Nome do cliente é obrigatório para cadastrar.');
+    // Validação estrita de "Outro": não permite salvar com Outro selecionado sem cadastrar
+    const isOutroOperacao = (operacao as string) === 'Outro' || (operacao as string) === 'Outros';
+    const isOutroBanco = (banco as string) === 'Outro' || (banco as string) === 'Outros';
+    const isOutroConvenio = (convenio as string) === 'Outro' || (convenio as string) === 'Outros';
+    const isOutroPromotora = (promotora as string) === 'Outro' || (promotora as string) === 'Outros' || (promotora as string) === 'Outra';
+
+    if (isOutroOperacao || isOutroBanco || isOutroConvenio || isOutroPromotora) {
+      if (isManager) {
+        setErrorMsg('Por favor, informe o nome e clique em "Salvar Item" antes de finalizar o cadastro da proposta.');
+      } else {
+        setErrorMsg('Não é permitido finalizar o cadastro com a opção "Outro" selecionada. Solicite a inclusão do item ao gerente.');
+      }
       return;
     }
 
-    // Process and add custom options if they are filled as part of the proposal
-    let finalBanco = banco;
-    if ((banco as any) === 'CUSTOM_NEW' && bancoCustomValue.trim()) {
-      handleAddCustomBanco(bancoCustomValue);
-      finalBanco = bancoCustomValue.trim() as any;
-    }
-
-    let finalPromotora = promotora;
-    if ((promotora as any) === 'CUSTOM_NEW' && promotoraCustomValue.trim()) {
-      handleAddCustomPromotora(promotoraCustomValue);
-      finalPromotora = promotoraCustomValue.trim() as any;
-    }
-
-    let finalConvenio = convenio;
-    if ((convenio as any) === 'CUSTOM_NEW' && convenioCustomValue.trim()) {
-      handleAddCustomConvenio(convenioCustomValue);
-      finalConvenio = convenioCustomValue.trim() as any;
+    if (!nomeCliente.trim()) {
+      setErrorMsg('O Nome do cliente é obrigatório para cadastrar.');
+      return;
     }
 
     // 1. Salvar ou atualizar cliente na base de dados (Sem duplicidade)
@@ -343,7 +276,7 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
         telefone: telefone || existingClient.telefone,
         cidade: cidade || existingClient.cidade || 'Igarassu',
         dataNascimento: dataNascimento || existingClient.dataNascimento || '1970-01-01',
-        convenioPrincipal: finalConvenio || existingClient.convenioPrincipal,
+        convenioPrincipal: convenio || existingClient.convenioPrincipal,
         vendedoraResponsavel: existingClient.vendedoraResponsavel || vendedoraResponsavel
       };
     } else {
@@ -355,7 +288,7 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
         email: `${nomeCliente.trim().toLowerCase().split(' ')[0]}@cliente.com`,
         cidade: cidade || 'Igarassu',
         dataNascimento: dataNascimento || '',
-        convenioPrincipal: finalConvenio,
+        convenioPrincipal: convenio,
         observacoes: isDadosCompletosProposta
           ? 'Cadastrado com proposta formalizada.'
           : 'Cadastrado via simulação rápida.',
@@ -383,10 +316,10 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
       nomeCliente: clienteObj.nome,
       dataDigitacao: dataDigitacao || dataDig,
       dataPagamentoCliente: dataPagamentoCliente || ((!isSimulacao && status === 'Paga') ? (dataDigitacao || dataDig) : undefined),
-      convenio: finalConvenio,
+      convenio,
       operacao,
-      banco: finalBanco,
-      promotora: finalPromotora || 'J2 Promotora',
+      banco,
+      promotora: promotora || 'J2 Promotora',
       valorEmprestimo: isSimulacao ? (valorEmprestimo > 0 ? valorEmprestimo : 0) : valorEmprestimo,
       valorTaxa: isSimulacao ? 0 : valorTaxa,
       percentualTaxa: isSimulacao ? 0 : Number(percentualTaxa.toFixed(2)),
@@ -451,10 +384,10 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
             </div>
           )}
 
-          {sucessoNotice && (
-            <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-2 animate-in fade-in duration-200">
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
-              <span>{sucessoNotice}</span>
+          {customItemSuccess && (
+            <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-200 flex items-center gap-2 animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
+              <span>{customItemSuccess}</span>
             </div>
           )}
 
@@ -463,7 +396,7 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                  Digitador do Atendimento *
+                  Digitador(a) do Atendimento *
                 </label>
                 <select
                   value={digitador}
@@ -472,16 +405,19 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
                 >
                   <option value="">Selecione o Digitador...</option>
                   {allUsers
-                    .filter(u => u.role === 'digitador' || u.role === 'vendedora' || u.role === 'adm' || u.role === 'proprietaria')
-                    .map(u => (
-                      <option key={u.id} value={u.name}>{u.name.replace(/\s*\(.*?\)\s*/g, '')}</option>
-                    ))}
+                    .filter(u => u.status === 'ativo' && (u.role === 'digitador' || u.role === 'vendedora'))
+                    .map(u => {
+                      const cleanName = cleanPersonName(u.name);
+                      return (
+                        <option key={u.id} value={cleanName}>{cleanName}</option>
+                      );
+                    })}
                 </select>
               </div>
 
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">
-                  Vendedora Titular da Carteira *
+                  Vendedora Titular da Carteira (Incluir Vendedor) *
                 </label>
                 <select
                   value={vendedoraResponsavel}
@@ -489,10 +425,15 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
                   className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white font-medium focus:outline-none focus:ring-2 focus:ring-teal-500"
                 >
                   <option value="">Selecione a Vendedora...</option>
-                  {allUsers.filter(u => u.role === 'vendedora' || u.role === 'adm' || u.role === 'proprietaria').map(u => (
-                    <option key={u.id} value={u.name}>{u.name.replace(/\s*\(.*?\)\s*/g, '')}</option>
-                  ))}
-                  <option value="Loja Igarassu">Loja Igarassu (Balcão)</option>
+                  {allUsers
+                    .filter(u => u.role === 'vendedora' && u.status === 'ativo')
+                    .map(u => {
+                      const cleanName = cleanPersonName(u.name);
+                      return (
+                        <option key={u.id} value={cleanName}>{cleanName}</option>
+                      );
+                    })}
+                  <option value="Loja Igarassu">Loja Igarassu</option>
                 </select>
               </div>
             </div>
@@ -577,44 +518,64 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
                 />
               </div>
 
-              {/* Note: Cidade input field is removed as requested by the user */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Cidade
+                </label>
+                <input
+                  type="text"
+                  placeholder="Igarassu, Olinda, Recife..."
+                  value={cidade}
+                  onChange={(e) => setCidade(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Convênio Principal *
+                  Convênio Principal
                 </label>
                 <select
                   value={convenio}
                   onChange={(e) => setConvenio(e.target.value as Convenio)}
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500 font-bold"
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                 >
-                  {convenioOptions.map(c => (
+                  {conveniosList.map(c => (
                     <option key={c} value={c}>{c}</option>
                   ))}
-                  {canAddCustomOptions && (
-                    <option value="CUSTOM_NEW">Outros</option>
-                  )}
+                  <option value="Outros">
+                    {isManager ? 'Outros' : 'Outros (Solicite inclusão ao gerente)'}
+                  </option>
                 </select>
 
-                {(convenio as any) === 'CUSTOM_NEW' && canAddCustomOptions && (
-                  <div className="mt-2 flex gap-2 animate-in slide-in-from-top-1 duration-150">
-                    <input
-                      type="text"
-                      placeholder="Digitar novo Convênio..."
-                      value={convenioCustomValue}
-                      onChange={(e) => setConvenioCustomValue(e.target.value)}
-                      className="flex-1 px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-800 border border-teal-400 text-slate-900 dark:text-white focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleAddCustomConvenio(convenioCustomValue);
-                        setConvenioCustomValue('');
-                      }}
-                      className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs rounded-xl transition"
-                    >
-                      Adicionar
-                    </button>
+                {(convenio === 'Outros' || (convenio as string) === 'Outro') && isManager && (
+                  <div className="mt-2 p-2.5 rounded-xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 space-y-1.5">
+                    <label className="block text-[11px] font-bold text-teal-900 dark:text-teal-200">
+                      Cadastrar Novo Convênio (ADM/Gerente/Financeiro):
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Nome do novo convênio..."
+                        value={novoConvenioNome}
+                        onChange={(e) => setNovoConvenioNome(e.target.value)}
+                        className="flex-1 px-2.5 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-800 border border-teal-300 dark:border-teal-700 text-slate-900 dark:text-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleSaveNovoItem('convenio', novoConvenioNome)}
+                        className="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs flex items-center gap-1 shrink-0"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Salvar Item</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {(convenio === 'Outros' || (convenio as string) === 'Outro') && !isManager && (
+                  <div className="mt-2 p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-[11px] text-amber-800 dark:text-amber-200 flex items-center gap-1.5 font-bold">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Solicite inclusão ao gerente</span>
                   </div>
                 )}
               </div>
@@ -639,23 +600,47 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
                 </label>
                 <select
                   value={operacao}
-                  onChange={(e) => handleOperacaoChange(e.target.value)}
+                  onChange={(e) => setOperacao(e.target.value as Operacao)}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white focus:outline-none"
                 >
-                  <option value="Portabilidade">Portabilidade</option>
-                  <option value="Refin">Refin</option>
-                  <option value="Refin da Port">Refin da Port</option>
-                  <option value="Margem">Margem</option>
-                  <option value="FGTS">FGTS</option>
-                  <option value="Saque Complementar">Saque Complementar</option>
-                  <option value="Conta de Energia Elétrica/Luz">Conta de Energia Elétrica/Luz</option>
-                  <option value="Cartão Novo">Cartão Novo</option>
-                  <option value="Credcesta">Credcesta</option>
-                  <option value="Cartão de Crédito">Cartão de Crédito</option>
-                  <option value="Crédito do Trabalhador">Crédito do Trabalhador</option>
-                  <option value="Pessoal">Pessoal</option>
-                  <option value="Outro">Outro</option>
+                  {operacoesList.map(op => (
+                    <option key={op} value={op}>{op}</option>
+                  ))}
+                  <option value="Outro">
+                    {isManager ? 'Outro' : 'Outro (Solicite inclusão ao gerente)'}
+                  </option>
                 </select>
+
+                {((operacao as string) === 'Outro' || (operacao as string) === 'Outros') && isManager && (
+                  <div className="mt-2 p-2.5 rounded-xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 space-y-1.5">
+                    <label className="block text-[11px] font-bold text-teal-900 dark:text-teal-200">
+                      Cadastrar Nova Operação (ADM/Gerente/Financeiro):
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Nome da nova operação..."
+                        value={novoOperacaoNome}
+                        onChange={(e) => setNovoOperacaoNome(e.target.value)}
+                        className="flex-1 px-2.5 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-800 border border-teal-300 dark:border-teal-700 text-slate-900 dark:text-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleSaveNovoItem('operacao', novoOperacaoNome)}
+                        className="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs flex items-center gap-1 shrink-0"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Salvar Item</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {((operacao as string) === 'Outro' || (operacao as string) === 'Outros') && !isManager && (
+                  <div className="mt-2 p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-[11px] text-amber-800 dark:text-amber-200 flex items-center gap-1.5 font-bold">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Solicite inclusão ao gerente</span>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -667,33 +652,42 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
                   onChange={(e) => setBanco(e.target.value as Banco)}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white focus:outline-none"
                 >
-                  {bancoOptions.map(b => (
+                  {bancosList.map(b => (
                     <option key={b} value={b}>{b}</option>
                   ))}
-                  {canAddCustomOptions && (
-                    <option value="CUSTOM_NEW">Outros</option>
-                  )}
+                  <option value="Outro">
+                    {isManager ? 'Outro' : 'Outro (Solicite inclusão ao gerente)'}
+                  </option>
                 </select>
 
-                {(banco as any) === 'CUSTOM_NEW' && canAddCustomOptions && (
-                  <div className="mt-2 flex gap-2 animate-in slide-in-from-top-1 duration-150">
-                    <input
-                      type="text"
-                      placeholder="Digitar novo Banco..."
-                      value={bancoCustomValue}
-                      onChange={(e) => setBancoCustomValue(e.target.value)}
-                      className="flex-1 px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-800 border border-teal-400 text-slate-900 dark:text-white focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleAddCustomBanco(bancoCustomValue);
-                        setBancoCustomValue('');
-                      }}
-                      className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs rounded-xl transition font-bold"
-                    >
-                      Adicionar
-                    </button>
+                {(banco === 'Outro' || (banco as string) === 'Outros') && isManager && (
+                  <div className="mt-2 p-2.5 rounded-xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 space-y-1.5">
+                    <label className="block text-[11px] font-bold text-teal-900 dark:text-teal-200">
+                      Cadastrar Novo Banco (ADM/Gerente/Financeiro):
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Nome do novo banco..."
+                        value={novoBancoNome}
+                        onChange={(e) => setNovoBancoNome(e.target.value)}
+                        className="flex-1 px-2.5 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-800 border border-teal-300 dark:border-teal-700 text-slate-900 dark:text-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleSaveNovoItem('banco', novoBancoNome)}
+                        className="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs flex items-center gap-1 shrink-0"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Salvar Item</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {(banco === 'Outro' || (banco as string) === 'Outros') && !isManager && (
+                  <div className="mt-2 p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-[11px] text-amber-800 dark:text-amber-200 flex items-center gap-1.5 font-bold">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Solicite inclusão ao gerente</span>
                   </div>
                 )}
               </div>
@@ -707,33 +701,42 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
                   onChange={(e) => setPromotora(e.target.value as Promotora)}
                   className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white focus:outline-none"
                 >
-                  {promotoraOptions.map(p => (
-                    <option key={p} value={p}>{p}</option>
+                  {promotorasList.map(pr => (
+                    <option key={pr} value={pr}>{pr}</option>
                   ))}
-                  {canAddCustomOptions && (
-                    <option value="CUSTOM_NEW">Outros</option>
-                  )}
+                  <option value="Outra">
+                    {isManager ? 'Outra' : 'Outra (Solicite inclusão ao gerente)'}
+                  </option>
                 </select>
 
-                {(promotora as any) === 'CUSTOM_NEW' && canAddCustomOptions && (
-                  <div className="mt-2 flex gap-2 animate-in slide-in-from-top-1 duration-150">
-                    <input
-                      type="text"
-                      placeholder="Digitar nova Promotora..."
-                      value={promotoraCustomValue}
-                      onChange={(e) => setPromotoraCustomValue(e.target.value)}
-                      className="flex-1 px-3 py-1.5 text-xs rounded-xl bg-white dark:bg-slate-800 border border-teal-400 text-slate-900 dark:text-white focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        handleAddCustomPromotora(promotoraCustomValue);
-                        setPromotoraCustomValue('');
-                      }}
-                      className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs rounded-xl transition font-bold"
-                    >
-                      Adicionar
-                    </button>
+                {(promotora === 'Outra' || (promotora as string) === 'Outro' || (promotora as string) === 'Outros') && isManager && (
+                  <div className="mt-2 p-2.5 rounded-xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 space-y-1.5">
+                    <label className="block text-[11px] font-bold text-teal-900 dark:text-teal-200">
+                      Cadastrar Nova Promotora (ADM/Gerente/Financeiro):
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Nome da nova promotora..."
+                        value={novoPromotoraNome}
+                        onChange={(e) => setNovoPromotoraNome(e.target.value)}
+                        className="flex-1 px-2.5 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-800 border border-teal-300 dark:border-teal-700 text-slate-900 dark:text-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleSaveNovoItem('promotora', novoPromotoraNome)}
+                        className="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs flex items-center gap-1 shrink-0"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>Salvar Item</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {(promotora === 'Outra' || (promotora as string) === 'Outro' || (promotora as string) === 'Outros') && !isManager && (
+                  <div className="mt-2 p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-[11px] text-amber-800 dark:text-amber-200 flex items-center gap-1.5 font-bold">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Solicite inclusão ao gerente</span>
                   </div>
                 )}
               </div>
@@ -870,71 +873,84 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
             )}
           </div>
 
-          <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 space-y-3 mb-3">
-            <div className="flex items-center justify-between">
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 uppercase tracking-wider">
-                <Link2 className="w-4 h-4 text-[#0F5C63]" />
-                <span>Documentação da Proposta (Drive)</span>
+          {/* Link do Documento & Anexo Comprimido para o Google Drive */}
+          <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 space-y-2.5">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Link ou Anexo do Documento (Google Drive) <span className="font-normal text-slate-400 text-[10px]">(opcional)</span>
               </label>
-              {isUploadingDrive && (
-                <span className="text-[11px] text-[#0F5C63] dark:text-teal-400 font-bold animate-pulse flex items-center gap-1">
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  Processando...
-                </span>
-              )}
+              <span className="text-[10px] font-bold text-teal-800 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/80 px-2 py-0.5 rounded-md border border-teal-200 dark:border-teal-800 flex items-center gap-1">
+                <span>Google Drive:</span>
+                <span className="font-mono">{GOOGLE_DRIVE_DESTINATION_EMAIL}</span>
+              </span>
             </div>
 
-            {!googleAccessToken ? (
-              <div className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Google Drive Desconectado</h4>
-                  <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">Conecte sua conta do Google Drive para anexar arquivos de proposta diretamente.</p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="url"
+                placeholder="https://drive.google.com/... ou anexe abaixo"
+                value={linkDocumento}
+                onChange={(e) => setLinkDocumento(e.target.value)}
+                className="flex-1 px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+              />
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,application/pdf"
+                className="hidden"
+                onChange={handleFileAttach}
+              />
+
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isCompressingFile}
+                className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-xs transition shrink-0 disabled:opacity-50 active:scale-95"
+              >
+                {isCompressingFile ? (
+                  <>
+                    <Upload className="w-3.5 h-3.5 animate-bounce" />
+                    <span>Reduzindo arquivo...</span>
+                  </>
+                ) : (
+                  <>
+                    <Paperclip className="w-3.5 h-3.5" />
+                    <span>Anexar Documento</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Compressed File Optimization Badge */}
+            {compressedFile && (
+              <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-800 text-xs text-emerald-900 dark:text-emerald-200 flex items-center justify-between gap-2 animate-in fade-in">
+                <div className="flex items-center gap-2 min-w-0">
+                  <FileCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="font-bold truncate">{compressedFile.fileName}</p>
+                    <p className="text-[10px] text-emerald-700 dark:text-emerald-400">
+                      Otimizado para o Drive: {compressedFile.originalSizeFormatted} ➔ <strong>{compressedFile.compressedSizeFormatted}</strong>
+                      {compressedFile.reductionPercentage > 0 && ` (${compressedFile.reductionPercentage}% de espaço poupado)`}
+                    </p>
+                  </div>
                 </div>
                 <button
                   type="button"
-                  onClick={handleConnectDrive}
-                  disabled={isUploadingDrive}
-                  className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-extrabold text-xs rounded-xl shadow-xs transition active:scale-95 whitespace-nowrap shrink-0 flex items-center gap-1.5"
+                  onClick={() => {
+                    setCompressedFile(null);
+                    setLinkDocumento('');
+                  }}
+                  className="text-[11px] font-bold text-rose-600 hover:underline shrink-0 px-1 py-0.5"
                 >
-                  <Upload className="w-3.5 h-3.5" />
-                  Conectar Google Drive
+                  Remover
                 </button>
               </div>
-            ) : (
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <label className="flex-1 border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-teal-500/50 dark:hover:border-teal-500/50 rounded-xl p-4 flex flex-col items-center justify-center cursor-pointer transition bg-white dark:bg-slate-900 text-center">
-                    <Upload className="w-6 h-6 text-slate-400 dark:text-slate-500 mb-1" />
-                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Anexar Documento</span>
-                    <span className="text-[10px] text-slate-400 mt-0.5">O sistema comprime o arquivo e salva no seu Google Drive</span>
-                    <input
-                      type="file"
-                      accept="image/*,application/pdf"
-                      onChange={handleFileChange}
-                      disabled={isUploadingDrive}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
-
-                {linkDocumento && (
-                  <div className="p-3 rounded-xl bg-teal-50 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-900 flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-[10px] text-teal-800 dark:text-teal-400 font-bold uppercase tracking-wider">Documento Pronto & Comprimido</p>
-                      <a
-                        href={linkDocumento}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs font-bold text-teal-600 dark:text-teal-400 hover:underline block truncate mt-0.5"
-                      >
-                        {linkDocumento}
-                      </a>
-                    </div>
-                    <span className="px-2 py-0.5 bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200 font-bold rounded-md text-[10px] shrink-0">No Drive</span>
-                  </div>
-                )}
-              </div>
             )}
+
+            <p className="text-[10px] text-slate-400">
+              ⚡ <strong>Redução de tamanho obrigatória:</strong> A compactação automática redimensiona e comprime imagens e fotos para poupar espaço no Google Drive vinculado (<span className="font-mono text-slate-500">{GOOGLE_DRIVE_DESTINATION_EMAIL}</span>).
+            </p>
           </div>
 
           <div>
@@ -966,7 +982,21 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap justify-end">
+              {((operacao as string) === 'Outro' || (operacao as string) === 'Outros' ||
+                (banco as string) === 'Outro' || (banco as string) === 'Outros' ||
+                (convenio as string) === 'Outro' || (convenio as string) === 'Outros' ||
+                (promotora as string) === 'Outra' || (promotora as string) === 'Outro' || (promotora as string) === 'Outros') && (
+                <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-2.5 py-1 rounded-lg border border-amber-300 dark:border-amber-800 flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>
+                    {isManager
+                      ? 'Salve o item criado acima antes de finalizar'
+                      : 'Solicite inclusão ao gerente para finalizar'}
+                  </span>
+                </span>
+              )}
+
               <button
                 type="button"
                 onClick={onClose}
@@ -976,8 +1006,19 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
               </button>
               <button
                 type="submit"
+                disabled={Boolean(
+                  (operacao as string) === 'Outro' || (operacao as string) === 'Outros' ||
+                  (banco as string) === 'Outro' || (banco as string) === 'Outros' ||
+                  (convenio as string) === 'Outro' || (convenio as string) === 'Outros' ||
+                  (promotora as string) === 'Outra' || (promotora as string) === 'Outro' || (promotora as string) === 'Outros'
+                )}
                 className={`px-5 py-2.5 rounded-xl font-bold text-xs shadow-md transition-all active:scale-95 flex items-center gap-1.5 text-white ${
-                  isDadosCompletosProposta
+                  (operacao as string) === 'Outro' || (operacao as string) === 'Outros' ||
+                  (banco as string) === 'Outro' || (banco as string) === 'Outros' ||
+                  (convenio as string) === 'Outro' || (convenio as string) === 'Outros' ||
+                  (promotora as string) === 'Outra' || (promotora as string) === 'Outro' || (promotora as string) === 'Outros'
+                    ? 'opacity-40 cursor-not-allowed bg-slate-400 dark:bg-slate-700'
+                    : isDadosCompletosProposta
                     ? 'bg-[#0F5C63] hover:bg-[#1B8A8F]'
                     : 'bg-cyan-700 hover:bg-cyan-800'
                 }`}

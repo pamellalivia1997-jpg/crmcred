@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import {
   FileSpreadsheet,
@@ -29,7 +29,7 @@ import {
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
 import { Proposta, StatusProposta, Operacao, Banco, Promotora } from '../../types';
-import { formatCurrency, formatPercent, formatDate, formatCPF } from '../../utils/formatters';
+import { formatCurrency, formatPercent, formatDate, formatCPF, cleanPersonName, isSameSeller } from '../../utils/formatters';
 import { DetalhePropostaModal } from './DetalhePropostaModal';
 import { CPFValidationBadge } from '../common/CPFValidationBadge';
 import { SmartFilter } from '../common/SmartFilter';
@@ -318,8 +318,21 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
   const [clearNotice, setClearNotice] = useState<string | null>(null);
   const [isClearingData, setIsClearingData] = useState(false);
 
-  // Column dropdown filters
-  const [filterVendedora, setFilterVendedora] = useState('todas');
+  // Column dropdown filters - Pre-selected with logged-in seller if vendedora
+  const [filterVendedora, setFilterVendedora] = useState(() => {
+    if (currentUser?.role === 'vendedora' && currentUser?.name) {
+      return cleanPersonName(currentUser.name);
+    }
+    return 'todas';
+  });
+
+  useEffect(() => {
+    if (currentUser?.role === 'vendedora' && currentUser?.name) {
+      setFilterVendedora(cleanPersonName(currentUser.name));
+    } else {
+      setFilterVendedora('todas');
+    }
+  }, [currentUser?.id, currentUser?.role, currentUser?.name]);
   const [filterOperacao, setFilterOperacao] = useState('todas');
   const [filterBanco, setFilterBanco] = useState('todos');
   const [filterPromotora, setFilterPromotora] = useState('todas');
@@ -391,7 +404,10 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
         p.cpf.includes(searchTerm.replace(/\D/g, '')) ||
         (p.numeroContrato && p.numeroContrato.toLowerCase().includes(searchTerm.toLowerCase()));
 
-      const matchVendedora = filterVendedora === 'todas' || p.vendedora === filterVendedora;
+      const matchVendedora =
+        filterVendedora === 'todas' ||
+        isSameSeller(p.vendedora, filterVendedora) ||
+        p.vendedora === filterVendedora;
       const matchOperacao = filterOperacao === 'todas' || p.operacao === filterOperacao;
       const matchBanco = filterBanco === 'todos' || p.banco === filterBanco;
       const matchPromotora = filterPromotora === 'todas' || p.promotora === filterPromotora;
@@ -573,13 +589,6 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
               >
                 <UploadCloud className="w-3.5 h-3.5" />
                 <span>Importar</span>
-              </button>
-              <button
-                onClick={() => setIsClearModalOpen(true)}
-                title="Zerar Funil e Clientes"
-                className="p-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white shadow-xs transition-all flex items-center justify-center cursor-pointer"
-              >
-                <Trash2 className="w-4 h-4" />
               </button>
             </div>
           )}

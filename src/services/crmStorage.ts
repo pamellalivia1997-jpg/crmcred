@@ -18,6 +18,7 @@ import { generateSeedData, INITIAL_USERS } from '../data/mockSeed';
 import { db, handleFirestoreError, OperationType } from './firebase';
 import { doc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { normalizeSellerName, getLocalDateString } from '../utils/formatters';
+import { firebaseUsageTracker } from './firebaseUsageTracker';
 
 const STORAGE_KEY = 'livia_credsaude_crm_data_v1';
 
@@ -160,30 +161,34 @@ function sanitizeStore(store: CRMDataStore): { sanitized: CRMDataStore; modified
   });
 
   if (Array.isArray(store.propostas)) {
-    // 2. Propostas validation
-    const uniqueMap = new Map<string, Proposta>();
+    // 2. Propostas validation: preserva rigorosamente todos os registros válidos sem perdas por contrato
+    const seenIds = new Set<string>();
+    const dedupedPropostas: Proposta[] = [];
+
     store.propostas.forEach(p => {
-      if (p && p.id) {
-        // Remove specific legacy mock proposals that interfere with real imported data
-        if (p.id.startsWith('prop-sep26-')) {
-          modified = true;
-          return;
-        }
-        if (p.dataDigitacao) {
-          p.dataDigitacao = p.dataDigitacao.substring(0, 10);
-        }
-        if (p.vendedora && /Pamella\s+L[íi]via/i.test(p.vendedora)) {
-          p.vendedora = 'Pamella';
-          modified = true;
-        }
-        if (p.digitador && /Pamella\s+L[íi]via/i.test(p.digitador)) {
-          p.digitador = 'Pamella';
-          modified = true;
-        }
-        uniqueMap.set(p.id, p);
+      if (!p || !p.id) return;
+      if (seenIds.has(p.id)) {
+        modified = true;
+        return;
       }
+      seenIds.add(p.id);
+
+      if (p.dataDigitacao) {
+        p.dataDigitacao = p.dataDigitacao.substring(0, 10);
+      }
+      if (p.vendedora && /Pamella\s+L[íi]via/i.test(p.vendedora)) {
+        p.vendedora = 'Pamella';
+        modified = true;
+      }
+      if (p.digitador && /Pamella\s+L[íi]via/i.test(p.digitador)) {
+        p.digitador = 'Pamella';
+        modified = true;
+      }
+
+      dedupedPropostas.push(p);
     });
-    store.propostas = Array.from(uniqueMap.values());
+
+    store.propostas = dedupedPropostas;
   }
 
   // Ensure feedbacks list starts empty per business rules (clean pre-seeded/mock feedbacks) and one-time clear of saved ones
@@ -248,18 +253,18 @@ function sanitizeStore(store: CRMDataStore): { sanitized: CRMDataStore; modified
   return { sanitized: store, modified };
 }
 
-// Load store from LocalStorage fallback
+// Load store from LocalStorage fallback safely without ever clearing database
 function loadStore(): CRMDataStore {
-  const isFunilCleared = typeof localStorage !== 'undefined' && localStorage.getItem('lviacred_funil_cleared_v1') === 'true';
+  // Clean up legacy wipe keys to ensure persistent data is never wiped
+  if (typeof localStorage !== 'undefined') {
+    localStorage.removeItem('lviacred_funil_cleared_v1');
+    localStorage.removeItem('lviacred_tudo_zerado_v1');
+  }
 
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (isFunilCleared) {
-        parsed.propostas = [];
-        parsed.clientes = [];
-      }
       const { sanitized } = sanitizeStore(parsed);
       saveLocalStore(sanitized);
       return sanitized;
@@ -269,10 +274,6 @@ function loadStore(): CRMDataStore {
   }
 
   const seed = generateSeedData();
-  if (isFunilCleared) {
-    seed.propostas = [];
-    seed.clientes = [];
-  }
   saveLocalStore(seed);
   return seed;
 }
@@ -342,6 +343,7 @@ async function syncItemToFirestore(collectionName: string, id: string, data: any
     const docRef = doc(db, collectionName, id);
     const cleaned = cleanPayloadForFirestore(data);
     await setDoc(docRef, cleaned, { merge: true });
+    firebaseUsageTracker.trackWrite(1);
   } catch (err: any) {
     if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota exceeded')) {
       setFirestoreQuotaExceeded();
@@ -364,6 +366,7 @@ async function syncBatchToFirestore(collectionName: string, items: any[]) {
       }
     });
     await batch.commit();
+    firebaseUsageTracker.trackWrite(chunk.length);
   } catch (err: any) {
     if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota exceeded')) {
       setFirestoreQuotaExceeded();
@@ -378,6 +381,7 @@ async function deleteItemFromFirestore(collectionName: string, id: string) {
   try {
     const docRef = doc(db, collectionName, id);
     await deleteDoc(docRef);
+    firebaseUsageTracker.trackDelete(1);
   } catch (err: any) {
     if (err?.code === 'resource-exhausted' || err?.message?.includes('Quota exceeded')) {
       setFirestoreQuotaExceeded();
@@ -414,23 +418,19 @@ export function initFirestoreRealtimeSync() {
       const unsub = onSnapshot(
         collRef,
         (snapshot) => {
+          firebaseUsageTracker.trackRead(snapshot.docs.length || 1);
           if (suppressSnapshotCollections.has(coll)) {
             return;
           }
 
-          const isFunilCleared = typeof localStorage !== 'undefined' && localStorage.getItem('lviacred_funil_cleared_v1') === 'true';
-
-          if (isFunilCleared && (coll === 'propostas' || coll === 'clientes')) {
-            (currentStore as any)[coll] = [];
-            saveLocalStore(currentStore);
-            notify();
-            return;
-          }
-
           if (snapshot.empty) {
-            (currentStore as any)[coll] = [];
-            saveLocalStore(currentStore);
-            notify();
+            // NEVER clear local store data if remote snapshot is empty
+            const currentList = (currentStore as any)[coll];
+            if (!Array.isArray(currentList) || currentList.length === 0) {
+              (currentStore as any)[coll] = [];
+              saveLocalStore(currentStore);
+              notify();
+            }
           } else {
             const incomingMap = new Map<string, any>();
             snapshot.forEach((docSnap) => {
@@ -613,6 +613,7 @@ export const crmStorage = {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('lviacred_funil_cleared_v1', 'true');
       localStorage.setItem('lviacred_controladoria_cleared_v1', 'true');
+      localStorage.setItem('lviacred_tudo_zerado_v1', 'true');
     }
 
     currentStore = {
@@ -955,23 +956,14 @@ export const crmStorage = {
         isTaxaRealmentePaga = statusProp === 'Paga';
       }
 
-      // Deduplication check: ONLY deduplicate if there is a real contract number or unique row match
-      const hasRealContract = rawContract && rawContract !== '0' && rawContract !== '-';
-      let isDuplicate = false;
-      if (hasRealContract) {
-        isDuplicate = currentStore.propostas.some(p => {
-          const sameContract = p.numeroContrato.trim().toLowerCase() === rawContract.trim().toLowerCase();
-          const sameValor = Math.abs((p.valorEmprestimo || 0) - parsedEmp) < 0.01;
-          return sameContract && sameValor;
-        });
-      }
+      // 5. Create or Update Proposta for this specific row using deterministic keys
+      const cleanContractKey = (cleanContract && cleanContract !== '0' && cleanContract !== '-') 
+        ? cleanContract.toLowerCase().replace(/[^a-z0-9]/g, '')
+        : '';
+      const proposalId = cleanContractKey
+        ? `prop-ctr-${cleanContractKey}`
+        : `prop-cpf-${cleanCpf}-${Math.round(parsedEmp * 100)}-${dateDigitacao.replace(/\W/g, '')}-${index + 1}`;
 
-      if (isDuplicate) {
-        return; // Skip duplicate row
-      }
-
-      // 5. Create Proposta for this specific row
-      const proposalId = `prop-${cleanCpf}-${cleanContract ? cleanContract.replace(/\W/g, '') : 's'}-${index + 1}`;
       const hasLink = row.linkDocumento && row.linkDocumento.trim() && row.linkDocumento.trim() !== '0' ? row.linkDocumento.trim() : undefined;
       const newProposta: Proposta = {
         id: proposalId,
@@ -1004,11 +996,23 @@ export const crmStorage = {
         ]
       };
 
-      currentStore.propostas.unshift(newProposta);
-      proposalsCreated++;
+      const existingPropIdx = currentStore.propostas.findIndex(p => 
+        p.id === proposalId || (cleanContractKey && p.numeroContrato.trim().toLowerCase() === cleanContract.trim().toLowerCase())
+      );
+
+      if (existingPropIdx >= 0) {
+        currentStore.propostas[existingPropIdx] = {
+          ...currentStore.propostas[existingPropIdx],
+          ...newProposta,
+          id: currentStore.propostas[existingPropIdx].id // preserve ID
+        };
+      } else {
+        currentStore.propostas.unshift(newProposta);
+        proposalsCreated++;
+      }
 
       // Buffer Proposal write
-      const proposalDocRef = doc(db, 'propostas', newProposta.id);
+      const proposalDocRef = doc(db, 'propostas', existingPropIdx >= 0 ? currentStore.propostas[existingPropIdx].id : newProposta.id);
       writeOperations.push({ ref: proposalDocRef, data: cleanPayloadForFirestore(newProposta) });
 
       // 6. Handle Promoter Commission
@@ -1051,6 +1055,7 @@ export const crmStorage = {
         currentBatch.set(op.ref, op.data, { merge: true });
       });
       currentBatch.commit().then(() => {
+        firebaseUsageTracker.trackWrite(chunk.length);
         console.log(`✅ [Firestore] Lote de ${chunk.length} operações salvo na nuvem com sucesso!`);
       }).catch(err => {
         console.error('Erro ao salvar lote no Firestore:', err);

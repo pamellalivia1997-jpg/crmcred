@@ -37,6 +37,86 @@ export interface DashboardMetrics {
 }
 
 /**
+ * Normaliza qualquer formato de data (YYYY-MM-DD ou DD/MM/YYYY) para ISO YYYY-MM-DD
+ */
+export function normalizeDateToISO(dateStr?: string | null): string {
+  if (!dateStr) return '';
+  const str = String(dateStr).trim().split(' ')[0].replace(/\./g, '/').replace(/-/g, '/');
+  if (str.includes('/')) {
+    const parts = str.split('/');
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        // YYYY/MM/DD
+        return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+      } else {
+        // DD/MM/YYYY
+        let year = parts[2];
+        if (year.length === 2) year = `20${year}`;
+        return `${year}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      }
+    }
+  } else if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    return str;
+  }
+  return str.substring(0, 10);
+}
+
+/**
+ * Determina se a proposta representa uma contratação formalizada e paga.
+ * Inclui:
+ * 1. Status 'Paga' / 'Pago' (qualquer variação de maiúsculas/minúsculas)
+ * 2. Status 'Formalizada', 'Liquidada', 'Concluída', 'Finalizada' ou contendo 'PAG'
+ * 3. Propostas com clientePagouTaxa ou taxaPaga confirmadas (assessoria / comissão liquidada)
+ * 4. Propostas com data de pagamento ao cliente confirmada
+ * 5. Operações de Assessoria formalizadas
+ * Exclui:
+ * Canceladas e Simulações sem pagamento.
+ */
+export function isContratoPago(p: Proposta): boolean {
+  if (!p) return false;
+  const statusStr = String(p.status || '').trim().toUpperCase();
+
+  // Cancelamento explícito sem pagamento de taxa
+  if (statusStr === 'CANCELADA' || statusStr === 'CANCELADO' || statusStr.includes('CANCEL')) {
+    return false;
+  }
+
+  // 1. Status pago direto ou formalizado
+  if (
+    statusStr === 'PAGA' ||
+    statusStr === 'PAGO' ||
+    statusStr.includes('PAG') ||
+    statusStr === 'LIQUIDADA' ||
+    statusStr === 'LIQUIDADO' ||
+    statusStr === 'FORMALIZADA' ||
+    statusStr === 'FORMALIZADO' ||
+    statusStr === 'CONCLUIDA' ||
+    statusStr === 'CONCLUÍDA' ||
+    statusStr === 'FINALIZADA'
+  ) {
+    return true;
+  }
+
+  // 2. Se a taxa da contratação foi paga (assessoria liquidada)
+  if (isTaxaPaga(p)) {
+    return true;
+  }
+
+  // 3. Se possui data de pagamento confirmada ao cliente
+  if (p.dataPagamentoCliente && p.dataPagamentoCliente.trim() !== '' && p.dataPagamentoCliente !== '0') {
+    return true;
+  }
+
+  // 4. Operação de assessoria formalizada
+  const opStr = String(p.operacao || '').trim().toUpperCase();
+  if (opStr.includes('ASSESSORIA')) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Helper to accurately match a proposal seller with an application user.
  */
 export function matchesSeller(pSeller: string | undefined | null, emp: User): boolean {
@@ -69,6 +149,29 @@ export function matchesSeller(pSeller: string | undefined | null, emp: User): bo
   const normName = normalizeSellerName(emp.name);
   const normSales = normalizeSellerName(emp.salesName);
   return normP === normName || normP === normSales || normP.includes(normName) || normName.includes(normP);
+}
+
+/**
+ * Relacionamento preciso entre proposta, vendedora e digitadora:
+ * Prioriza a vendedora declarada. Se a vendedora for genérica ou apontar para
+ * a digitadora (ex: Ana Paula), recorre ao campo digitador para identificar
+ * a vendedora responsável pela contratação, garantindo que propostas digitadas
+ * pela equipe de apoio sejam atribuídas corretamente à consultora.
+ */
+export function matchProposalToSeller(p: Proposta, emp: User): boolean {
+  if (!p) return false;
+
+  // 1. Verificação direta pelo campo vendedora
+  if (p.vendedora && matchesSeller(p.vendedora, emp)) {
+    return true;
+  }
+
+  // 2. Se a vendedora estiver vazia ou for a digitadora, ou se o digitador for a consultora
+  if (p.digitador && matchesSeller(p.digitador, emp)) {
+    return true;
+  }
+
+  return false;
 }
 
 /**
@@ -202,34 +305,26 @@ export function calculateDashboardMetrics(
   const cleanStart = dataInicio.substring(0, 10);
   const cleanEnd = dataFim.substring(0, 10);
 
-  // 1. Filter proposals strictly within dateRange by dataDigitacao
+  // 1. Filtro de propostas por período financeiro de competência
+  // Considera a data de formalização / pagamento ao cliente prioritariamente,
+  // ou a data de digitação do contrato.
   const filteredPropostas = propostas.filter(p => {
-    const dataDigi = p.dataDigitacao ? p.dataDigitacao.substring(0, 10) : '';
-    if (!dataDigi) return false;
+    const digiIso = normalizeDateToISO(p.dataDigitacao);
+    const pagtoIso = normalizeDateToISO(p.dataPagamentoCliente);
 
-    const dentroDoPeriodo = dataDigi >= cleanStart && dataDigi <= cleanEnd;
-    return dentroDoPeriodo;
+    const inDigi = Boolean(digiIso && digiIso >= cleanStart && digiIso <= cleanEnd);
+    const inPagto = Boolean(pagtoIso && pagtoIso >= cleanStart && pagtoIso <= cleanEnd);
+
+    return inDigi || inPagto;
   });
 
-  // Helper for robust tax payment detection
-  const isTaxaPaga = (p: Proposta) => {
-    const val = p.taxaPaga;
-    const cliVal = p.clientePagouTaxa;
-    if (val === true || cliVal === true) return true;
-    const sVal = String(val || '').toUpperCase().trim();
-    const sCliVal = String(cliVal || '').toUpperCase().trim();
-    return sVal === 'SIM' || sVal === 'S' || sVal === 'TRUE' || sVal === 'PAGA' || sVal === 'PAGO' ||
-           sCliVal === 'SIM' || sCliVal === 'S' || sCliVal === 'TRUE' || sCliVal === 'PAGA' || sCliVal === 'PAGO';
-  };
+  // 2. Contratos Formalizados e Pagos (regras reais de liquidação de crédito e assessoria)
+  const contratosFormalizadosEPagos = filteredPropostas.filter(isContratoPago);
 
-  // 2. KPI Filter: Use more inclusive criteria to match user's "somases" expectation
-  // Only "Paga" for volume totals, but INCLUDE "ASSESSORIA"
-  const contratosFormalizadosEPagos = filteredPropostas.filter(p => p.status === 'Paga');
-
-  // 3. Total sales (Sum of valorEmprestimo for PAID contracts)
+  // 3. Total de Vendas (Soma do valor do empréstimo de todos os contratos formalizados/pagos no período)
   const totalVendas = contratosFormalizadosEPagos.reduce((acc, p) => acc + Number(p.valorEmprestimo || 0), 0);
 
-  // 4. Total fees (Sum of valorTaxa where tax is marked as paid, regardless of status, as per user's request)
+  // 4. Total de Taxas (Soma do valor da taxa de contratos com taxa quitada no período)
   const totalTaxas = filteredPropostas
     .filter(isTaxaPaga)
     .reduce((acc, p) => acc + Number(p.valorTaxa || 0), 0);
@@ -293,9 +388,9 @@ export function calculateDashboardMetrics(
   let outrosTaxa = 0;
   let outrosCount = 0;
 
-  // Process sales from paid contracts
+  // Process sales from paid contracts with accurate seller & digitador matching
   contratosFormalizadosEPagos.forEach(p => {
-    const activeSeller = activeSellers.find(emp => matchesSeller(p.vendedora, emp));
+    const activeSeller = activeSellers.find(emp => matchProposalToSeller(p, emp));
     const val = Number(p.valorEmprestimo || 0);
     if (activeSeller) {
       const item = rankingVendedorasMap.get(activeSeller.id);
@@ -309,9 +404,9 @@ export function calculateDashboardMetrics(
     }
   });
 
-  // Process taxes from all proposals where tax is paid (as per user's inclusive request)
+  // Process taxes from all proposals where tax is paid with accurate seller & digitador matching
   filteredPropostas.filter(isTaxaPaga).forEach(p => {
-    const activeSeller = activeSellers.find(emp => matchesSeller(p.vendedora, emp));
+    const activeSeller = activeSellers.find(emp => matchProposalToSeller(p, emp));
     const taxaVal = Number(p.valorTaxa || 0);
     if (activeSeller) {
       const item = rankingVendedorasMap.get(activeSeller.id);
@@ -389,8 +484,8 @@ export function calculateDashboardMetrics(
 
   // 10. Rentabilidade Líquida por Atendente (Employee Profitability)
   const employeeProfitability = activeSellers.map(emp => {
-    const empProps = contratosFormalizadosEPagos.filter(p => matchesSeller(p.vendedora, emp));
-    const empTaxProps = filteredPropostas.filter(p => isTaxaPaga(p) && matchesSeller(p.vendedora, emp));
+    const empProps = contratosFormalizadosEPagos.filter(p => matchProposalToSeller(p, emp));
+    const empTaxProps = filteredPropostas.filter(p => isTaxaPaga(p) && matchProposalToSeller(p, emp));
 
     const vendas = empProps.reduce((acc, p) => acc + (p.valorEmprestimo || 0), 0);
     const taxas = empTaxProps.reduce((acc, p) => acc + (p.valorTaxa || 0), 0);

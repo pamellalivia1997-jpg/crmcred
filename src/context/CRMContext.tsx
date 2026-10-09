@@ -324,11 +324,16 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const cleanPropostas = React.useMemo(() => {
     return storeState.propostas.map(p => {
-      if (p.vendedora) {
-        const cleaned = p.vendedora.replace(/\s*\(Balc[ãa]o\)/gi, '').replace(/\s+Balc[ãa]o/gi, '');
-        if (cleaned !== p.vendedora) {
-          return { ...p, vendedora: cleaned };
-        }
+      let v = p.vendedora;
+      let d = p.digitador;
+      if (v) {
+        v = v.replace(/\s*\(Balc[ãa]o\)/gi, '').replace(/\s+Balc[ãa]o/gi, '').trim();
+      }
+      if (d) {
+        d = d.replace(/\s*\(Balc[ãa]o\)/gi, '').replace(/\s+Balc[ãa]o/gi, '').trim();
+      }
+      if (v !== p.vendedora || d !== p.digitador) {
+        return { ...p, vendedora: v, digitador: d };
       }
       return p;
     });

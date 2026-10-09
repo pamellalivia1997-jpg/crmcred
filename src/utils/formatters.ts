@@ -20,7 +20,7 @@ export function formatCurrency(value: number | undefined | null): string {
 export function cleanPersonName(name?: string | null): string {
   if (!name) return '';
   let cleaned = name;
-  cleaned = cleaned.replace(/\s*\(Balc[ãa]o\)/gi, '');
+  cleaned = cleaned.replace(/\s*\([^)]*\)/g, '');
   cleaned = cleaned.replace(/\s+Balc[ãa]o/gi, '');
   return cleaned.trim();
 }

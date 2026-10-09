@@ -18,10 +18,12 @@ import {
   Calculator,
   X,
   Zap,
-  Cloud
+  Cloud,
+  Activity
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCRM } from '../../context/CRMContext';
+import { firebaseUsageTracker, FirebaseUsageStats } from '../../services/firebaseUsageTracker';
 
 interface Props {
   currentTab: string;
@@ -40,6 +42,15 @@ export const Sidebar: React.FC<Props> = ({
 }) => {
   const { currentUser, canAccessFinancial, canManageTeam } = useAuth();
   const { alertas, propostas, clientes, comissoesPromotoras, auditLogs } = useCRM();
+
+  // Real-time Firebase Firestore request tracking stats
+  const [fbStats, setFbStats] = React.useState<FirebaseUsageStats>(() => firebaseUsageTracker.getStats());
+
+  React.useEffect(() => {
+    return firebaseUsageTracker.subscribe(() => {
+      setFbStats(firebaseUsageTracker.getStats());
+    });
+  }, []);
 
   // Calculation of Firebase Firestore storage usage (free-tier 1GB baseline)
   const storageMetrics = React.useMemo(() => {
@@ -133,6 +144,18 @@ export const Sidebar: React.FC<Props> = ({
                 <div className="flex items-center gap-2.5">
                   <DollarSign className="w-4 h-4" />
                   <span>Controladoria</span>
+                </div>
+              </button>
+            )}
+
+            {(canAccessFinancial() || canManageTeam()) && (
+              <button
+                onClick={() => handleNavClick('comissoes_pagar')}
+                className={navItemClass(currentTab === 'comissoes_pagar')}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Receipt className="w-4 h-4" />
+                  <span>Comissões a Pagar</span>
                 </div>
               </button>
             )}
@@ -247,22 +270,12 @@ export const Sidebar: React.FC<Props> = ({
                 <span>Auditoria LGPD</span>
               </div>
             </button>
-
-            <button
-              onClick={() => handleNavClick('comissoes_pagar')}
-              className={navItemClass(currentTab === 'comissoes_pagar')}
-            >
-              <div className="flex items-center gap-2.5">
-                <Receipt className="w-4 h-4 text-emerald-500" />
-                <span>Comissões a Pagar</span>
-              </div>
-            </button>
           </div>
         )}
       </div>
 
-      {/* Cloud Storage & Firebase Requests Indicator (Discreet & Simple) */}
-      <div className="pt-2.5 pb-1 px-2 border-t border-slate-100 dark:border-slate-800/80 space-y-2">
+      {/* Cloud Storage Indicator (Discreet & Simple) */}
+      <div className="pt-2.5 pb-1 px-2 border-t border-slate-100 dark:border-slate-800/80 space-y-1.5">
         <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
           <span className="flex items-center gap-1 font-semibold text-slate-600 dark:text-slate-300">
             <Cloud className="w-3 h-3 text-teal-600 dark:text-teal-400" />
@@ -279,20 +292,59 @@ export const Sidebar: React.FC<Props> = ({
             title={`Armazenamento em Nuvem: ${storageMetrics.usedMb} MB de 1 GB`}
           />
         </div>
+      </div>
 
-        {/* Very Discreet Firebase Requests Meter */}
-        <div className="space-y-0.5 pt-1">
-          <div className="flex items-center justify-between text-[9px] text-slate-400">
-            <span>Req. Firestore (Diário)</span>
-            <span className="font-mono">{(propostas.length * 4) + (clientes.length * 2) + 24} ops (0.1%)</span>
+      {/* Real-time Firebase Requests Meter (Ultra-Discreet) */}
+      <div className="pt-2 pb-1 px-2 border-t border-slate-100 dark:border-slate-800/80 space-y-1.5">
+        <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
+          <span className="flex items-center gap-1 font-medium text-slate-600 dark:text-slate-300">
+            <Activity className="w-3 h-3 text-cyan-600 dark:text-cyan-400 animate-pulse" />
+            <span>Requisições Firestore</span>
+          </span>
+          <span className="font-mono text-[9px] text-slate-400">
+            {fbStats.reqPerMinute} req/min
+          </span>
+        </div>
+
+        {/* Mini Bars for Writes (Envio) and Reads (Recebimento) */}
+        <div className="space-y-1">
+          {/* Envio / Gravações */}
+          <div>
+            <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono leading-none mb-0.5">
+              <span>Envio (Gravações)</span>
+              <span>{fbStats.writesToday} / 20k ({fbStats.writesQuotaPercent}%)</span>
+            </div>
+            <div className="w-full h-1 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-blue-500 rounded-full transition-all duration-500"
+                style={{ width: `${Math.max(2, fbStats.writesQuotaPercent)}%` }}
+                title={`Envio diário: ${fbStats.writesToday} operações de gravação`}
+              />
+            </div>
           </div>
-          <div className="w-full h-1 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-blue-500 dark:bg-blue-400 rounded-full"
-              style={{ width: '4%' }}
-              title="Requisições de envio/recebimento de dados no Firebase hoje"
-            />
+
+          {/* Recebimento / Leituras */}
+          <div>
+            <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono leading-none mb-0.5">
+              <span>Recebimento (Leituras)</span>
+              <span>{fbStats.readsToday} / 50k ({fbStats.readsQuotaPercent}%)</span>
+            </div>
+            <div className="w-full h-1 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-cyan-500 rounded-full transition-all duration-500"
+                style={{ width: `${Math.max(2, fbStats.readsQuotaPercent)}%` }}
+                title={`Recebimento diário: ${fbStats.readsToday} operações de leitura`}
+              />
+            </div>
           </div>
+        </div>
+
+        <div className="flex items-center justify-between text-[9px] text-slate-400 pt-0.5">
+          <span>Tempo real • Diário</span>
+          <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-0.5">
+            <span className="w-1 h-1 rounded-full bg-emerald-500 animate-ping inline-block" />
+            Ativo
+          </span>
         </div>
       </div>
 

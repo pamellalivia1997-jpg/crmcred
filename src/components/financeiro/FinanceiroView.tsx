@@ -14,6 +14,7 @@ import {
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency, formatDate, formatCPF } from '../../utils/formatters';
+import { normalizeDateToISO } from '../../utils/dashboardCalculations';
 import { Proposta } from '../../types';
 import { processControladoriaGoogleSheets, executeControladoriaSyncWithBackup } from '../../services/controladoriaSyncService';
 import { SmartFilter } from '../common/SmartFilter';
@@ -90,7 +91,7 @@ export const FinanceiroView: React.FC = () => {
       })
       .filter(p => {
         // Period filter
-        const pDate = p.dataPagamentoCliente || p.dataDigitacao || '';
+        const pDate = normalizeDateToISO(p.dataPagamentoCliente || p.dataDigitacao || '');
         if (dataInicioPersonalizada && pDate && pDate < dataInicioPersonalizada) return false;
         if (dataFimPersonalizada && pDate && pDate > dataFimPersonalizada) return false;
 

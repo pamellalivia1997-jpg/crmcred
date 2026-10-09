@@ -30,10 +30,13 @@ import {
   BirthdayInfo,
   normalizeSellerName,
   isSameSeller,
-  getLocalDateString
+  getLocalDateString,
+  cleanPersonName
 } from '../../utils/formatters';
 import { calcularComissaoVendedoraMes } from '../../utils/commissionRules';
+import { isContratoPago, normalizeDateToISO } from '../../utils/dashboardCalculations';
 import { Cliente, Proposta } from '../../types';
+import { DetalhePropostaModal } from '../propostas/DetalhePropostaModal';
 
 interface Props {
   onOpenNovaProposta: () => void;
@@ -191,7 +194,7 @@ export const VendedoraHome: React.FC<Props> = ({
   // Filter propostas by period
   const filteredPropostas = useMemo(() => {
     return propostas.filter(p => {
-      const d = p.dataDigitacao;
+      const d = normalizeDateToISO(p.dataPagamentoCliente || p.dataDigitacao);
       if (!d) return false;
 
       if (periodo === 'hoje') {
@@ -233,24 +236,28 @@ export const VendedoraHome: React.FC<Props> = ({
     });
   }, [propostas, periodo, baseDateInfo, anoSelecionado, dataInicioPersonalizada, dataFimPersonalizada]);
 
+  const matchesSellerLocal = (p: Proposta) => {
+    return isSameSeller(p.vendedora, sellerName) || (!p.vendedora && isSameSeller(p.digitador, sellerName)) || isSameSeller(p.digitador, sellerName);
+  };
+
   // Seller's paid proposals in the active filtered period
   const sellerPaidPropsFiltered = useMemo(() => {
     return filteredPropostas.filter(
-      p => isSameSeller(p.vendedora, sellerName) && p.status === 'Paga'
+      p => matchesSellerLocal(p) && isContratoPago(p)
     );
   }, [filteredPropostas, sellerName]);
 
   // Seller's pending proposals in current filter
   const sellerPendingProps = useMemo(() => {
     return filteredPropostas.filter(
-      p => isSameSeller(p.vendedora, sellerName) && (p.status === 'Em análise' || p.status === 'Simuladas')
+      p => matchesSellerLocal(p) && (p.status === 'Em análise' || p.status === 'Simuladas')
     );
   }, [filteredPropostas, sellerName]);
 
   // Seller's all proposals in the active filtered period
   const sellerPropostasInPeriod = useMemo(() => {
     return filteredPropostas.filter(
-      p => isSameSeller(p.vendedora, sellerName)
+      p => matchesSellerLocal(p)
     );
   }, [filteredPropostas, sellerName]);
 
@@ -308,6 +315,10 @@ export const VendedoraHome: React.FC<Props> = ({
     return 0; // Historical month has 0 days left
   }, [activeCompetenceMonth]);
 
+  // State for proposal inline search and modal edit
+  const [selectedPropostaParaEditar, setSelectedPropostaParaEditar] = useState<Proposta | null>(null);
+  const [buscaContrato, setBuscaContrato] = useState('');
+
   // Seller's estimated commissions to receive
   const fechamentoComissao = useMemo(() => {
     return calcularComissaoVendedoraMes(
@@ -320,33 +331,70 @@ export const VendedoraHome: React.FC<Props> = ({
     );
   }, [currentUser, sellerName, activeCompetenceMonth, propostas, sellerMeta]);
 
-  // Safe Store Ranking
+  // Accurate Store Sales Ranking for Sellers
   const rankingSeguro = useMemo(() => {
-    const map = new Map<string, number>();
-    const allReps = ['Hellen Vasconcelos', 'Loja Igarassu', 'Taciana Silva', 'Lucélia Ramos', 'Pamella'];
-    allReps.forEach(r => map.set(r, 0));
+    const sellersMap = new Map<string, { nome: string; vendas: number }>();
 
-    let outrosTotal = 0;
-    propostas
-      .filter(p => p.dataDigitacao.startsWith(activeCompetenceMonth) && p.status === 'Paga')
-      .forEach(p => {
-        const normVendor = normalizeSellerName(p.vendedora);
-        if (map.has(normVendor)) {
-          map.set(normVendor, (map.get(normVendor) || 0) + p.valorEmprestimo);
-        } else {
-          outrosTotal += p.valorEmprestimo;
-        }
+    // 1. Initialize active sellers from team
+    allUsers
+      .filter(u => u.role === 'vendedora' && u.status === 'ativo')
+      .forEach(u => {
+        const norm = normalizeSellerName(u.name);
+        sellersMap.set(norm, {
+          nome: cleanPersonName(u.name),
+          vendas: 0
+        });
       });
 
-    const list = Array.from(map.entries()).map(([nome, vendas]) => ({ nome, vendas }));
-    if (outrosTotal > 0) {
-      list.push({ nome: 'Outros', vendas: outrosTotal });
+    // Default Loja Igarassu
+    const normLoja = normalizeSellerName('Loja Igarassu');
+    if (!sellersMap.has(normLoja)) {
+      sellersMap.set(normLoja, {
+        nome: 'Loja Igarassu',
+        vendas: 0
+      });
     }
 
-    return list.sort((a, b) => b.vendas - a.vendas);
-  }, [propostas, activeCompetenceMonth]);
+    // 2. Aggregate sales from paid proposals in this competence
+    const matchingPropostas = propostas.filter(p => {
+      const dateRef = normalizeDateToISO(p.dataPagamentoCliente || p.dataDigitacao);
+      return dateRef.startsWith(activeCompetenceMonth) && isContratoPago(p);
+    });
+
+    matchingPropostas.forEach(p => {
+      const activeSellerUser = allUsers.find(u => u.role === 'vendedora' && (isSameSeller(p.vendedora, u.name) || (u.salesName && isSameSeller(p.vendedora, u.salesName)) || (!p.vendedora && isSameSeller(p.digitador, u.name)) || isSameSeller(p.digitador, u.name)));
+      const sellerKey = activeSellerUser ? normalizeSellerName(activeSellerUser.salesName || activeSellerUser.name) : normalizeSellerName(p.vendedora || p.digitador);
+
+      if (sellersMap.has(sellerKey)) {
+        sellersMap.get(sellerKey)!.vendas += (p.valorEmprestimo || 0);
+      } else {
+        sellersMap.set(sellerKey, {
+          nome: activeSellerUser ? (activeSellerUser.salesName || activeSellerUser.name) : (cleanPersonName(p.vendedora || p.digitador) || 'Outros'),
+          vendas: (p.valorEmprestimo || 0)
+        });
+      }
+    });
+
+    return Array.from(sellersMap.values())
+      .filter(item => item.vendas > 0 || allUsers.some(u => isSameSeller(u.name, item.nome)))
+      .sort((a, b) => b.vendas - a.vendas);
+  }, [allUsers, propostas, activeCompetenceMonth]);
 
   const minhaPosicaoRanking = rankingSeguro.findIndex(r => isSameSeller(r.nome, sellerName)) + 1;
+
+  // Filtered proposals inside the "Meus Contratos no Período" card
+  const visibleSellerPropostas = useMemo(() => {
+    if (!buscaContrato.trim()) return sellerPropostasInPeriod;
+    const term = buscaContrato.toLowerCase().trim();
+    const cleanDigitsTerm = term.replace(/\D/g, '');
+    return sellerPropostasInPeriod.filter(p =>
+      (p.nomeCliente || '').toLowerCase().includes(term) ||
+      (p.numeroContrato || '').toLowerCase().includes(term) ||
+      (p.banco || '').toLowerCase().includes(term) ||
+      (p.operacao || '').toLowerCase().includes(term) ||
+      (cleanDigitsTerm && (p.cpf || '').includes(cleanDigitsTerm))
+    );
+  }, [sellerPropostasInPeriod, buscaContrato]);
 
   return (
     <div className="space-y-4 pb-20 md:pb-8">
@@ -599,34 +647,53 @@ export const VendedoraHome: React.FC<Props> = ({
       </div>
 
       {/* Quick Personal KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
-          <span className="text-xs font-semibold text-slate-500">Minhas Vendas</span>
-          <p className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white tabular-nums mt-0.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
+          <span className="text-[11px] font-semibold text-slate-500">Minhas Vendas</span>
+          <p className="text-base sm:text-lg font-extrabold text-slate-900 dark:text-white tabular-nums mt-0.5">
             {formatCurrency(totalVendas)}
           </p>
           <p className="text-[10px] text-slate-400">Total contratado</p>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
-          <span className="text-xs font-semibold text-slate-500">Taxa Média</span>
-          <p className="text-lg sm:text-xl font-extrabold text-amber-600 dark:text-amber-400 tabular-nums mt-0.5">
+        <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
+          <span className="text-[11px] font-semibold text-slate-500">Taxa Média</span>
+          <p className="text-base sm:text-lg font-extrabold text-amber-600 dark:text-amber-400 tabular-nums mt-0.5">
             {formatPercent(taxaMedia)}
           </p>
           <p className="text-[10px] text-slate-400">Total: {formatCurrency(totalTaxas)}</p>
         </div>
 
-        <div className="bg-emerald-50/60 dark:bg-emerald-950/20 p-4 rounded-2xl border border-emerald-200/80 dark:border-emerald-800 shadow-xs">
-          <span className="text-xs font-semibold text-emerald-800 dark:text-emerald-300">Minha Comissão</span>
-          <p className="text-lg sm:text-xl font-black text-emerald-700 dark:text-emerald-400 tabular-nums mt-0.5">
-            {formatCurrency(fechamentoComissao.totalAPagar)}
+        {/* Separated: Comissão de Vendas */}
+        <div className="bg-blue-50/60 dark:bg-blue-950/20 p-3.5 rounded-2xl border border-blue-200/80 dark:border-blue-800 shadow-xs">
+          <span className="text-[11px] font-bold text-blue-800 dark:text-blue-300">Comissão de Vendas</span>
+          <p className="text-base sm:text-lg font-black text-blue-700 dark:text-blue-400 tabular-nums mt-0.5">
+            {formatCurrency(fechamentoComissao.comissaoDigitacao + fechamentoComissao.comissaoCartao)}
           </p>
-          <p className="text-[10px] text-emerald-600">Taxas + digitação + bônus</p>
+          <p className="text-[10px] text-blue-600">Digitação & cartões</p>
         </div>
 
-        <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
-          <span className="text-xs font-semibold text-slate-500">Oportunidades</span>
-          <p className="text-lg sm:text-xl font-extrabold text-purple-600 tabular-nums mt-0.5">
+        {/* Separated: Comissão de Taxas */}
+        <div className="bg-teal-50/60 dark:bg-teal-950/20 p-3.5 rounded-2xl border border-teal-200/80 dark:border-teal-800 shadow-xs">
+          <span className="text-[11px] font-bold text-teal-800 dark:text-teal-300">Comissão de Taxas</span>
+          <p className="text-base sm:text-lg font-black text-teal-700 dark:text-teal-400 tabular-nums mt-0.5">
+            {formatCurrency(fechamentoComissao.comissaoTaxas)}
+          </p>
+          <p className="text-[10px] text-teal-600">Sobre taxas apuradas</p>
+        </div>
+
+        {/* Minha Comissão Total (Removed "+ bônus") */}
+        <div className="bg-emerald-50/60 dark:bg-emerald-950/20 p-3.5 rounded-2xl border border-emerald-200/80 dark:border-emerald-800 shadow-xs">
+          <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300">Minha Comissão</span>
+          <p className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-400 tabular-nums mt-0.5">
+            {formatCurrency(fechamentoComissao.totalAPagar)}
+          </p>
+          <p className="text-[10px] text-emerald-600">Taxas + digitação</p>
+        </div>
+
+        <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">
+          <span className="text-[11px] font-semibold text-slate-500">Oportunidades</span>
+          <p className="text-base sm:text-lg font-extrabold text-purple-600 tabular-nums mt-0.5">
             {sellerAlerts.length}
           </p>
           <p className="text-[10px] text-slate-400">Aguardando contato</p>
@@ -797,26 +864,41 @@ export const VendedoraHome: React.FC<Props> = ({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Meus Contratos no Período */}
         <div className="bg-white dark:bg-slate-900 rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-xs space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <h2 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
               <Clock className="w-4 h-4 text-[#0F5C63]" />
               <span>Meus Contratos no Período</span>
             </h2>
-            <button
-              onClick={onNavigateToPropostas}
-              className="text-xs font-bold text-teal-700 dark:text-teal-400 hover:underline"
-            >
-              Ver todas
-            </button>
+
+            {/* Lupa sem modal para buscar contratos dentro do card */}
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1 sm:w-48">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Buscar contrato..."
+                  value={buscaContrato}
+                  onChange={(e) => setBuscaContrato(e.target.value)}
+                  className="w-full pl-8 pr-2.5 py-1 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-teal-500"
+                />
+              </div>
+
+              <button
+                onClick={onNavigateToPropostas}
+                className="text-xs font-bold text-teal-700 dark:text-teal-400 hover:underline shrink-0"
+              >
+                Ver todas
+              </button>
+            </div>
           </div>
 
           <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-            {sellerPropostasInPeriod.length === 0 ? (
+            {visibleSellerPropostas.length === 0 ? (
               <p className="text-xs text-slate-400 text-center py-8">
-                Nenhum contrato ou simulação para o período selecionado.
+                {buscaContrato ? 'Nenhum contrato encontrado para esta busca.' : 'Nenhum contrato ou simulação para o período selecionado.'}
               </p>
             ) : (
-              sellerPropostasInPeriod.map((p) => {
+              visibleSellerPropostas.map((p) => {
                 const isPaid = p.status === 'Paga';
                 const isPending = p.status === 'Em análise' || p.status === 'Simuladas';
                 const isCancelled = p.status === 'Cancelada';
@@ -826,9 +908,16 @@ export const VendedoraHome: React.FC<Props> = ({
                 else if (isCancelled) statusColor = 'bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-300';
 
                 return (
-                  <div key={p.id} className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 text-xs flex items-center justify-between">
+                  <div
+                    key={p.id}
+                    onClick={() => setSelectedPropostaParaEditar(p)}
+                    className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 text-xs flex items-center justify-between cursor-pointer hover:border-teal-500/80 hover:bg-teal-50/30 dark:hover:bg-slate-800/80 transition-all group"
+                    title="Clique para abrir e editar esta proposta"
+                  >
                     <div>
-                      <span className="font-bold text-slate-900 dark:text-white">{p.nomeCliente}</span>
+                      <span className="font-bold text-slate-900 dark:text-white group-hover:text-teal-700 dark:group-hover:text-teal-300 transition-colors">
+                        {p.nomeCliente}
+                      </span>
                       <p className="text-[11px] text-slate-500">
                         {p.operacao} · {p.banco} · Contrato #{p.numeroContrato || 'Sem número'}
                       </p>
@@ -894,6 +983,14 @@ export const VendedoraHome: React.FC<Props> = ({
           </div>
         </div>
       </div>
+
+      {/* Proposal Edit / Details Modal */}
+      {selectedPropostaParaEditar && (
+        <DetalhePropostaModal
+          proposta={selectedPropostaParaEditar}
+          onClose={() => setSelectedPropostaParaEditar(null)}
+        />
+      )}
     </div>
   );
 };

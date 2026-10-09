@@ -11,6 +11,8 @@
  */
 
 import { Operacao, Proposta, MetaVendedora, ComissaoVendedora } from '../types';
+import { isSameSeller } from './formatters';
+import { isContratoPago, normalizeDateToISO } from './dashboardCalculations';
 
 export interface ParametrosComissao {
   // Faixas de comissão sobre a taxa cobrada
@@ -97,10 +99,10 @@ export function calcularComissaoVendedoraMes(
 ): ComissaoVendedora {
   // Filtra as propostas pagas da vendedora no mês especificado
   const propostas = propostasPagas.filter(p => {
-    const isVendedora = (p.vendedora === vendedoraNome || p.digitador === vendedoraNome);
-    const dataRef = p.dataPagamentoCliente || p.dataDigitacao;
+    const isVendedora = (isSameSeller(p.vendedora, vendedoraNome) || isSameSeller(p.digitador, vendedoraNome));
+    const dataRef = normalizeDateToISO(p.dataPagamentoCliente || p.dataDigitacao);
     const isMes = dataRef.startsWith(mesAno);
-    return isVendedora && isMes && p.status === 'Paga';
+    return isVendedora && isMes && isContratoPago(p);
   });
 
   const totalVendas = propostas.reduce((acc, p) => acc + (p.valorEmprestimo || 0), 0);

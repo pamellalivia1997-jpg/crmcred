@@ -29,7 +29,7 @@ import { SmartFilter } from '../common/SmartFilter';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency, formatPercent, formatDate, normalizeSellerName, getMonthYearLabel, isSameSeller } from '../../utils/formatters';
-import { matchesSeller, isTaxaPaga } from '../../utils/dashboardCalculations';
+import { matchesSeller, matchProposalToSeller, isTaxaPaga, isContratoPago, normalizeDateToISO } from '../../utils/dashboardCalculations';
 import type { Proposta, StatusProposta, Operacao, Banco, Promotora } from '../../types/models';
 import {
   ResponsiveContainer,
@@ -219,8 +219,8 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   // Previous month for comparative deltas
   const prevMonthPropostas = useMemo(() => {
     return propostas.filter(p => {
-      const dataDigi = p.dataDigitacao ? p.dataDigitacao.substring(0, 10) : '';
-      return dataDigi.startsWith(baseDateInfo.prevMonthStr) && p.status === 'Paga';
+      const dataRef = normalizeDateToISO(p.dataPagamentoCliente || p.dataDigitacao);
+      return dataRef.startsWith(baseDateInfo.prevMonthStr) && isContratoPago(p);
     });
   }, [propostas, baseDateInfo]);
 
@@ -398,7 +398,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   // Promotoras breakdown - strictly paid sales (exclusively hiding assessoria)
   const promotorasChartData = useMemo(() => {
     const map = new Map<string, { promotora: string; vendas: number; count: number }>();
-    filteredPropostas.filter(p => p.status === 'Paga').forEach(p => {
+    filteredPropostas.filter(isContratoPago).forEach(p => {
       if (!p.promotora) return;
       const promLower = p.promotora.toLowerCase().trim();
       const opLower = (p.operacao || '').toLowerCase().trim();
@@ -439,13 +439,16 @@ export const ProprietariaDashboard: React.FC<Props> = ({
 
     return months.map(m => {
       const mProps = propostas.filter(p => {
-        const d = p.dataDigitacao;
-        return d && d.startsWith(m.key) && p.status === 'Paga';
+        const d = normalizeDateToISO(p.dataPagamentoCliente || p.dataDigitacao);
+        return d && d.startsWith(m.key) && isContratoPago(p);
       });
-      const vendas = mProps.reduce((acc, p) => acc + p.valorEmprestimo, 0);
-      const taxas = mProps
-        .filter(p => p.taxaPaga === true || String(p.taxaPaga).toUpperCase() === 'SIM' || p.clientePagouTaxa === true)
-        .reduce((acc, p) => acc + p.valorTaxa, 0);
+      const vendas = mProps.reduce((acc, p) => acc + (p.valorEmprestimo || 0), 0);
+      const taxas = propostas
+        .filter(p => {
+          const d = normalizeDateToISO(p.dataPagamentoCliente || p.dataDigitacao);
+          return d && d.startsWith(m.key) && isTaxaPaga(p);
+        })
+        .reduce((acc, p) => acc + (p.valorTaxa || 0), 0);
 
       return {
         mes: m.label,
@@ -530,8 +533,8 @@ export const ProprietariaDashboard: React.FC<Props> = ({
 
     const result = activeSellerUsers.map(emp => {
       const repName = emp.salesName || emp.name;
-      const repProps = filteredPropostas.filter(p => matchesSeller(p.vendedora, emp));
-      const paidRepProps = repProps.filter(p => p.status === 'Paga');
+      const repProps = filteredPropostas.filter(p => matchProposalToSeller(p, emp));
+      const paidRepProps = repProps.filter(isContratoPago);
 
       const totalVendaRep = paidRepProps.reduce((acc, p) => acc + (p.valorEmprestimo || 0), 0);
       const totalTaxaRep = repProps
@@ -549,7 +552,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
       const opsBreakdown: Record<string, { venda: number; taxa: number; percent: number; count: number }> = {};
       distinctOperations.forEach(op => {
         const opsAll = repProps.filter(p => getCanonicalOpName(p.operacao) === op);
-        const opsPaid = opsAll.filter(p => p.status === 'Paga');
+        const opsPaid = opsAll.filter(isContratoPago);
         const venda = opsPaid.reduce((acc, p) => acc + (p.valorEmprestimo || 0), 0);
         const taxa = opsAll
           .filter(isTaxaPaga)

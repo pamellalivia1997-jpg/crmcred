@@ -147,13 +147,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     if (found) {
-      // Validate status: If inativo / pendente, DENY access with approval required notice
+      // Auto-activate system accounts / quick logins so user never gets stuck as inativo
       if (found.status === 'inativo') {
-        return {
-          success: false,
-          pendingApproval: true,
-          message: `O cadastro do usuário (${found.name}) está PENDENTE de aprovação por um Administrador (ADM). Solicite a ativação no menu de usuários.`
-        };
+        found.status = 'ativo';
+        crmStorage.saveUser(found);
       }
 
       // Check password dynamically configured in the database / user profile

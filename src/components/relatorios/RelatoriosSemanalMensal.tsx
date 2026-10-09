@@ -22,6 +22,7 @@ import {
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency, formatPercent, formatDate, normalizeSellerName } from '../../utils/formatters';
+import { isContratoPago, normalizeDateToISO } from '../../utils/dashboardCalculations';
 import { Promotora } from '../../types';
 import { calculateTotalExpensesFromSheet, calculateSellerCostFromSheet } from '../../services/expensesSheetService';
 import { SmartFilter } from '../common/SmartFilter';
@@ -169,8 +170,8 @@ export const RelatoriosSemanalMensal: React.FC = () => {
 
     return months.map(m => {
       const mProps = propostas.filter(p => {
-        const d = p.dataPagamentoCliente || p.dataDigitacao;
-        return d && d.startsWith(m.key) && p.status === 'Paga';
+        const d = normalizeDateToISO(p.dataPagamentoCliente || p.dataDigitacao);
+        return d && d.startsWith(m.key) && isContratoPago(p);
       });
 
       // Apenas taxas pagas

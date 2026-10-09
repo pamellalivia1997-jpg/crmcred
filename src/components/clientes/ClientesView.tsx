@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Users,
   Search,
@@ -40,7 +40,9 @@ import {
   maskCPFInput,
   maskPhoneInput,
   cleanDigits,
-  getLocalDateString
+  getLocalDateString,
+  cleanPersonName,
+  isSameSeller
 } from '../../utils/formatters';
 import { CPFValidationBadge } from '../common/CPFValidationBadge';
 
@@ -57,12 +59,26 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
     saveCliente,
     importClientPortfolio
   } = useCRM();
-  const { currentUser, isManager } = useAuth();
+  const { currentUser, isManager, allUsers } = useAuth();
   const isAdm = currentUser?.role === 'adm' || currentUser?.role === 'proprietaria' || currentUser?.role === 'financeiro';
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCliente, setSelectedCliente] = useState<Cliente | null>(null);
   const [filterConvenio, setFilterConvenio] = useState<string>('todos');
+  const [filterVendedora, setFilterVendedora] = useState<string>(() => {
+    if (currentUser?.role === 'vendedora' && currentUser?.name) {
+      return cleanPersonName(currentUser.name);
+    }
+    return 'todas';
+  });
+
+  useEffect(() => {
+    if (currentUser?.role === 'vendedora' && currentUser?.name) {
+      setFilterVendedora(cleanPersonName(currentUser.name));
+    } else {
+      setFilterVendedora('todas');
+    }
+  }, [currentUser?.id, currentUser?.role, currentUser?.name]);
 
   // Modal State for New / Edit Client
   const [isClientModalOpen, setIsClientModalOpen] = useState(false);
@@ -98,10 +114,14 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
       const matchName = c.nome.toLowerCase().includes(termText);
       const matchPhone = c.telefone.replace(/\D/g, '').includes(term);
       const matchConvenio = filterConvenio === 'todos' || c.convenioPrincipal === filterConvenio;
+      const matchVendedora =
+        filterVendedora === 'todas' ||
+        isSameSeller(c.vendedoraResponsavel, filterVendedora) ||
+        cleanPersonName(c.vendedoraResponsavel) === filterVendedora;
 
-      return (matchCpf || matchName || matchPhone) && matchConvenio;
+      return (matchCpf || matchName || matchPhone) && matchConvenio && matchVendedora;
     });
-  }, [clientes, searchTerm, filterConvenio]);
+  }, [clientes, searchTerm, filterConvenio, filterVendedora]);
 
   // Proposals for selected client
   const clientPropostas = useMemo(() => {
@@ -252,6 +272,24 @@ export const ClientesView: React.FC<Props> = ({ onNovaPropostaParaCliente }) => 
             <option value="Prefeitura de Igarassu">Prefeitura de Igarassu</option>
             <option value="Governo de PE">Governo de PE</option>
             <option value="FGTS">FGTS</option>
+          </select>
+
+          {/* Vendedora Filter */}
+          <select
+            value={filterVendedora}
+            onChange={(e) => setFilterVendedora(e.target.value)}
+            className="px-3 py-2 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 font-medium focus:outline-none focus:ring-1 focus:ring-teal-500"
+          >
+            <option value="todas">Vendedora: Todas</option>
+            {allUsers
+              .filter(u => u.role === 'vendedora' && u.status === 'ativo')
+              .map(u => {
+                const cleanName = cleanPersonName(u.name);
+                return (
+                  <option key={u.id} value={cleanName}>{cleanName}</option>
+                );
+              })}
+            <option value="Loja Igarassu">Loja Igarassu</option>
           </select>
         </div>
       </div>

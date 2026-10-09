@@ -14,14 +14,10 @@ import {
   CreditCard,
   DollarSign,
   ExternalLink,
-  Trash2,
-  Upload,
-  Link2,
-  RefreshCw
+  Trash2
 } from 'lucide-react';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
-import { uploadProposalDocument } from '../../services/driveService';
 import {
   Proposta,
   StatusProposta,
@@ -30,8 +26,10 @@ import {
   Banco,
   Promotora
 } from '../../types';
-import { formatCurrency, formatPercent, formatDate, formatCPF } from '../../utils/formatters';
+import { formatCurrency, formatPercent, formatDate, formatCPF, cleanPersonName } from '../../utils/formatters';
 import { CPFValidationBadge } from '../common/CPFValidationBadge';
+import { getOptionsForCategory, addCustomOption, OptionCategory } from '../../utils/customOptions';
+import { Plus, AlertTriangle } from 'lucide-react';
 
 interface Props {
   proposta: Proposta | null;
@@ -91,32 +89,9 @@ const PROMOTORAS_LIST: Promotora[] = [
 
 export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialProposta, onClose, onProposalUpdated }) => {
   const { saveProposta, deleteProposta, propostas, comissoesPromotoras } = useCRM();
-  const { currentUser, canEditProposal, allUsers, googleAccessToken, loginWithGoogle } = useAuth();
+  const { currentUser, canEditProposal, allUsers } = useAuth();
 
-  const getCustomBancos = (): string[] => {
-    try {
-      const saved = localStorage.getItem('lviacred_custom_bancos');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) { return []; }
-  };
-  const getCustomPromotoras = (): string[] => {
-    try {
-      const saved = localStorage.getItem('lviacred_custom_promotoras');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) { return []; }
-  };
-  const getCustomConvenios = (): string[] => {
-    try {
-      const saved = localStorage.getItem('lviacred_custom_convenios');
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) { return []; }
-  };
-
-  const customBancosList = [...BANCOS_LIST.filter(b => b !== 'Outro'), ...getCustomBancos()];
-  const customPromotorasList = [...PROMOTORAS_LIST.filter(p => p !== 'Outra'), ...getCustomPromotoras()];
-  const customConveniosList = [...CONVENIOS_LIST.filter(c => c !== 'Outros'), ...getCustomConvenios()];
-
-  const isAdm = currentUser?.role === 'adm' || currentUser?.role === 'proprietaria' || currentUser?.role === 'financeiro';
+  const isAdm = currentUser?.role === 'adm' || currentUser?.role === 'proprietaria' || currentUser?.role === 'financeiro' || (currentUser?.role as string) === 'gerente' || Boolean((currentUser as any)?.canManageTeam);
 
   // Keep proposta up-to-date from context if it changes
   const proposta = propostas.find(p => p.id === initialProposta?.id) || initialProposta;
@@ -132,6 +107,36 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
   const [isEditing, setIsEditing] = useState(false);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  // Dynamic options lists
+  const [bancosList, setBancosList] = useState<string[]>(() => getOptionsForCategory('banco'));
+  const [operacoesList, setOperacoesList] = useState<string[]>(() => getOptionsForCategory('operacao'));
+  const [promotorasList, setPromotorasList] = useState<string[]>(() => getOptionsForCategory('promotora'));
+  const [conveniosList, setConveniosList] = useState<string[]>(() => getOptionsForCategory('convenio'));
+
+  // Custom new item creation inputs (for Manager/ADM/Financeiro)
+  const [novoItemNome, setNovoItemNome] = useState('');
+  const [activeNewCategory, setActiveNewCategory] = useState<OptionCategory | null>(null);
+
+  const handleSaveNovoItem = (category: OptionCategory, name: string) => {
+    if (!name.trim()) return;
+    const updated = addCustomOption(category, name.trim());
+    if (category === 'banco') {
+      setBancosList(updated);
+      setFormData(prev => ({ ...prev, banco: name.trim() as Banco }));
+    } else if (category === 'operacao') {
+      setOperacoesList(updated);
+      setFormData(prev => ({ ...prev, operacao: name.trim() as Operacao }));
+    } else if (category === 'promotora') {
+      setPromotorasList(updated);
+      setFormData(prev => ({ ...prev, promotora: name.trim() as Promotora }));
+    } else if (category === 'convenio') {
+      setConveniosList(updated);
+      setFormData(prev => ({ ...prev, convenio: name.trim() as Convenio }));
+    }
+    setActiveNewCategory(null);
+    setNovoItemNome('');
+  };
 
   // Form State
   const [formData, setFormData] = useState({
@@ -155,50 +160,6 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
     observacoes: '',
     linkDocumento: ''
   });
-
-  // Google Drive upload states and handlers
-  const [isUploadingDrive, setIsUploadingDrive] = useState(false);
-  const [uploadSuccess, setUploadSuccess] = useState(false);
-
-  const handleConnectDrive = async () => {
-    setIsUploadingDrive(true);
-    try {
-      await loginWithGoogle();
-    } catch (err: any) {
-      console.error(err);
-    } finally {
-      setIsUploadingDrive(false);
-    }
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!googleAccessToken) {
-      alert("Por favor, conecte sua conta Google primeiro.");
-      return;
-    }
-
-    setIsUploadingDrive(true);
-    setUploadSuccess(false);
-
-    try {
-      const result = await uploadProposalDocument(
-        file,
-        formData.nomeCliente || "Cliente_Sem_Nome",
-        proposta.id,
-        googleAccessToken
-      );
-      setFormData(prev => ({ ...prev, linkDocumento: result.webViewLink }));
-      setUploadSuccess(true);
-    } catch (err: any) {
-      console.error(err);
-      alert(`Falha no upload para o Google Drive: ${err?.message || 'Verifique suas permissões.'}`);
-    } finally {
-      setIsUploadingDrive(false);
-    }
-  };
 
   // Sync state when proposta changes or when opening edit mode
   useEffect(() => {
@@ -257,6 +218,17 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (!proposta) return;
+
+    const isOutroSelected =
+      (formData.banco as string) === 'Outro' || (formData.banco as string) === 'Outros' ||
+      (formData.operacao as string) === 'Outro' || (formData.operacao as string) === 'Outros' ||
+      (formData.promotora as string) === 'Outra' || (formData.promotora as string) === 'Outro' || (formData.promotora as string) === 'Outros' ||
+      (formData.convenio as string) === 'Outro' || (formData.convenio as string) === 'Outros';
+
+    if (isOutroSelected) {
+      alert('Não é permitido salvar alterações com a opção "Outro" selecionada. Selecione um item válido ou cadastre-o antes de salvar.');
+      return;
+    }
 
     // Detect all changed fields for LGPD Audit Log
     const changes: string[] = [];
@@ -596,10 +568,42 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                     onChange={e => setFormData({ ...formData, banco: e.target.value as Banco })}
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs"
                   >
-                    {customBancosList.map(b => (
+                    {bancosList.map(b => (
                       <option key={b} value={b}>{b}</option>
                     ))}
+                    <option value="Outro">
+                      {isAdm ? 'Outro' : 'Outro (Solicite inclusão ao gerente)'}
+                    </option>
                   </select>
+
+                  {(formData.banco === 'Outro' || (formData.banco as string) === 'Outros') && isAdm && (
+                    <div className="mt-2 p-2 rounded-xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 space-y-1">
+                      <span className="block text-[10px] font-bold text-teal-800 dark:text-teal-200">Novo Banco:</span>
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          placeholder="Nome do banco..."
+                          value={novoItemNome}
+                          onChange={e => setNovoItemNome(e.target.value)}
+                          className="flex-1 px-2 py-1 text-xs rounded bg-white dark:bg-slate-800 border border-teal-300 text-slate-900 dark:text-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSaveNovoItem('banco', novoItemNome)}
+                          className="px-2.5 py-1 rounded bg-teal-600 text-white font-bold text-xs shrink-0 flex items-center gap-1"
+                        >
+                          <Plus className="w-3 h-3" />
+                          Salvar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {(formData.banco === 'Outro' || (formData.banco as string) === 'Outros') && !isAdm && (
+                    <div className="mt-1.5 p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-300 text-[10px] text-amber-800 dark:text-amber-200 font-bold flex items-center gap-1">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>Solicite inclusão ao gerente</span>
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -611,10 +615,42 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                     onChange={e => setFormData({ ...formData, operacao: e.target.value as Operacao })}
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs"
                   >
-                    {OPERACOES_LIST.map(op => (
+                    {operacoesList.map(op => (
                       <option key={op} value={op}>{op}</option>
                     ))}
+                    <option value="Outro">
+                      {isAdm ? 'Outro' : 'Outro (Solicite inclusão ao gerente)'}
+                    </option>
                   </select>
+
+                  {((formData.operacao as string) === 'Outro' || (formData.operacao as string) === 'Outros') && isAdm && (
+                    <div className="mt-2 p-2 rounded-xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 space-y-1">
+                      <span className="block text-[10px] font-bold text-teal-800 dark:text-teal-200">Nova Operação:</span>
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          placeholder="Nome da operação..."
+                          value={novoItemNome}
+                          onChange={e => setNovoItemNome(e.target.value)}
+                          className="flex-1 px-2 py-1 text-xs rounded bg-white dark:bg-slate-800 border border-teal-300 text-slate-900 dark:text-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSaveNovoItem('operacao', novoItemNome)}
+                          className="px-2.5 py-1 rounded bg-teal-600 text-white font-bold text-xs shrink-0 flex items-center gap-1"
+                        >
+                          <Plus className="w-3 h-3" />
+                          Salvar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {((formData.operacao as string) === 'Outro' || (formData.operacao as string) === 'Outros') && !isAdm && (
+                    <div className="mt-1.5 p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-300 text-[10px] text-amber-800 dark:text-amber-200 font-bold flex items-center gap-1">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>Solicite inclusão ao gerente</span>
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -626,10 +662,42 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                     onChange={e => setFormData({ ...formData, promotora: e.target.value as Promotora })}
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs"
                   >
-                    {customPromotorasList.map(pr => (
+                    {promotorasList.map(pr => (
                       <option key={pr} value={pr}>{pr}</option>
                     ))}
+                    <option value="Outra">
+                      {isAdm ? 'Outra' : 'Outra (Solicite inclusão ao gerente)'}
+                    </option>
                   </select>
+
+                  {(formData.promotora === 'Outra' || (formData.promotora as string) === 'Outro' || (formData.promotora as string) === 'Outros') && isAdm && (
+                    <div className="mt-2 p-2 rounded-xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 space-y-1">
+                      <span className="block text-[10px] font-bold text-teal-900 dark:text-teal-200">Nova Promotora:</span>
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          placeholder="Nome da promotora..."
+                          value={novoItemNome}
+                          onChange={e => setNovoItemNome(e.target.value)}
+                          className="flex-1 px-2 py-1 text-xs rounded bg-white dark:bg-slate-800 border border-teal-300 text-slate-900 dark:text-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSaveNovoItem('promotora', novoItemNome)}
+                          className="px-2.5 py-1 rounded bg-teal-600 text-white font-bold text-xs shrink-0 flex items-center gap-1"
+                        >
+                          <Plus className="w-3 h-3" />
+                          Salvar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {(formData.promotora === 'Outra' || (formData.promotora as string) === 'Outro' || (formData.promotora as string) === 'Outros') && !isAdm && (
+                    <div className="mt-1.5 p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-300 text-[10px] text-amber-800 dark:text-amber-200 font-bold flex items-center gap-1">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>Solicite inclusão ao gerente</span>
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -641,10 +709,42 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                     onChange={e => setFormData({ ...formData, convenio: e.target.value as Convenio })}
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs"
                   >
-                    {customConveniosList.map(c => (
+                    {conveniosList.map(c => (
                       <option key={c} value={c}>{c}</option>
                     ))}
+                    <option value="Outros">
+                      {isAdm ? 'Outros' : 'Outros (Solicite inclusão ao gerente)'}
+                    </option>
                   </select>
+
+                  {(formData.convenio === 'Outros' || (formData.convenio as string) === 'Outro') && isAdm && (
+                    <div className="mt-2 p-2 rounded-xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 space-y-1">
+                      <span className="block text-[10px] font-bold text-teal-900 dark:text-teal-200">Novo Convênio:</span>
+                      <div className="flex gap-1.5">
+                        <input
+                          type="text"
+                          placeholder="Nome do convênio..."
+                          value={novoItemNome}
+                          onChange={e => setNovoItemNome(e.target.value)}
+                          className="flex-1 px-2 py-1 text-xs rounded bg-white dark:bg-slate-800 border border-teal-300 text-slate-900 dark:text-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSaveNovoItem('convenio', novoItemNome)}
+                          className="px-2.5 py-1 rounded bg-teal-600 text-white font-bold text-xs shrink-0 flex items-center gap-1"
+                        >
+                          <Plus className="w-3 h-3" />
+                          Salvar
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {(formData.convenio === 'Outros' || (formData.convenio as string) === 'Outro') && !isAdm && (
+                    <div className="mt-1.5 p-1.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-300 text-[10px] text-amber-800 dark:text-amber-200 font-bold flex items-center gap-1">
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                      <span>Solicite inclusão ao gerente</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -662,20 +762,23 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                     <option value="">Selecione a Vendedora...</option>
                     {allUsers
                       .filter(u => u.role === 'vendedora' && u.status === 'ativo')
-                      .map(u => (
-                        <option key={u.id} value={u.name}>{u.name}</option>
-                      ))}
-                    <option value="Loja Igarassu">Loja Igarassu (Balcão)</option>
+                      .map(u => {
+                        const cleanName = cleanPersonName(u.name);
+                        return (
+                          <option key={u.id} value={cleanName}>{cleanName}</option>
+                        );
+                      })}
+                    <option value="Loja Igarassu">Loja Igarassu</option>
                     <option value="Outros">Outros</option>
-                    {formData.vendedora && !allUsers.some(u => u.name === formData.vendedora) && formData.vendedora !== 'Loja Igarassu' && formData.vendedora !== 'Outros' && (
-                      <option value={formData.vendedora}>{formData.vendedora}</option>
+                    {formData.vendedora && !allUsers.some(u => cleanPersonName(u.name) === cleanPersonName(formData.vendedora)) && formData.vendedora !== 'Loja Igarassu' && formData.vendedora !== 'Outros' && (
+                      <option value={cleanPersonName(formData.vendedora)}>{cleanPersonName(formData.vendedora)}</option>
                     )}
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    Digitador do Atendimento *
+                    Digitador(a) do Atendimento *
                   </label>
                   <select
                     value={formData.digitador}
@@ -685,11 +788,14 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                     <option value="">Selecione o Digitador...</option>
                     {allUsers
                       .filter(u => u.status === 'ativo' && (u.role === 'digitador' || u.role === 'vendedora'))
-                      .map(u => (
-                        <option key={u.id} value={u.name}>{u.name.replace(/\s*\(.*?\)\s*/g, '')}</option>
-                      ))}
-                    {formData.digitador && !allUsers.some(u => u.name === formData.digitador) && (
-                      <option value={formData.digitador}>{formData.digitador}</option>
+                      .map(u => {
+                        const cleanName = cleanPersonName(u.name);
+                        return (
+                          <option key={u.id} value={cleanName}>{cleanName}</option>
+                        );
+                      })}
+                    {formData.digitador && !allUsers.some(u => cleanPersonName(u.name) === cleanPersonName(formData.digitador)) && (
+                      <option value={cleanPersonName(formData.digitador)}>{cleanPersonName(formData.digitador)}</option>
                     )}
                   </select>
                 </div>
@@ -752,71 +858,17 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
               </div>
 
               {/* Link do Documento no Drive */}
-              <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 space-y-3 mb-3">
-                <div className="flex items-center justify-between">
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5 uppercase tracking-wider">
-                    <Link2 className="w-4 h-4 text-[#0F5C63]" />
-                    <span>Documentação da Proposta (Drive)</span>
-                  </label>
-                  {isUploadingDrive && (
-                    <span className="text-[11px] text-[#0F5C63] dark:text-teal-400 font-bold animate-pulse flex items-center gap-1">
-                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      Processando...
-                    </span>
-                  )}
-                </div>
-
-                {!googleAccessToken ? (
-                  <div className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Google Drive Desconectado</h4>
-                      <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">Conecte sua conta do Google Drive para anexar arquivos de proposta diretamente.</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleConnectDrive}
-                      disabled={isUploadingDrive}
-                      className="px-4 py-2 bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900 font-extrabold text-xs rounded-xl shadow-xs transition active:scale-95 whitespace-nowrap shrink-0 flex items-center gap-1.5"
-                    >
-                      <Upload className="w-3.5 h-3.5" />
-                      Conectar Google Drive
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <label className="flex-1 border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-teal-500/50 dark:hover:border-teal-500/50 rounded-xl p-4 flex flex-col items-center justify-center cursor-pointer transition bg-white dark:bg-slate-900 text-center">
-                        <Upload className="w-6 h-6 text-slate-400 dark:text-slate-500 mb-1" />
-                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Anexar Documento</span>
-                        <span className="text-[10px] text-slate-400 mt-0.5">O sistema comprime o arquivo e salva no seu Google Drive</span>
-                        <input
-                          type="file"
-                          accept="image/*,application/pdf"
-                          onChange={handleFileChange}
-                          disabled={isUploadingDrive}
-                          className="hidden"
-                        />
-                      </label>
-                    </div>
-
-                    {formData.linkDocumento && (
-                      <div className="p-3 rounded-xl bg-teal-50 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-900 flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="text-[10px] text-teal-800 dark:text-teal-400 font-bold uppercase tracking-wider">Documento Pronto & Comprimido</p>
-                          <a
-                            href={formData.linkDocumento}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs font-bold text-teal-600 dark:text-teal-400 hover:underline block truncate mt-0.5"
-                          >
-                            {formData.linkDocumento}
-                          </a>
-                        </div>
-                        <span className="px-2 py-0.5 bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200 font-bold rounded-md text-[10px] shrink-0">No Drive</span>
-                      </div>
-                    )}
-                  </div>
-                )}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Link do Documento no Drive
+                </label>
+                <input
+                  type="url"
+                  placeholder="https://drive.google.com/..."
+                  value={formData.linkDocumento}
+                  onChange={e => setFormData({ ...formData, linkDocumento: e.target.value })}
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs font-semibold focus:ring-2 focus:ring-teal-500"
+                />
               </div>
 
               {/* Observacoes */}
@@ -835,6 +887,16 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
 
               {/* Action Buttons */}
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                {((formData.banco as string) === 'Outro' || (formData.banco as string) === 'Outros' ||
+                  (formData.operacao as string) === 'Outro' || (formData.operacao as string) === 'Outros' ||
+                  (formData.promotora as string) === 'Outra' || (formData.promotora as string) === 'Outro' || (formData.promotora as string) === 'Outros' ||
+                  (formData.convenio as string) === 'Outro' || (formData.convenio as string) === 'Outros') && (
+                  <span className="text-[11px] font-bold text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/60 px-2 py-1 rounded-lg border border-amber-300 dark:border-amber-800 flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span>{isAdm ? 'Salve o novo item antes de salvar' : 'Solicite inclusão ao gerente'}</span>
+                  </span>
+                )}
+
                 <button
                   type="button"
                   onClick={() => setIsEditing(false)}
@@ -844,7 +906,20 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-[#0F5C63] hover:bg-[#1B8A8F] active:scale-98 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-teal-900/10 transition-all"
+                  disabled={Boolean(
+                    (formData.banco as string) === 'Outro' || (formData.banco as string) === 'Outros' ||
+                    (formData.operacao as string) === 'Outro' || (formData.operacao as string) === 'Outros' ||
+                    (formData.promotora as string) === 'Outra' || (formData.promotora as string) === 'Outro' || (formData.promotora as string) === 'Outros' ||
+                    (formData.convenio as string) === 'Outro' || (formData.convenio as string) === 'Outros'
+                  )}
+                  className={`px-5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md transition-all ${
+                    (formData.banco as string) === 'Outro' || (formData.banco as string) === 'Outros' ||
+                    (formData.operacao as string) === 'Outro' || (formData.operacao as string) === 'Outros' ||
+                    (formData.promotora as string) === 'Outra' || (formData.promotora as string) === 'Outro' || (formData.promotora as string) === 'Outros' ||
+                    (formData.convenio as string) === 'Outro' || (formData.convenio as string) === 'Outros'
+                      ? 'opacity-40 cursor-not-allowed bg-slate-400 dark:bg-slate-700 text-slate-200'
+                      : 'bg-[#0F5C63] hover:bg-[#1B8A8F] active:scale-98 text-white shadow-teal-900/10'
+                  }`}
                 >
                   <Save className="w-4 h-4" />
                   Salvar Alterações

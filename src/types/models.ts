@@ -15,6 +15,9 @@ export interface User {
   monthlySalesGoal?: number; // Ex: 70000
   monthlyTaxPercentGoal?: number; // Ex: 10.0 (%)
   authUid?: string; // Firebase Auth UID quando vinculado
+  dataAdmissao?: string; // Mês ou data de admissão (Ex: '2026-10')
+  dataDesativacao?: string; // Mês ou data de desativação (Ex: '2026-11')
+  createdAt?: string; // Data ISO de criação do cadastro
 }
 
 export type Convenio = 
@@ -212,6 +215,28 @@ export interface AlertaOportunidade {
   dataLiberacao?: string;
   adiadoAte?: string;
   concluidoEm?: string;
+  digitadorDestino?: string;
+  tipoLeadDistribuido?: string;
+  dataTratamento?: string;
+}
+
+export interface MetaDigitador {
+  id: string;
+  digitadorId: string;
+  digitadorNome: string;
+  mesAno: string;
+  leadsDistribuidos: number;
+  leadsTratados: number;
+  leadsConvertidos: number;
+  taxaAproveitamento: number;
+  dataDistribuicao?: string;
+  detalhePorTipo?: {
+    portabilidade: number;
+    refin: number;
+    indicacao: number;
+    aniversario: number;
+    misto: number;
+  };
 }
 
 export type PeriodoFiltro =

@@ -19,7 +19,7 @@ import { RelatoriosSemanalMensal } from './components/relatorios/RelatoriosSeman
 import { AdmView } from './components/adm/AdmView';
 import { UsuariosView } from './components/adm/UsuariosView';
 import { FinanceiroView } from './components/financeiro/FinanceiroView';
-import { ComissoesAPagarView } from './components/financeiro/ComissoesAPagarView';
+import { ComissoesPagarView } from './components/financeiro/ComissoesPagarView';
 import { AuditoriaView } from './components/auditoria/AuditoriaView';
 import { Cliente, AlertaOportunidade } from './types';
 
@@ -39,7 +39,7 @@ const MainApp: React.FC = () => {
   // If user changes and current tab is not accessible, adjust default
   React.useEffect(() => {
     if (currentUser?.role === 'vendedora') {
-      const forbiddenForVendedora = ['dashboard', 'financeiro', 'contas_pagar', 'adm', 'adm_usuarios', 'relatorios', 'fechamento_vendedoras', 'auditoria', 'digitador_home'];
+      const forbiddenForVendedora = ['dashboard', 'financeiro', 'contas_pagar', 'adm', 'adm_usuarios', 'relatorios', 'fechamento_vendedoras', 'auditoria', 'digitador_home', 'comissoes_pagar'];
       if (forbiddenForVendedora.includes(currentTab)) {
         setCurrentTab('vendedora_home');
       }
@@ -158,7 +158,7 @@ const MainApp: React.FC = () => {
             <FinanceiroView />
           )}
 
-          {currentTab === 'comissoes_pagar' && <ComissoesAPagarView />}
+          {currentTab === 'comissoes_pagar' && <ComissoesPagarView />}
 
           {currentTab === 'auditoria' && <AuditoriaView />}
         </main>
