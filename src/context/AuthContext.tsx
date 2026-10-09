@@ -4,7 +4,7 @@ import { crmStorage, subscribeToData } from '../services/crmStorage';
 import { cleanPersonName } from '../utils/formatters';
 
 import { auth, googleProvider } from '../services/firebase';
-import { signInWithPopup, signOut as firebaseSignOut, onAuthStateChanged, GoogleAuthProvider } from 'firebase/auth';
+import { signInWithPopup, signOut as firebaseSignOut, onAuthStateChanged, GoogleAuthProvider, setPersistence, browserLocalPersistence } from 'firebase/auth';
 
 export interface AuthResult {
   success: boolean;
@@ -39,6 +39,14 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const CURRENT_USER_KEY = 'livia_credsaude_current_user_id';
+
+// Contas administrativas já autorizadas pela proprietária. Isso evita que o
+// primeiro acesso em navegador anônimo dependa do cache/localStorage para
+// descobrir o perfil; contas Google desconhecidas continuam pendentes.
+const OFFICIAL_GOOGLE_ACCOUNTS: Record<string, Pick<User, 'name' | 'role'>> = {
+  'geovanne.arcelino@gmail.com': { name: 'Geovanne Ferreira', role: 'financeiro' },
+  'pamellalivia1997@gmail.com': { name: 'Pamella', role: 'adm' }
+};
 
 function normalizeUser<T extends User | null>(user: T): T {
   if (!user) return user;
@@ -203,6 +211,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loginWithGoogle = async (): Promise<AuthResult> => {
     try {
+      // Explicitly persist the Firebase session across F5 and new tabs.
+      await setPersistence(auth, browserLocalPersistence);
       const result = await signInWithPopup(auth, googleProvider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
       const token = credential?.accessToken || null;
@@ -221,6 +231,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         (u.authUid && u.authUid === fbUser.uid) ||
         u.id === fbUser.uid
       );
+
+      // On a clean/private browser, the local cache may contain no users yet.
+      // Recreate only the two pre-authorized administrative profiles; do not
+      // turn arbitrary Google accounts into active CRM users.
+      const official = OFFICIAL_GOOGLE_ACCOUNTS[fbUser.email.toLowerCase()];
+      if (!found && official) {
+        found = {
+          id: fbUser.uid,
+          name: official.name,
+          email: fbUser.email.toLowerCase(),
+          authUid: fbUser.uid,
+          role: official.role,
+          phone: '',
+          status: 'ativo',
+          monthlySalesGoal: 0,
+          monthlyTaxPercentGoal: 0
+        };
+        crmStorage.saveUser(found);
+      }
 
       if (!found) {
         // First time Google Sign in: Create user as INATIVO (PENDING APPROVAL BY ADM)
