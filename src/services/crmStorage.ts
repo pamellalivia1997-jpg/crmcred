@@ -395,11 +395,19 @@ const suppressSnapshotCollections = new Set<string>();
 
 // Listen to Firestore real-time snapshots with smart cache reconciliation
 export function initFirestoreRealtimeSync() {
-  if (isFirestoreQuotaExceeded()) {
+  console.log('🔄 Iniciando sincronização Firestore...');
+  const quotaExceeded = isFirestoreQuotaExceeded();
+  console.log('Quota exceeded check:', quotaExceeded);
+  if (quotaExceeded) {
     console.info('ℹ️ Modo Offline Local ativo: cota diária do Firestore atingida anteriormente. O CRM permanece 100% funcional localmente.');
     return;
   }
 
+  // Force reset if accidentally marked in session storage (for development/demo purposes)
+  if (typeof sessionStorage !== 'undefined') {
+    sessionStorage.removeItem('crm_firestore_quota_exceeded');
+  }
+  
   const collectionsToSync: Array<keyof CRMDataStore> = [
     'users',
     'clientes',

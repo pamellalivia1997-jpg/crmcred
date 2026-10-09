@@ -10,6 +10,7 @@ async function startServer() {
 
   // CORS Middleware allowing requests from GitHub Pages, local dev, or custom frontend origins
   app.use((req, res, next) => {
+    console.log(`[Request] ${req.method} ${req.url}`);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, DELETE');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-user-id, x-user-role');
