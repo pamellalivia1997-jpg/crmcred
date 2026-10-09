@@ -520,19 +520,6 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Cidade
-                </label>
-                <input
-                  type="text"
-                  placeholder="Igarassu, Olinda, Recife..."
-                  value={cidade}
-                  onChange={(e) => setCidade(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Convênio Principal
                 </label>
                 <select
@@ -543,15 +530,13 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
                   {conveniosList.map(c => (
                     <option key={c} value={c}>{c}</option>
                   ))}
-                  <option value="Outros">
-                    {isManager ? 'Outros' : 'Outros (Solicite inclusão ao gerente)'}
-                  </option>
+                  <option value="Outros">Outros</option>
                 </select>
 
                 {(convenio === 'Outros' || (convenio as string) === 'Outro') && isManager && (
                   <div className="mt-2 p-2.5 rounded-xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 space-y-1.5">
                     <label className="block text-[11px] font-bold text-teal-900 dark:text-teal-200">
-                      Cadastrar Novo Convênio (ADM/Gerente/Financeiro):
+                      Cadastrar Novo Convênio:
                     </label>
                     <div className="flex gap-2">
                       <input
@@ -606,15 +591,13 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
                   {operacoesList.map(op => (
                     <option key={op} value={op}>{op}</option>
                   ))}
-                  <option value="Outro">
-                    {isManager ? 'Outro' : 'Outro (Solicite inclusão ao gerente)'}
-                  </option>
+                  <option value="Outro">Outro</option>
                 </select>
 
                 {((operacao as string) === 'Outro' || (operacao as string) === 'Outros') && isManager && (
                   <div className="mt-2 p-2.5 rounded-xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 space-y-1.5">
                     <label className="block text-[11px] font-bold text-teal-900 dark:text-teal-200">
-                      Cadastrar Nova Operação (ADM/Gerente/Financeiro):
+                      Cadastrar Nova Operação:
                     </label>
                     <div className="flex gap-2">
                       <input
@@ -655,15 +638,13 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
                   {bancosList.map(b => (
                     <option key={b} value={b}>{b}</option>
                   ))}
-                  <option value="Outro">
-                    {isManager ? 'Outro' : 'Outro (Solicite inclusão ao gerente)'}
-                  </option>
+                  <option value="Outro">Outro</option>
                 </select>
 
                 {(banco === 'Outro' || (banco as string) === 'Outros') && isManager && (
                   <div className="mt-2 p-2.5 rounded-xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 space-y-1.5">
                     <label className="block text-[11px] font-bold text-teal-900 dark:text-teal-200">
-                      Cadastrar Novo Banco (ADM/Gerente/Financeiro):
+                      Cadastrar Novo Banco:
                     </label>
                     <div className="flex gap-2">
                       <input
@@ -704,15 +685,13 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
                   {promotorasList.map(pr => (
                     <option key={pr} value={pr}>{pr}</option>
                   ))}
-                  <option value="Outra">
-                    {isManager ? 'Outra' : 'Outra (Solicite inclusão ao gerente)'}
-                  </option>
+                  <option value="Outra">Outra</option>
                 </select>
 
                 {(promotora === 'Outra' || (promotora as string) === 'Outro' || (promotora as string) === 'Outros') && isManager && (
                   <div className="mt-2 p-2.5 rounded-xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 space-y-1.5">
                     <label className="block text-[11px] font-bold text-teal-900 dark:text-teal-200">
-                      Cadastrar Nova Promotora (ADM/Gerente/Financeiro):
+                      Cadastrar Nova Promotora:
                     </label>
                     <div className="flex gap-2">
                       <input
@@ -873,16 +852,12 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
             )}
           </div>
 
-          {/* Link do Documento & Anexo Comprimido para o Google Drive */}
+          {/* Link do Documento & Anexo Comprimido */}
           <div className="bg-slate-50 dark:bg-slate-800/40 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-700/80 space-y-2.5">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Link ou Anexo do Documento (Google Drive) <span className="font-normal text-slate-400 text-[10px]">(opcional)</span>
+                Link ou Anexo do Documento <span className="font-normal text-slate-400 text-[10px]">(opcional)</span>
               </label>
-              <span className="text-[10px] font-bold text-teal-800 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/80 px-2 py-0.5 rounded-md border border-teal-200 dark:border-teal-800 flex items-center gap-1">
-                <span>Google Drive:</span>
-                <span className="font-mono">{GOOGLE_DRIVE_DESTINATION_EMAIL}</span>
-              </span>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-2">
@@ -947,10 +922,6 @@ export const NovaPropostaModal: React.FC<Props> = ({ isOpen, onClose, preselecte
                 </button>
               </div>
             )}
-
-            <p className="text-[10px] text-slate-400">
-              ⚡ <strong>Redução de tamanho obrigatória:</strong> A compactação automática redimensiona e comprime imagens e fotos para poupar espaço no Google Drive vinculado (<span className="font-mono text-slate-500">{GOOGLE_DRIVE_DESTINATION_EMAIL}</span>).
-            </p>
           </div>
 
           <div>

@@ -19,7 +19,8 @@ import {
   X,
   Zap,
   Cloud,
-  Activity
+  Activity,
+  Share2
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCRM } from '../../context/CRMContext';
@@ -173,6 +174,16 @@ export const Sidebar: React.FC<Props> = ({
                 </button>
 
                 <button
+                  onClick={() => handleNavClick('gestao_operacional')}
+                  className={navItemClass(currentTab === 'gestao_operacional')}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Share2 className="w-4 h-4" />
+                    <span>Gestão operacional</span>
+                  </div>
+                </button>
+
+                <button
                   onClick={() => handleNavClick('adm_usuarios')}
                   className={navItemClass(currentTab === 'adm_usuarios')}
                 >
@@ -299,7 +310,7 @@ export const Sidebar: React.FC<Props> = ({
         <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
           <span className="flex items-center gap-1 font-medium text-slate-600 dark:text-slate-300">
             <Activity className="w-3 h-3 text-cyan-600 dark:text-cyan-400 animate-pulse" />
-            <span>Requisições Firestore</span>
+            <span>Capacidade de Uso Diário</span>
           </span>
           <span className="font-mono text-[9px] text-slate-400">
             {fbStats.reqPerMinute} req/min

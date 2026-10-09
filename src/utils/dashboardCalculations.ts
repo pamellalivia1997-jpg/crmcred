@@ -331,16 +331,33 @@ export function calculateDashboardMetrics(
 
   const activeCompetenceMonth = dataInicio.substring(0, 7);
 
-  // 4. Determine Active sellers
+  // 4. Determine Active sellers considering temporal admission and deactivation rules
   const activeSellers = users.filter(u => {
     if (u.role !== 'vendedora') return false;
-    if (u.status !== 'ativo') return false;
+
+    const admissaoMes = u.dataAdmissao ? u.dataAdmissao.trim().substring(0, 7) : '';
+    const desativacaoMes = u.dataDesativacao ? u.dataDesativacao.trim().substring(0, 7) : '';
+
+    // If admitted in a future month relative to competence month, not eligible
+    if (admissaoMes && activeCompetenceMonth < admissaoMes) return false;
+
+    // If deactivated before or in this month relative to competence month, not eligible
+    if (desativacaoMes && activeCompetenceMonth >= desativacaoMes) return false;
+
     const foundMeta = metas.find(m => 
-      m.vendedoraId === u.id || 
-      isSameSeller(m.vendedoraNome, u.name) ||
-      (u.salesName && isSameSeller(m.vendedoraNome, u.salesName))
+      m.mesAno === activeCompetenceMonth && (
+        m.vendedoraId === u.id || 
+        isSameSeller(m.vendedoraNome, u.name) ||
+        (u.salesName && isSameSeller(m.vendedoraNome, u.salesName))
+      )
     );
-    if (foundMeta && foundMeta.isAtivoNoMes === false) return false;
+
+    if (foundMeta) {
+      if (foundMeta.isAtivoNoMes === false) return false;
+    } else if (u.status !== 'ativo') {
+      return false;
+    }
+
     return true;
   });
 

@@ -590,6 +590,13 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                 <UploadCloud className="w-3.5 h-3.5" />
                 <span>Importar</span>
               </button>
+              <button
+                onClick={() => setIsClearModalOpen(true)}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs transition-all"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Zerar</span>
+              </button>
             </div>
           )}
 

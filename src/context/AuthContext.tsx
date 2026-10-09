@@ -21,6 +21,7 @@ interface AuthContextType {
   switchUser: (userId: string) => void;
   saveUser: (user: User) => void;
   approveUser: (userId: string, role?: UserRole) => void;
+  deactivateUser: (userId: string) => void;
   linkUserToPreRegistered: (pendingUserId: string, targetPreRegisteredUserId: string) => void;
   deleteUser: (userId: string) => void;
   hasRole: (roles: UserRole[]) => boolean;
@@ -254,11 +255,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       // Check if existing user is still INATIVO / PENDING
-      if (found.status === 'inativo') {
+      if (found.status === 'inativo' && !found.isDeactivated) {
         return {
           success: false,
           pendingApproval: true,
           message: `Sua solicitação de acesso (${found.email}) está PENDENTE de aprovação por um Administrador. Entre em contato com a gestão para ativação.`
+        };
+      }
+      
+      if (found.isDeactivated) {
+        return {
+          success: false,
+          message: `Usuário (${found.email}) desativado. Entre em contato com a gestão para reativação.`
         };
       }
 
@@ -327,6 +335,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const updatedUser: User = {
         ...found,
         status: 'ativo',
+        isDeactivated: false,
         role: role || found.role || 'vendedora'
       };
       crmStorage.saveUser(updatedUser);
@@ -339,6 +348,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         tipoRecurso: 'usuario',
         idRecurso: userId,
         detalhes: `Aprovou e ativou o acesso do usuário ${updatedUser.name} (${updatedUser.email}) como ${updatedUser.role.toUpperCase()}.`
+      });
+    }
+  };
+
+  const deactivateUser = (userId: string) => {
+    const users = crmStorage.getUsers();
+    const found = users.find(u => u.id === userId);
+    if (found) {
+      const updatedUser: User = {
+        ...found,
+        status: 'inativo',
+        isDeactivated: true
+      };
+      crmStorage.saveUser(updatedUser);
+      const updated = crmStorage.getUsers().map(u => normalizeUser(u)!);
+      setAllUsers(updated);
+      crmStorage.logAudit({
+        usuarioId: currentUser?.id || 'adm',
+        usuarioNome: currentUser?.name || 'Administrador',
+        acao: 'editou',
+        tipoRecurso: 'usuario',
+        idRecurso: userId,
+        detalhes: `Desativou o acesso do usuário ${updatedUser.name} (${updatedUser.email}).`
       });
     }
   };
@@ -423,6 +455,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         switchUser,
         saveUser,
         approveUser,
+        deactivateUser,
         linkUserToPreRegistered,
         deleteUser,
         hasRole,

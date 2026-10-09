@@ -287,6 +287,9 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const clearFunilData = async () => {
+    if (!currentUser || currentUser.role !== 'financeiro') {
+      throw new Error('Acesso negado: Apenas usuários do perfil Financeiro podem zerar o funil.');
+    }
     await crmStorage.clearFunilData();
   };
 

@@ -670,25 +670,22 @@ export const VendedoraHome: React.FC<Props> = ({
           <p className="text-base sm:text-lg font-black text-blue-700 dark:text-blue-400 tabular-nums mt-0.5">
             {formatCurrency(fechamentoComissao.comissaoDigitacao + fechamentoComissao.comissaoCartao)}
           </p>
-          <p className="text-[10px] text-blue-600">Digitação & cartões</p>
         </div>
 
         {/* Separated: Comissão de Taxas */}
-        <div className="bg-teal-50/60 dark:bg-teal-950/20 p-3.5 rounded-2xl border border-teal-200/80 dark:border-teal-800 shadow-xs">
-          <span className="text-[11px] font-bold text-teal-800 dark:text-teal-300">Comissão de Taxas</span>
-          <p className="text-base sm:text-lg font-black text-teal-700 dark:text-teal-400 tabular-nums mt-0.5">
+        <div className="bg-blue-50/60 dark:bg-blue-950/20 p-3.5 rounded-2xl border border-blue-200/80 dark:border-blue-800 shadow-xs">
+          <span className="text-[11px] font-bold text-blue-800 dark:text-blue-300">Comissão de Taxas</span>
+          <p className="text-base sm:text-lg font-black text-blue-700 dark:text-blue-400 tabular-nums mt-0.5">
             {formatCurrency(fechamentoComissao.comissaoTaxas)}
           </p>
-          <p className="text-[10px] text-teal-600">Sobre taxas apuradas</p>
         </div>
 
-        {/* Minha Comissão Total (Removed "+ bônus") */}
+        {/* Minha Comissão Total */}
         <div className="bg-emerald-50/60 dark:bg-emerald-950/20 p-3.5 rounded-2xl border border-emerald-200/80 dark:border-emerald-800 shadow-xs">
           <span className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300">Minha Comissão</span>
           <p className="text-base sm:text-lg font-black text-emerald-700 dark:text-emerald-400 tabular-nums mt-0.5">
             {formatCurrency(fechamentoComissao.totalAPagar)}
           </p>
-          <p className="text-[10px] text-emerald-600">Taxas + digitação</p>
         </div>
 
         <div className="bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-xs">

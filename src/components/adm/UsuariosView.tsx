@@ -11,6 +11,7 @@ import {
   Shield,
   Eye,
   EyeOff,
+  UserX,
   Search,
   Lock,
   Mail,
@@ -26,7 +27,7 @@ import { User, UserRole } from '../../types';
 import { cleanPersonName } from '../../utils/formatters';
 
 export const UsuariosView: React.FC = () => {
-  const { allUsers, currentUser, saveUser, approveUser, linkUserToPreRegistered, deleteUser } = useAuth();
+  const { allUsers, currentUser, saveUser, approveUser, deactivateUser, linkUserToPreRegistered, deleteUser } = useAuth();
 
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
@@ -113,6 +114,7 @@ export const UsuariosView: React.FC = () => {
       cpf: formCpf.trim(),
       pix: formPix.trim(),
       status: formStatus,
+      isDeactivated: formStatus === 'inativo',
       dataAdmissao: formDataAdmissao.trim() || existing?.dataAdmissao || currentMonthStr,
       dataDesativacao: finalDesativacao || undefined,
       createdAt: existing?.createdAt || new Date().toISOString()
@@ -244,7 +246,7 @@ export const UsuariosView: React.FC = () => {
                       title="Recusar cadastro"
                     >
                       <X className="w-4 h-4" />
-                      <span className="sm:hidden text-[11px]">Recusar</span>
+                      <span className="sm:hidden text-[11px]">Cancelar</span>
                     </button>
                   </div>
 
@@ -458,29 +460,38 @@ export const UsuariosView: React.FC = () => {
                           >
                             <Edit3 className="w-4 h-4 text-teal-600" />
                           </button>
-
+                          
                           {!isMasterUser && (
-                            <button
-                              onClick={() => {
-                                if (confirmDeleteId === user.id) {
-                                  deleteUser(user.id);
-                                  setConfirmDeleteId(null);
-                                  setUserSuccessMessage(`Usuário "${user.name}" excluído.`);
-                                  setTimeout(() => setUserSuccessMessage(null), 3000);
-                                } else {
-                                  setConfirmDeleteId(user.id);
-                                  setTimeout(() => setConfirmDeleteId(null), 4000);
-                                }
-                              }}
-                              className={`p-1.5 rounded-lg transition ${
-                                confirmDeleteId === user.id
-                                  ? 'bg-rose-600 text-white animate-pulse'
-                                  : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40'
-                              }`}
-                              title={confirmDeleteId === user.id ? 'Clique para confirmar exclusão' : 'Excluir usuário'}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <>
+                              <button
+                                onClick={() => deactivateUser(user.id)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition"
+                                title="Desativar usuário (mantém histórico)"
+                              >
+                                <UserX className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (confirmDeleteId === user.id) {
+                                    deleteUser(user.id);
+                                    setConfirmDeleteId(null);
+                                    setUserSuccessMessage(`Usuário "${user.name}" excluído.`);
+                                    setTimeout(() => setUserSuccessMessage(null), 3000);
+                                  } else {
+                                    setConfirmDeleteId(user.id);
+                                    setTimeout(() => setConfirmDeleteId(null), 4000);
+                                  }
+                                }}
+                                className={`p-1.5 rounded-lg transition ${
+                                  confirmDeleteId === user.id
+                                    ? 'bg-rose-600 text-white animate-pulse'
+                                    : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40'
+                                }`}
+                                title={confirmDeleteId === user.id ? 'Clique para confirmar exclusão' : 'Excluir usuário'}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </>
                           )}
                         </div>
                       </td>
@@ -674,7 +685,7 @@ export const UsuariosView: React.FC = () => {
                       className="w-full px-2.5 py-1.5 text-xs rounded-lg bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 font-semibold text-slate-800 dark:text-white"
                     />
                     <span className="text-[10px] text-slate-400 block mt-0.5 leading-tight">
-                      Não altera metas de meses anteriores à data de admissão.
+                      Define o mês inicial de elegibilidade e participação nas metas.
                     </span>
                   </div>
 

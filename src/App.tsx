@@ -17,6 +17,7 @@ import { ClientesView } from './components/clientes/ClientesView';
 import { AlertasView } from './components/alertas/AlertasView';
 import { RelatoriosSemanalMensal } from './components/relatorios/RelatoriosSemanalMensal';
 import { AdmView } from './components/adm/AdmView';
+import { GestaoOperacionalView } from './components/adm/GestaoOperacionalView';
 import { UsuariosView } from './components/adm/UsuariosView';
 import { FinanceiroView } from './components/financeiro/FinanceiroView';
 import { ComissoesPagarView } from './components/financeiro/ComissoesPagarView';
@@ -152,6 +153,7 @@ const MainApp: React.FC = () => {
           {currentTab === 'relatorios' && <RelatoriosSemanalMensal />}
 
           {currentTab === 'adm' && <AdmView initialSubTab="metas" />}
+          {currentTab === 'gestao_operacional' && <GestaoOperacionalView />}
           {currentTab === 'adm_usuarios' && <UsuariosView />}
 
           {(currentTab === 'financeiro' || currentTab === 'contas_pagar' || currentTab === 'fechamento_vendedoras') && (

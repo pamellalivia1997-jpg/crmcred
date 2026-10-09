@@ -571,9 +571,7 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                     {bancosList.map(b => (
                       <option key={b} value={b}>{b}</option>
                     ))}
-                    <option value="Outro">
-                      {isAdm ? 'Outro' : 'Outro (Solicite inclusão ao gerente)'}
-                    </option>
+                    <option value="Outro">Outro</option>
                   </select>
 
                   {(formData.banco === 'Outro' || (formData.banco as string) === 'Outros') && isAdm && (
@@ -618,9 +616,7 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                     {operacoesList.map(op => (
                       <option key={op} value={op}>{op}</option>
                     ))}
-                    <option value="Outro">
-                      {isAdm ? 'Outro' : 'Outro (Solicite inclusão ao gerente)'}
-                    </option>
+                    <option value="Outro">Outro</option>
                   </select>
 
                   {((formData.operacao as string) === 'Outro' || (formData.operacao as string) === 'Outros') && isAdm && (
@@ -665,14 +661,12 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                     {promotorasList.map(pr => (
                       <option key={pr} value={pr}>{pr}</option>
                     ))}
-                    <option value="Outra">
-                      {isAdm ? 'Outra' : 'Outra (Solicite inclusão ao gerente)'}
-                    </option>
+                    <option value="Outra">Outra</option>
                   </select>
 
                   {(formData.promotora === 'Outra' || (formData.promotora as string) === 'Outro' || (formData.promotora as string) === 'Outros') && isAdm && (
                     <div className="mt-2 p-2 rounded-xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 space-y-1">
-                      <span className="block text-[10px] font-bold text-teal-900 dark:text-teal-200">Nova Promotora:</span>
+                      <span className="block text-[10px] font-bold text-teal-800 dark:text-teal-200">Nova Promotora:</span>
                       <div className="flex gap-1.5">
                         <input
                           type="text"
@@ -712,9 +706,7 @@ export const DetalhePropostaModal: React.FC<Props> = ({ proposta: initialPropost
                     {conveniosList.map(c => (
                       <option key={c} value={c}>{c}</option>
                     ))}
-                    <option value="Outros">
-                      {isAdm ? 'Outros' : 'Outros (Solicite inclusão ao gerente)'}
-                    </option>
+                    <option value="Outros">Outros</option>
                   </select>
 
                   {(formData.convenio === 'Outros' || (formData.convenio as string) === 'Outro') && isAdm && (

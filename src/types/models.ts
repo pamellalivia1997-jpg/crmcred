@@ -11,6 +11,7 @@ export interface User {
   cpf?: string;
   pix?: string;
   status: 'ativo' | 'inativo';
+  isDeactivated?: boolean;
   salesName?: string; // Nome que aparece nos formulários e planilhas (Ex: "Hellen")
   monthlySalesGoal?: number; // Ex: 70000
   monthlyTaxPercentGoal?: number; // Ex: 10.0 (%)
