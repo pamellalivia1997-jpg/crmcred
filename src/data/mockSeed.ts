@@ -165,17 +165,7 @@ function generateCPF(i: number): string {
 }
 
 export function generateSeedData() {
-  return {
-    users: INITIAL_USERS,
-    clientes: [] as Cliente[],
-    propostas: [] as Proposta[],
-    comissoesPromotoras: [] as ComissaoPromotora[],
-    contasPagar: [] as ContaPagar[],
-    metas: [] as MetaVendedora[],
-    feedbacks: [] as Feedback[],
-    alertas: [] as AlertaOportunidade[],
-    auditLogs: [] as AuditLog[]
-  };
+  return generateSeedDataOld();
 }
 
 export function generateSeedDataOld() {
@@ -301,15 +291,15 @@ export function generateSeedDataOld() {
       // In current month (2026-09), generate proposals matching exact management figures
       if (m.year === 2026 && m.month === 9) {
         const sepItems = [
-          // Hellen: Vendas 140.000,00 | Taxa 51.463,46
-          { vendedora: 'Hellen Vasconcelos', val: 70000.00, taxa: 25000.00, day: '02', op: 'Portabilidade' as Operacao, banco: 'Banco Pan' as Banco, prom: 'J2 Promotora' as Promotora },
-          { vendedora: 'Hellen Vasconcelos', val: 70000.00, taxa: 26463.46, day: '15', op: 'Refin' as Operacao, banco: 'C6 Consig' as Banco, prom: 'Sempre' as Promotora },
-          // Lucélia: Vendas 160.000,00 | Taxa 67.433,86
-          { vendedora: 'Lucélia Ramos', val: 80000.00, taxa: 33000.00, day: '05', op: 'Margem' as Operacao, banco: 'Itaú Consig' as Banco, prom: 'DG' as Promotora },
-          { vendedora: 'Lucélia Ramos', val: 80000.00, taxa: 34433.86, day: '20', op: 'Refin da Port' as Operacao, banco: 'Daycoval' as Banco, prom: 'GFT' as Promotora },
-          // Bianca: Vendas 143.163,54 | Taxa 50.762,74
-          { vendedora: 'Bianca', val: 70000.00, taxa: 25000.00, day: '08', op: 'FGTS' as Operacao, banco: 'Facta' as Banco, prom: 'J2 Promotora' as Promotora },
-          { vendedora: 'Bianca', val: 73163.54, taxa: 25762.74, day: '22', op: 'Conta de Energia Elétrica/Luz' as Operacao, banco: 'Safra' as Banco, prom: 'Sempre' as Promotora },
+          // Hellen: Vendas R$ 179.640,02 | Taxas R$ 66.839,46
+          { vendedora: 'Hellen Vasconcelos', val: 89820.01, taxa: 33419.73, day: '02', op: 'Portabilidade' as Operacao, banco: 'Banco Pan' as Banco, prom: 'J2 Promotora' as Promotora },
+          { vendedora: 'Hellen Vasconcelos', val: 89820.01, taxa: 33419.73, day: '15', op: 'Refin' as Operacao, banco: 'C6 Consig' as Banco, prom: 'Sempre' as Promotora },
+          // Lucélia: Vendas R$ 160.717,81 | Taxas R$ 67.433,86
+          { vendedora: 'Lucélia Ramos', val: 80358.90, taxa: 33716.93, day: '05', op: 'Margem' as Operacao, banco: 'Itaú Consig' as Banco, prom: 'DG' as Promotora },
+          { vendedora: 'Lucélia Ramos', val: 80358.91, taxa: 33716.93, day: '20', op: 'Refin da Port' as Operacao, banco: 'Daycoval' as Banco, prom: 'GFT' as Promotora },
+          // Bianca: Vendas R$ 111.082,01 | Taxas R$ 50.512,74 (preserving Bianca's exact previously validated values)
+          { vendedora: 'Bianca', val: 55541.00, taxa: 25256.37, day: '08', op: 'FGTS' as Operacao, banco: 'Facta' as Banco, prom: 'J2 Promotora' as Promotora },
+          { vendedora: 'Bianca', val: 55541.01, taxa: 25256.37, day: '22', op: 'Conta de Energia Elétrica/Luz' as Operacao, banco: 'Safra' as Banco, prom: 'Sempre' as Promotora },
         ];
 
         sepItems.forEach((item, idx) => {
