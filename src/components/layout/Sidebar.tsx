@@ -174,6 +174,16 @@ export const Sidebar: React.FC<Props> = ({
                 </button>
 
                 <button
+                  onClick={() => handleNavClick('gestao_operacional')}
+                  className={navItemClass(currentTab === 'gestao_operacional')}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Share2 className="w-4 h-4" />
+                    <span>Gestão operacional</span>
+                  </div>
+                </button>
+
+                <button
                   onClick={() => handleNavClick('adm_usuarios')}
                   className={navItemClass(currentTab === 'adm_usuarios')}
                 >
@@ -251,18 +261,6 @@ export const Sidebar: React.FC<Props> = ({
               </span>
             )}
           </button>
-          
-          {isDigitador && (
-            <button
-              onClick={() => handleNavClick('gestao_operacional')}
-              className={navItemClass(currentTab === 'gestao_operacional')}
-            >
-              <div className="flex items-center gap-2.5">
-                <Share2 className="w-4 h-4" />
-                <span>Gestão operacional</span>
-              </div>
-            </button>
-          )}
         </div>
 
 

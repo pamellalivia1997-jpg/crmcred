@@ -55,12 +55,12 @@ Este documento orienta a conexão do **Lívia Cred Saúde CRM** a um projeto rea
 Crie um arquivo `.env` na raiz do projeto (ou configure nas variáveis de ambiente da nuvem):
 
 ```env
-VITE_FIREBASE_API_KEY="AIzaSyCbmsentbF3Wz9CMXHFbd7t3c0AnUAQx14"
-VITE_FIREBASE_AUTH_DOMAIN="liviacred-ead6d.firebaseapp.com"
-VITE_FIREBASE_PROJECT_ID="liviacred-ead6d"
-VITE_FIREBASE_STORAGE_BUCKET="liviacred-ead6d.firebasestorage.app"
-VITE_FIREBASE_MESSAGING_SENDER_ID="989478052403"
-VITE_FIREBASE_APP_ID="1:989478052403:web:1d6dd84cac6c0718b27946"
+VITE_FIREBASE_API_KEY="AIzaSy..."
+VITE_FIREBASE_AUTH_DOMAIN="livia-credsaude-crm.firebaseapp.com"
+VITE_FIREBASE_PROJECT_ID="livia-credsaude-crm"
+VITE_FIREBASE_STORAGE_BUCKET="livia-credsaude-crm.appspot.com"
+VITE_FIREBASE_MESSAGING_SENDER_ID="123456789"
+VITE_FIREBASE_APP_ID="1:123456789:web:abcdef"
 ```
 
-O projeto oficial é `liviacred-ead6d`. O aplicativo usa o Firestore padrão desse projeto e não deve apontar para projetos temporários ou bancos nomeados de ambientes de desenvolvimento.
+Quando essas variáveis estiverem preenchidas, o aplicativo ativa automaticamente a sincronização em tempo real com o Firestore. Quando não estiverem presentes, o CRM executa no modo protótipo com armazenamento persistente em LocalStorage e dados seed enriquecidos.

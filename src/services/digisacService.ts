@@ -475,7 +475,7 @@ export async function prepareDigisacChat(
   const directWaUrl = `https://wa.me/${normalized}`;
 
   // 2. Validate token
-  const apiToken = token || process.env.DIGISAC_API_TOKEN;
+  const apiToken = token !== undefined ? token : ((typeof process !== 'undefined' && process?.env?.DIGISAC_API_TOKEN) || '');
   if (!apiToken || apiToken.trim() === '') {
     return {
       success: false,

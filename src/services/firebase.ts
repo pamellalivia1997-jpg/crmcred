@@ -1,19 +1,32 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer, collection, onSnapshot, setDoc, getDocs, deleteDoc, writeBatch } from 'firebase/firestore';
-const firebaseConfig = {
+// Credenciais oficiais e definitivas do projeto Firebase da Lívia Cred Saúde (liviacred-ead6d)
+export const OFFICIAL_FIREBASE_CONFIG = {
   apiKey: 'AIzaSyCbmsentbF3Wz9CMXHFbd7t3c0AnUAQx14',
   authDomain: 'liviacred-ead6d.firebaseapp.com',
   projectId: 'liviacred-ead6d',
   storageBucket: 'liviacred-ead6d.firebasestorage.app',
   messagingSenderId: '989478052403',
-  appId: '1:989478052403:web:1d6dd84cac6c0718b27946'
+  appId: '1:989478052403:web:1d6dd84cac6c0718b27946',
+};
+
+const env = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : ((typeof process !== 'undefined' && process?.env) || {});
+
+// Leitura prioritária via GitHub Secrets / import.meta.env com fallback direto e oficial para liviacred-ead6d
+export const activeConfig = {
+  apiKey: env.VITE_FIREBASE_API_KEY || OFFICIAL_FIREBASE_CONFIG.apiKey,
+  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || OFFICIAL_FIREBASE_CONFIG.authDomain,
+  projectId: env.VITE_FIREBASE_PROJECT_ID || OFFICIAL_FIREBASE_CONFIG.projectId,
+  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || OFFICIAL_FIREBASE_CONFIG.storageBucket,
+  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || OFFICIAL_FIREBASE_CONFIG.messagingSenderId,
+  appId: env.VITE_FIREBASE_APP_ID || OFFICIAL_FIREBASE_CONFIG.appId,
 };
 
 // Initialize Firebase App
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+const app = getApps().length > 0 ? getApp() : initializeApp(activeConfig);
 
-// Use the default Firestore database from the official Firebase project.
+// Initialize Firestore Database (liviacred-ead6d)
 export const db = getFirestore(app);
 
 // Initialize Firebase Auth

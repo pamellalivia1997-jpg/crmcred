@@ -15,9 +15,8 @@ import {
   Promotora
 } from '../types';
 import { generateSeedData, INITIAL_USERS } from '../data/mockSeed';
-import { auth, db, handleFirestoreError, OperationType } from './firebase';
+import { db, handleFirestoreError, OperationType } from './firebase';
 import { doc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } from 'firebase/firestore';
-import { onAuthStateChanged } from 'firebase/auth';
 import { normalizeSellerName, getLocalDateString } from '../utils/formatters';
 import { firebaseUsageTracker } from './firebaseUsageTracker';
 
@@ -234,6 +233,23 @@ function sanitizeStore(store: CRMDataStore): { sanitized: CRMDataStore; modified
     modified = true;
   }
 
+  // Purge incomplete legacy August metas (195k anomaly) so it uses standard 400k equal distribution fallback
+  const hasNormalizedAugMetas = typeof localStorage !== 'undefined' && localStorage.getItem('lviacred_august_metas_normalized_v1');
+  if (!hasNormalizedAugMetas) {
+    if (Array.isArray(store.metas)) {
+      const augMetas = store.metas.filter(m => m.mesAno === '2026-08');
+      const augSum = augMetas.reduce((acc, m) => acc + (m.vendedoraId !== 'loja' ? (m.metaVenda || 0) : 0), 0);
+      // If legacy 195k or partial
+      if (augSum === 195000 || augMetas.some(m => m.vendedoraId !== 'loja' && m.metaVenda === 0)) {
+        store.metas = store.metas.filter(m => m.mesAno !== '2026-08');
+        modified = true;
+      }
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('lviacred_august_metas_normalized_v1', 'true');
+    }
+  }
+
   return { sanitized: store, modified };
 }
 
@@ -297,8 +313,6 @@ function cleanPayloadForFirestore(data: any): any {
 
 let quotaExceededState = false;
 let activeUnsubscribes: Array<() => void> = [];
-let authSyncWatcherStarted = false;
-const pendingFirestoreWrites = new Map<string, { collectionName: string; id: string; data: any }>();
 
 export function isFirestoreQuotaExceeded(): boolean {
   return (
@@ -325,10 +339,6 @@ export function setFirestoreQuotaExceeded() {
 
 async function syncItemToFirestore(collectionName: string, id: string, data: any) {
   if (isFirestoreQuotaExceeded()) return;
-  if (!auth.currentUser) {
-    pendingFirestoreWrites.set(`${collectionName}/${id}`, { collectionName, id, data });
-    return;
-  }
   try {
     const docRef = doc(db, collectionName, id);
     const cleaned = cleanPayloadForFirestore(data);
@@ -345,12 +355,6 @@ async function syncItemToFirestore(collectionName: string, id: string, data: any
 
 async function syncBatchToFirestore(collectionName: string, items: any[]) {
   if (!items || items.length === 0 || isFirestoreQuotaExceeded()) return;
-  if (!auth.currentUser) {
-    items.forEach(item => {
-      if (item?.id) pendingFirestoreWrites.set(`${collectionName}/${item.id}`, { collectionName, id: item.id, data: item });
-    });
-    return;
-  }
   try {
     const batch = writeBatch(db);
     // Limit to 400 operations per batch for Firestore safety
@@ -372,15 +376,6 @@ async function syncBatchToFirestore(collectionName: string, items: any[]) {
   }
 }
 
-async function flushPendingFirestoreWrites() {
-  if (!auth.currentUser || pendingFirestoreWrites.size === 0) return;
-  const pending = Array.from(pendingFirestoreWrites.values());
-  pendingFirestoreWrites.clear();
-  for (const item of pending) {
-    await syncItemToFirestore(item.collectionName, item.id, item.data);
-  }
-}
-
 async function deleteItemFromFirestore(collectionName: string, id: string) {
   if (isFirestoreQuotaExceeded()) return;
   try {
@@ -398,22 +393,13 @@ async function deleteItemFromFirestore(collectionName: string, id: string) {
 
 const suppressSnapshotCollections = new Set<string>();
 
-// Listen to Firestore real-time snapshots with smart cache reconciliation.
-// This function is called only after Firebase Auth has a signed-in user.
-function startFirestoreRealtimeSync() {
-  console.log('🔄 Iniciando sincronização Firestore...');
-  const quotaExceeded = isFirestoreQuotaExceeded();
-  console.log('Quota exceeded check:', quotaExceeded);
-  if (quotaExceeded) {
+// Listen to Firestore real-time snapshots with smart cache reconciliation
+export function initFirestoreRealtimeSync() {
+  if (isFirestoreQuotaExceeded()) {
     console.info('ℹ️ Modo Offline Local ativo: cota diária do Firestore atingida anteriormente. O CRM permanece 100% funcional localmente.');
     return;
   }
 
-  // Force reset if accidentally marked in session storage (for development/demo purposes)
-  if (typeof sessionStorage !== 'undefined') {
-    sessionStorage.removeItem('crm_firestore_quota_exceeded');
-  }
-  
   const collectionsToSync: Array<keyof CRMDataStore> = [
     'users',
     'clientes',
@@ -486,27 +472,6 @@ function startFirestoreRealtimeSync() {
       } else {
         console.warn(`Erro ao registrar listener onSnapshot para ${coll}:`, e);
       }
-    }
-  });
-}
-
-// Do not open listeners or attempt writes before Firebase Auth finishes. A
-// local CRM password is not a Firestore credential; Google/Firebase Auth is.
-export function initFirestoreRealtimeSync() {
-  if (authSyncWatcherStarted) return;
-  authSyncWatcherStarted = true;
-
-  onAuthStateChanged(auth, (user) => {
-    activeUnsubscribes.forEach(unsub => {
-      try { unsub(); } catch (_) {}
-    });
-    activeUnsubscribes = [];
-
-    if (user) {
-      startFirestoreRealtimeSync();
-      void flushPendingFirestoreWrites();
-    } else {
-      console.info('Firestore aguardando autenticação Firebase; dados locais não serão enviados anonimamente.');
     }
   });
 }
@@ -640,9 +605,9 @@ export const crmStorage = {
     this.clearAllTestData();
   },
 
-  // Zerar somente dados operacionais; usuários, autorizações e metas são preservados.
+  // Zerar todos os dados operacionais; a coleção users é preservada.
   async clearAllTestData(): Promise<void> {
-    const collectionsToClear = ['clientes', 'propostas', 'comissoesPromotoras', 'contasPagar', 'alertas', 'feedbacks', 'auditLogs'] as const;
+    const collectionsToClear = ['clientes', 'propostas', 'comissoesPromotoras', 'contasPagar', 'metas', 'alertas', 'feedbacks', 'auditLogs'] as const;
     collectionsToClear.forEach(c => suppressSnapshotCollections.add(c));
 
     if (typeof localStorage !== 'undefined') {
@@ -657,6 +622,7 @@ export const crmStorage = {
       propostas: [],
       comissoesPromotoras: [],
       contasPagar: [],
+      metas: [],
       alertas: [],
       feedbacks: [],
       auditLogs: []
@@ -915,8 +881,8 @@ export const crmStorage = {
       const parsedTaxa = parseBrazilianCurrency(row.valorTaxa);
       const parsedPercentTaxa = parseBrazilianCurrency(row.percentualTaxa);
       const dateDigitacao = parseBrazilianDate(row.dataDigitacao) || getLocalDateString();
-      // Preserva a célula vazia da planilha: data de pagamento não é inferida.
-      const datePagamento = parseBrazilianDate(row.dataPagamentoCliente);
+      const rawDatePagto = parseBrazilianDate(row.dataPagamentoCliente);
+      const datePagamento = rawDatePagto || dateDigitacao;
 
       // Skip row if it has no financial value, no date, and no contract (completely blank line)
       if (parsedEmp <= 0 && parsedTaxa <= 0 && (!cleanContract || cleanContract === '0') && !row.cpf) {
@@ -986,6 +952,8 @@ export const crmStorage = {
       if (row.clientePagou !== undefined && row.clientePagou !== null && String(row.clientePagou).trim() !== '') {
         const cpStr = String(row.clientePagou).trim().toUpperCase();
         isTaxaRealmentePaga = cpStr === 'SIM' || cpStr === 'S' || cpStr === 'TRUE' || cpStr === 'PAGA' || cpStr === 'PAGO';
+      } else {
+        isTaxaRealmentePaga = statusProp === 'Paga';
       }
 
       // 5. Create or Update Proposta for this specific row using deterministic keys
