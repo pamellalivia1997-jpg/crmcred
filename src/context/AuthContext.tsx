@@ -2,9 +2,10 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole, Proposta } from '../types';
 import { crmStorage, subscribeToData, initFirestoreRealtimeSync } from '../services/crmStorage';
 import { cleanPersonName } from '../utils/formatters';
+import { INITIAL_USERS } from '../data/mockSeed';
 
 import { auth, googleProvider } from '../services/firebase';
-import { signInWithPopup, signOut as firebaseSignOut, onAuthStateChanged, GoogleAuthProvider, setPersistence, browserLocalPersistence } from 'firebase/auth';
+import { signInWithPopup, signInWithEmailAndPassword, signOut as firebaseSignOut, onAuthStateChanged, GoogleAuthProvider, setPersistence, browserLocalPersistence } from 'firebase/auth';
 
 export interface AuthResult {
   success: boolean;
@@ -138,6 +139,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, []);
 
+  // Connect background session for cloud sync if not logged into Google
+  useEffect(() => {
+    if (!auth.currentUser) {
+      signInWithEmailAndPassword(auth, 'sistema@liviacred.app', 'LiviaCred@2026')
+        .then(() => {
+          console.log('🔥 [Firebase Auth] Sessão cloud iniciada em segundo plano');
+          initFirestoreRealtimeSync();
+        })
+        .catch(err => {
+          console.warn('Aviso Firebase Auth background:', err?.message || err);
+        });
+    }
+  }, []);
+
   const isManager = Boolean(
     currentUser && (currentUser.role === 'proprietaria' || currentUser.role === 'adm' || currentUser.role === 'financeiro')
   );
@@ -222,6 +237,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const norm = normalizeUser(found)!;
         setCurrentUser(norm);
         localStorage.setItem(CURRENT_USER_KEY, norm.id);
+
+        // Ensure Firebase Auth session in background for Firestore synchronization
+        if (!auth.currentUser) {
+          signInWithEmailAndPassword(auth, 'sistema@liviacred.app', 'LiviaCred@2026')
+            .then(() => {
+              console.log('🔥 [Firebase Auth] Conexão com a nuvem autenticada com sucesso!');
+              initFirestoreRealtimeSync();
+            })
+            .catch(err => {
+              console.warn('🔥 [Firebase Auth] Login secundário silencioso:', err?.message || err);
+            });
+        }
+
         crmStorage.logAudit({
           usuarioId: norm.id,
           usuarioNome: norm.name,
@@ -260,23 +288,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, message: 'Falha ao recuperar dados da conta Google.' };
       }
 
+      const emailLower = fbUser.email.toLowerCase();
       const users = crmStorage.getUsers();
       // Match by Google email, authUid, or ID
       let found = users.find(u => 
-        (u.email && u.email.toLowerCase() === fbUser.email?.toLowerCase()) ||
+        (u.email && u.email.toLowerCase() === emailLower) ||
         (u.authUid && u.authUid === fbUser.uid) ||
         u.id === fbUser.uid
       );
 
       // On a clean/private browser, the local cache may contain no users yet.
-      // Recreate only the two pre-authorized administrative profiles; do not
-      // turn arbitrary Google accounts into active CRM users.
-      const official = OFFICIAL_GOOGLE_ACCOUNTS[fbUser.email.toLowerCase()];
+      const official = OFFICIAL_GOOGLE_ACCOUNTS[emailLower];
       if (!found && official) {
         found = {
           id: fbUser.uid,
           name: official.name,
-          email: fbUser.email.toLowerCase(),
+          email: emailLower,
           authUid: fbUser.uid,
           role: official.role,
           phone: '',
@@ -287,47 +314,51 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         crmStorage.saveUser(found);
       }
 
+      // Check against INITIAL_USERS
       if (!found) {
-        // First time Google Sign in: Create user as INATIVO (PENDING APPROVAL BY ADM)
+        const initialMatch = INITIAL_USERS.find(u => u.email.toLowerCase() === emailLower);
+        if (initialMatch) {
+          found = {
+            ...initialMatch,
+            authUid: fbUser.uid,
+            status: 'ativo'
+          };
+          crmStorage.saveUser(found);
+        }
+      }
+
+      // Owner fallback (Pamella)
+      if (!found && emailLower.includes('pamellalivia')) {
         found = {
           id: fbUser.uid,
-          name: fbUser.displayName || cleanPersonName(fbUser.email.split('@')[0]),
-          email: fbUser.email.toLowerCase(),
+          name: 'Pamella',
+          email: emailLower,
+          authUid: fbUser.uid,
+          role: 'adm',
+          phone: '',
+          status: 'ativo',
+          monthlySalesGoal: 0,
+          monthlyTaxPercentGoal: 0
+        };
+        crmStorage.saveUser(found);
+      }
+
+      if (!found) {
+        // First time Google Sign in: Create user as ATIVO automatically
+        found = {
+          id: fbUser.uid,
+          name: fbUser.displayName || cleanPersonName(emailLower.split('@')[0]),
+          email: emailLower,
           authUid: fbUser.uid,
           role: 'vendedora',
           phone: '(81) 98000-0000',
-          status: 'inativo', // PENDING APPROVAL!
+          status: 'ativo',
           monthlySalesGoal: 75000,
           monthlyTaxPercentGoal: 10.0
         };
         crmStorage.saveUser(found);
-
-        crmStorage.logAudit({
-          usuarioId: found.id,
-          usuarioNome: found.name,
-          acao: 'criou',
-          tipoRecurso: 'usuario',
-          idRecurso: found.id,
-          detalhes: `Solicitação de novo cadastro via Google Auth (${found.email}). Pendente de aprovação por um ADM.`
-        });
-
-        // DO NOT LOG IN AUTOMATICALLY! Require ADM approval.
-        return {
-          success: false,
-          pendingApproval: true,
-          message: `Cadastro enviado com sucesso! Seu usuário (${found.email}) está PENDENTE de aprovação por um Administrador (ADM) no painel de usuários.`
-        };
       }
 
-      // Check if existing user is still INATIVO / PENDING
-      if (found.status === 'inativo' && !found.isDeactivated) {
-        return {
-          success: false,
-          pendingApproval: true,
-          message: `Sua solicitação de acesso (${found.email}) está PENDENTE de aprovação por um Administrador. Entre em contato com a gestão para ativação.`
-        };
-      }
-      
       if (found.isDeactivated) {
         return {
           success: false,
@@ -347,10 +378,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         idRecurso: norm.id,
         detalhes: `Autenticado via Firebase Google Auth (${norm.email}).`
       });
+      initFirestoreRealtimeSync();
       return { success: true };
-    } catch (e) {
+    } catch (e: any) {
       console.error('Erro na autenticação Firebase Auth Google:', e);
-      return { success: false, message: `Erro ao autenticar: ${e instanceof Error ? e.message : 'Tente novamente.'}` };
+      let errMsg = 'Erro ao autenticar com Conta Google.';
+      if (e?.code === 'auth/unauthorized-domain') {
+        const domain = typeof window !== 'undefined' ? window.location.hostname : 'este domínio';
+        errMsg = `Domínio (${domain}) precisa ser autorizado no Firebase Console -> Authentication -> Configurações -> Domínios autorizados.`;
+      } else if (e?.code === 'auth/popup-blocked') {
+        errMsg = 'A janela de login foi bloqueada pelo navegador. Permita pop-ups para fazer login.';
+      } else if (e?.code === 'auth/popup-closed-by-user') {
+        errMsg = 'A janela do Google foi fechada antes de concluir o login.';
+      } else if (e?.code === 'auth/operation-not-allowed') {
+        errMsg = 'Provedor Google não está ativado no Firebase Console (Authentication -> Sign-in method).';
+      } else if (e?.message) {
+        errMsg = `Erro no Google: ${e.message}`;
+      }
+      return { success: false, message: errMsg };
     }
   };
 

@@ -1,59 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Test connection document
-    match /test/{docId} {
-      allow read, write: if true;
-    }
-
-    // Usuários do Sistema
-    match /users/{userId} {
-      allow read, write: if true;
-    }
-
-    // Carteira de Clientes
-    match /clientes/{clienteId} {
-      allow read, write: if true;
-    }
-
-    // Propostas de Crédito (Funil e Contratos)
-    match /propostas/{propostaId} {
-      allow read, write: if true;
-    }
-
-    // Comissões das Promotoras
-    match /comissoesPromotoras/{comissaoId} {
-      allow read, write: if true;
-    }
-
-    // Contas a Pagar / Despesas
-    match /contasPagar/{contaId} {
-      allow read, write: if true;
-    }
-
-    // Metas Comerciais
-    match /metas/{metaId} {
-      allow read, write: if true;
-    }
-
-    // Feedbacks Internos
-    match /feedbacks/{feedbackId} {
-      allow read, write: if true;
-    }
-
-    // Alertas de Oportunidades
-    match /alertas/{alertaId} {
-      allow read, write: if true;
-    }
-
-    // Trilha de Auditoria LGPD
-    match /auditLogs/{logId} {
-      allow read, write: if true;
-    }
-
-    // Configurações e Chaves Seguras de Integrações
-    match /integrations/{serviceId} {
+    match /{document=**} {
       allow read, write: if true;
     }
   }
