@@ -57,6 +57,16 @@ type SortField =
 
 // Robust TSV/CSV text parser that handles multiline quoted fields
 function parseSpreadsheetRawText(rawText: string): string[][] {
+  // A planilha oficial é TSV. Algumas células copiadas pelo Excel trazem
+  // aspas soltas em uma célula vizinha; nesse caso, respeitar as aspas como
+  // delimitador faria a linha perder colunas e deslocaria empréstimo/status.
+  // Para TSV, a tabulação é a fonte de verdade das colunas.
+  if (rawText.includes('\t')) {
+    return rawText.split(/\r?\n/)
+      .map(line => line.split('\t').map(cell => cell.trim().replace(/^"|"$/g, '')))
+      .filter(row => row.some(cell => cell.length > 0));
+  }
+
   const rows: string[][] = [];
   let currentRow: string[] = [];
   let currentField = '';
@@ -108,21 +118,36 @@ function parseSpreadsheetRawText(rawText: string): string[][] {
 function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: string): any[] {
   if (!allRows || allRows.length === 0) return [];
 
-  const firstLineStr = allRows[0].join(' ').toLowerCase();
   let headerRow: string[] | null = null;
   let dataRowsIndex = 0;
 
-  if (
-    firstLineStr.includes('cpf') ||
-    firstLineStr.includes('nome') ||
-    firstLineStr.includes('cliente') ||
-    firstLineStr.includes('carimbo') ||
-    firstLineStr.includes('vendedor') ||
-    firstLineStr.includes('contrato') ||
-    firstLineStr.includes('banco')
-  ) {
-    headerRow = allRows[0].map(h => String(h || '').toLowerCase().trim());
-    dataRowsIndex = 1;
+  // Algumas planilhas começam com uma ou mais linhas de instruções antes do
+  // cabeçalho. Nunca tratar essas instruções como colunas: localizar a linha
+  // que contém os campos financeiros e de competência da tabela real.
+  const headerIndex = allRows.findIndex(row => {
+    const text = row.map(cell => String(cell || '')).join(' ')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    return text.includes('data da digitacao') &&
+      text.includes('valor do emprestimo') &&
+      (text.includes('vendedor') || text.includes('status do contrato'));
+  });
+
+  if (headerIndex >= 0) {
+    // No arquivo oficial, CPF/nome/telefone ficam nas duas primeiras linhas
+    // e as datas/valores/status na terceira. Reunir essas células preserva o
+    // alinhamento com as linhas de dados (inclusive no formato Google Forms).
+    const headerCells = allRows.slice(0, headerIndex + 1).flat()
+      .map(cell => String(cell || '').replace(/^"|"$/g, '').trim())
+      .filter(cell => cell.length > 0);
+    headerRow = headerCells.map(h => h.toLowerCase().trim());
+    dataRowsIndex = headerIndex + 1;
+  } else {
+    // Compatibilidade com tabelas antigas sem cabeçalho completo.
+    const firstLineStr = allRows[0].join(' ').toLowerCase();
+    if (firstLineStr.includes('cpf') || firstLineStr.includes('nome') || firstLineStr.includes('cliente') || firstLineStr.includes('vendedor') || firstLineStr.includes('contrato') || firstLineStr.includes('banco')) {
+      headerRow = allRows[0].map(h => String(h || '').toLowerCase().trim());
+      dataRowsIndex = 1;
+    }
   }
 
   let colCpf = -1;

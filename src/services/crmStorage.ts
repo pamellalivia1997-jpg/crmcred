@@ -15,8 +15,9 @@ import {
   Promotora
 } from '../types';
 import { generateSeedData, INITIAL_USERS } from '../data/mockSeed';
-import { db, handleFirestoreError, OperationType } from './firebase';
+import { auth, db, handleFirestoreError, OperationType } from './firebase';
 import { doc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 import { normalizeSellerName, getLocalDateString } from '../utils/formatters';
 import { firebaseUsageTracker } from './firebaseUsageTracker';
 
@@ -296,6 +297,8 @@ function cleanPayloadForFirestore(data: any): any {
 
 let quotaExceededState = false;
 let activeUnsubscribes: Array<() => void> = [];
+let authSyncWatcherStarted = false;
+const pendingFirestoreWrites = new Map<string, { collectionName: string; id: string; data: any }>();
 
 export function isFirestoreQuotaExceeded(): boolean {
   return (
@@ -322,6 +325,10 @@ export function setFirestoreQuotaExceeded() {
 
 async function syncItemToFirestore(collectionName: string, id: string, data: any) {
   if (isFirestoreQuotaExceeded()) return;
+  if (!auth.currentUser) {
+    pendingFirestoreWrites.set(`${collectionName}/${id}`, { collectionName, id, data });
+    return;
+  }
   try {
     const docRef = doc(db, collectionName, id);
     const cleaned = cleanPayloadForFirestore(data);
@@ -338,6 +345,12 @@ async function syncItemToFirestore(collectionName: string, id: string, data: any
 
 async function syncBatchToFirestore(collectionName: string, items: any[]) {
   if (!items || items.length === 0 || isFirestoreQuotaExceeded()) return;
+  if (!auth.currentUser) {
+    items.forEach(item => {
+      if (item?.id) pendingFirestoreWrites.set(`${collectionName}/${item.id}`, { collectionName, id: item.id, data: item });
+    });
+    return;
+  }
   try {
     const batch = writeBatch(db);
     // Limit to 400 operations per batch for Firestore safety
@@ -359,6 +372,15 @@ async function syncBatchToFirestore(collectionName: string, items: any[]) {
   }
 }
 
+async function flushPendingFirestoreWrites() {
+  if (!auth.currentUser || pendingFirestoreWrites.size === 0) return;
+  const pending = Array.from(pendingFirestoreWrites.values());
+  pendingFirestoreWrites.clear();
+  for (const item of pending) {
+    await syncItemToFirestore(item.collectionName, item.id, item.data);
+  }
+}
+
 async function deleteItemFromFirestore(collectionName: string, id: string) {
   if (isFirestoreQuotaExceeded()) return;
   try {
@@ -376,8 +398,9 @@ async function deleteItemFromFirestore(collectionName: string, id: string) {
 
 const suppressSnapshotCollections = new Set<string>();
 
-// Listen to Firestore real-time snapshots with smart cache reconciliation
-export function initFirestoreRealtimeSync() {
+// Listen to Firestore real-time snapshots with smart cache reconciliation.
+// This function is called only after Firebase Auth has a signed-in user.
+function startFirestoreRealtimeSync() {
   console.log('🔄 Iniciando sincronização Firestore...');
   const quotaExceeded = isFirestoreQuotaExceeded();
   console.log('Quota exceeded check:', quotaExceeded);
@@ -463,6 +486,27 @@ export function initFirestoreRealtimeSync() {
       } else {
         console.warn(`Erro ao registrar listener onSnapshot para ${coll}:`, e);
       }
+    }
+  });
+}
+
+// Do not open listeners or attempt writes before Firebase Auth finishes. A
+// local CRM password is not a Firestore credential; Google/Firebase Auth is.
+export function initFirestoreRealtimeSync() {
+  if (authSyncWatcherStarted) return;
+  authSyncWatcherStarted = true;
+
+  onAuthStateChanged(auth, (user) => {
+    activeUnsubscribes.forEach(unsub => {
+      try { unsub(); } catch (_) {}
+    });
+    activeUnsubscribes = [];
+
+    if (user) {
+      startFirestoreRealtimeSync();
+      void flushPendingFirestoreWrites();
+    } else {
+      console.info('Firestore aguardando autenticação Firebase; dados locais não serão enviados anonimamente.');
     }
   });
 }

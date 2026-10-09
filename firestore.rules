@@ -1,60 +1,58 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
 
-    // Test connection document
+    // Nenhum documento do CRM pode ser lido ou alterado anonimamente.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
     match /test/{docId} {
-      allow read, write: if true;
+      allow read, write: if isSignedIn();
     }
 
-    // Usuários do Sistema
     match /users/{userId} {
-      allow read, write: if true;
+      allow read, write: if isSignedIn();
     }
 
-    // Carteira de Clientes
     match /clientes/{clienteId} {
-      allow read, write: if true;
+      allow read, write: if isSignedIn();
     }
 
-    // Propostas de Crédito (Funil e Contratos)
     match /propostas/{propostaId} {
-      allow read, write: if true;
+      allow read, write: if isSignedIn();
     }
 
-    // Comissões das Promotoras
     match /comissoesPromotoras/{comissaoId} {
-      allow read, write: if true;
+      allow read, write: if isSignedIn();
     }
 
-    // Contas a Pagar / Despesas
     match /contasPagar/{contaId} {
-      allow read, write: if true;
+      allow read, write: if isSignedIn();
     }
 
-    // Metas Comerciais
     match /metas/{metaId} {
-      allow read, write: if true;
+      allow read, write: if isSignedIn();
     }
 
-    // Feedbacks Internos
     match /feedbacks/{feedbackId} {
-      allow read, write: if true;
+      allow read, write: if isSignedIn();
     }
 
-    // Alertas de Oportunidades
     match /alertas/{alertaId} {
-      allow read, write: if true;
+      allow read, write: if isSignedIn();
     }
 
-    // Trilha de Auditoria LGPD
     match /auditLogs/{logId} {
-      allow read, write: if true;
+      allow read, write: if isSignedIn();
     }
 
-    // Configurações e Chaves Seguras de Integrações (ex: DigiSac)
+    // Tokens e segredos de integração não devem ser persistidos no frontend.
     match /integrations/{serviceId} {
-      allow read, write: if true;
+      allow read, write: if isSignedIn();
     }
   }
 }
