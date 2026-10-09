@@ -29,7 +29,7 @@ import { SmartFilter } from '../common/SmartFilter';
 import { useCRM } from '../../context/CRMContext';
 import { useAuth } from '../../context/AuthContext';
 import { formatCurrency, formatPercent, formatDate, normalizeSellerName, getMonthYearLabel, isSameSeller } from '../../utils/formatters';
-import { matchesSeller, matchProposalToSeller, isTaxaPaga, isContratoPago, normalizeDateToISO, calculateOperationsChartData, calculatePromotorasChartData, calculateEvolutionVendasTaxas } from '../../utils/dashboardCalculations';
+import { matchesSeller, matchProposalToSeller, isTaxaPaga, isContratoPago, normalizeDateToISO } from '../../utils/dashboardCalculations';
 import type { Proposta, StatusProposta, Operacao, Banco, Promotora } from '../../types/models';
 import {
   ResponsiveContainer,
@@ -370,13 +370,93 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   const quantoFalta = Math.max(0, metaLoja - totalVendas);
 
   // Operations breakdown - strictly paid sales and isTaxaPaga taxes
-  const operationsChartData = useMemo(() => calculateOperationsChartData(filteredPropostas), [filteredPropostas]);
+  const operationsChartData = useMemo(() => {
+    const map = new Map<Operacao, { operacao: Operacao; vendas: number; taxa: number; count: number }>();
+    filteredPropostas.forEach(p => {
+      const isPaid = p.status === 'Paga';
+      const isTaxPaid = p.taxaPaga === true || String(p.taxaPaga).toUpperCase() === 'SIM' || p.clientePagouTaxa === true;
+      const curr = map.get(p.operacao) || { operacao: p.operacao, vendas: 0, taxa: 0, count: 0 };
+      
+      if (isPaid) {
+        curr.vendas += (p.valorEmprestimo || 0);
+        curr.count += 1;
+      }
+      if (isTaxPaid) {
+        curr.taxa += (p.valorTaxa || 0);
+      }
+      map.set(p.operacao, curr);
+    });
+
+    return Array.from(map.values())
+      .map(item => ({
+        ...item,
+        percentualTaxa: item.vendas > 0 ? (item.taxa / item.vendas) * 100 : 0
+      }))
+      .sort((a, b) => b.vendas - a.vendas);
+  }, [filteredPropostas]);
 
   // Promotoras breakdown - strictly paid sales (exclusively hiding assessoria)
-  const promotorasChartData = useMemo(() => calculatePromotorasChartData(filteredPropostas), [filteredPropostas]);
+  const promotorasChartData = useMemo(() => {
+    const map = new Map<string, { promotora: string; vendas: number; count: number }>();
+    filteredPropostas.filter(isContratoPago).forEach(p => {
+      if (!p.promotora) return;
+      const promLower = p.promotora.toLowerCase().trim();
+      const opLower = (p.operacao || '').toLowerCase().trim();
+      if (
+        promLower.includes('maquineta') ||
+        promLower.includes('pessoal de livia') ||
+        promLower.includes('pessoal da livia') ||
+        promLower.includes('assessoria') ||
+        opLower.includes('assessoria')
+      ) {
+        return;
+      }
+      const curr = map.get(p.promotora) || { promotora: p.promotora, vendas: 0, count: 0 };
+      curr.vendas += (p.valorEmprestimo || 0);
+      curr.count += 1;
+      map.set(p.promotora, curr);
+    });
+
+    return Array.from(map.values()).sort((a, b) => b.vendas - a.vendas);
+  }, [filteredPropostas]);
 
   // 12-Month evolution data for Chart 1
-  const evolutionVendasTaxas = useMemo(() => calculateEvolutionVendasTaxas(propostas), [propostas]);
+  const evolutionVendasTaxas = useMemo(() => {
+    const months = [
+      { key: '2025-10', label: 'Out/25' },
+      { key: '2025-11', label: 'Nov/25' },
+      { key: '2025-12', label: 'Dez/25' },
+      { key: '2026-01', label: 'Jan/26' },
+      { key: '2026-02', label: 'Fev/26' },
+      { key: '2026-03', label: 'Mar/26' },
+      { key: '2026-04', label: 'Abr/26' },
+      { key: '2026-05', label: 'Mai/26' },
+      { key: '2026-06', label: 'Jun/26' },
+      { key: '2026-07', label: 'Jul/26' },
+      { key: '2026-08', label: 'Ago/26' },
+      { key: '2026-09', label: 'Set/26' },
+    ];
+
+    return months.map(m => {
+      const mProps = propostas.filter(p => {
+        const d = normalizeDateToISO(p.dataPagamentoCliente || p.dataDigitacao);
+        return d && d.startsWith(m.key) && isContratoPago(p);
+      });
+      const vendas = mProps.reduce((acc, p) => acc + (p.valorEmprestimo || 0), 0);
+      const taxas = propostas
+        .filter(p => {
+          const d = normalizeDateToISO(p.dataPagamentoCliente || p.dataDigitacao);
+          return d && d.startsWith(m.key) && isTaxaPaga(p);
+        })
+        .reduce((acc, p) => acc + (p.valorTaxa || 0), 0);
+
+      return {
+        mes: m.label,
+        vendas,
+        taxas
+      };
+    });
+  }, [propostas]);
 
   // Canonical operations
   const CANONICAL_OPERATIONS = [

@@ -280,8 +280,10 @@ function loadStore(): CRMDataStore {
 
 function saveLocalStore(data: CRMDataStore) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-    notify();
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      notify();
+    }
   } catch (e) {
     console.error('Erro ao salvar no LocalStorage:', e);
   }
