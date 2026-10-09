@@ -62,14 +62,25 @@ export function normalizeDateToISO(dateStr?: string | null): string {
 }
 
 /**
- * Contrato pago conforme a planilha oficial: somente o status do contrato
- * confirma uma venda. Taxa paga é uma métrica separada e nunca transforma
- * uma proposta pendente em venda.
+ * Contrato pago conforme os status usados pela planilha e pelos registros
+ * antigos. Taxa paga é uma métrica separada e nunca transforma uma proposta
+ * pendente em venda.
  */
 export function isContratoPago(p: Proposta): boolean {
   if (!p) return false;
   const statusStr = String(p.status || '').trim().toUpperCase();
-  return statusStr === 'PAGA' || statusStr === 'PAGO';
+  if (!statusStr || statusStr.includes('CANCEL') || statusStr.includes('REPROV') || statusStr.includes('PEND')) {
+    return false;
+  }
+
+  return [
+    'PAGA', 'PAGO',
+    'FORMALIZADA', 'FORMALIZADO',
+    'LIQUIDADA', 'LIQUIDADO',
+    'CONCLUIDA', 'CONCLUÍDA', 'CONCLUIDO', 'CONCLUÍDO',
+    'FINALIZADA', 'FINALIZADO',
+    'QUITADA', 'QUITADO'
+  ].includes(statusStr) || /\bPAG[AO]\b/.test(statusStr);
 }
 
 /**

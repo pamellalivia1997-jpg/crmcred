@@ -47,6 +47,13 @@ const digitadoForaMasPagoEmSetembro: Proposta = {
 assert.equal(isContratoPago(luceliaDigitadaPorAna), true);
 assert.equal(isContratoPago(pendenteComTaxaPaga), false);
 assert.equal(isTaxaPaga(pendenteComTaxaPaga), true);
+const withLegacyStatus = (status: string): Proposta => ({
+  ...luceliaDigitadaPorAna,
+  status: status as Proposta['status']
+});
+assert.equal(isContratoPago(withLegacyStatus('Formalizada')), true);
+assert.equal(isContratoPago(withLegacyStatus('Liquidada')), true);
+assert.equal(isContratoPago(withLegacyStatus('Pagamento pendente')), false);
 assert.equal(matchProposalToSeller(luceliaDigitadaPorAna, lucelia), true);
 assert.equal(matchProposalToSeller(luceliaDigitadaPorAna, taciana), false);
 
@@ -61,5 +68,10 @@ assert.equal(metrics.totalTaxas, 1500, 'taxa fica separada da venda');
 assert.equal(metrics.contratosFormalizadosEPagos.length, 1);
 assert.equal(metrics.vendasPorVendedora['Lucélia'], 11788.70);
 assert.equal(metrics.vendasPorVendedora['Taciana'] ?? 0, 0);
+assert.equal(
+  Object.values(metrics.vendasPorVendedora).reduce((sum, value) => sum + value, 0),
+  metrics.totalVendas,
+  'o total mensal deve ser a soma do ranking por vendedora'
+);
 
 console.log('OK: regras oficiais de competência, vendedor, contrato pago e taxa paga.');

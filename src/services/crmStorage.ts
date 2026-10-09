@@ -233,23 +233,6 @@ function sanitizeStore(store: CRMDataStore): { sanitized: CRMDataStore; modified
     modified = true;
   }
 
-  // Purge incomplete legacy August metas (195k anomaly) so it uses standard 400k equal distribution fallback
-  const hasNormalizedAugMetas = typeof localStorage !== 'undefined' && localStorage.getItem('lviacred_august_metas_normalized_v1');
-  if (!hasNormalizedAugMetas) {
-    if (Array.isArray(store.metas)) {
-      const augMetas = store.metas.filter(m => m.mesAno === '2026-08');
-      const augSum = augMetas.reduce((acc, m) => acc + (m.vendedoraId !== 'loja' ? (m.metaVenda || 0) : 0), 0);
-      // If legacy 195k or partial
-      if (augSum === 195000 || augMetas.some(m => m.vendedoraId !== 'loja' && m.metaVenda === 0)) {
-        store.metas = store.metas.filter(m => m.mesAno !== '2026-08');
-        modified = true;
-      }
-    }
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem('lviacred_august_metas_normalized_v1', 'true');
-    }
-  }
-
   return { sanitized: store, modified };
 }
 
@@ -613,9 +596,9 @@ export const crmStorage = {
     this.clearAllTestData();
   },
 
-  // Zerar todos os dados operacionais; a coleção users é preservada.
+  // Zerar somente dados operacionais; usuários, autorizações e metas são preservados.
   async clearAllTestData(): Promise<void> {
-    const collectionsToClear = ['clientes', 'propostas', 'comissoesPromotoras', 'contasPagar', 'metas', 'alertas', 'feedbacks', 'auditLogs'] as const;
+    const collectionsToClear = ['clientes', 'propostas', 'comissoesPromotoras', 'contasPagar', 'alertas', 'feedbacks', 'auditLogs'] as const;
     collectionsToClear.forEach(c => suppressSnapshotCollections.add(c));
 
     if (typeof localStorage !== 'undefined') {
@@ -630,7 +613,6 @@ export const crmStorage = {
       propostas: [],
       comissoesPromotoras: [],
       contasPagar: [],
-      metas: [],
       alertas: [],
       feedbacks: [],
       auditLogs: []
