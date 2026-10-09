@@ -86,6 +86,10 @@ interface CRMContextType {
   };
   logCpfAccess: (cpf: string, nomeCliente: string) => void;
   dashboardMetrics: DashboardMetrics;
+  uploadLocalStoreToFirestore: () => Promise<{ success: boolean; message: string; counts: Record<string, number> }>;
+  exportStoreAsJSON: () => string;
+  importStoreFromJSON: (jsonText: string) => Promise<{ success: boolean; message: string }>;
+  refreshFromFirestore: () => Promise<void>;
 }
 
 const CRMContext = createContext<CRMContextType | undefined>(undefined);
@@ -438,7 +442,11 @@ export const CRMProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         importClientPortfolio,
         importFullSpreadsheetRows,
         logCpfAccess,
-        dashboardMetrics
+        dashboardMetrics,
+        uploadLocalStoreToFirestore: () => crmStorage.uploadLocalStoreToFirestore(),
+        exportStoreAsJSON: () => crmStorage.exportStoreAsJSON(),
+        importStoreFromJSON: (json: string) => crmStorage.importStoreFromJSON(json),
+        refreshFromFirestore: () => crmStorage.refreshFromFirestore()
       }}
     >
       {children}

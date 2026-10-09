@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole, Proposta } from '../types';
-import { crmStorage, subscribeToData } from '../services/crmStorage';
+import { crmStorage, subscribeToData, initFirestoreRealtimeSync } from '../services/crmStorage';
 import { cleanPersonName } from '../utils/formatters';
 
 import { auth, googleProvider } from '../services/firebase';
@@ -100,6 +100,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const root = document.documentElement;
     root.classList.remove('dark');
+  }, []);
+
+  // Listen to Firebase Auth state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
+      if (fbUser && fbUser.email) {
+        const users = crmStorage.getUsers();
+        let found = users.find(u =>
+          (u.email && u.email.toLowerCase() === fbUser.email?.toLowerCase()) ||
+          (u.authUid && u.authUid === fbUser.uid) ||
+          u.id === fbUser.uid
+        );
+        const official = OFFICIAL_GOOGLE_ACCOUNTS[fbUser.email.toLowerCase()];
+        if (!found && official) {
+          found = {
+            id: fbUser.uid,
+            name: official.name,
+            email: fbUser.email.toLowerCase(),
+            authUid: fbUser.uid,
+            role: official.role,
+            phone: '',
+            status: 'ativo',
+            monthlySalesGoal: 0,
+            monthlyTaxPercentGoal: 0
+          };
+          crmStorage.saveUser(found);
+        }
+        if (found && found.status === 'ativo') {
+          const norm = normalizeUser(found)!;
+          setCurrentUser(prev => (prev?.id === norm.id ? prev : norm));
+          localStorage.setItem(CURRENT_USER_KEY, norm.id);
+        }
+        initFirestoreRealtimeSync();
+      }
+    });
+    return () => unsubscribe();
   }, []);
 
   const isManager = Boolean(

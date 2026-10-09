@@ -424,12 +424,18 @@ export function initFirestoreRealtimeSync() {
           }
 
           if (snapshot.empty) {
-            // NEVER clear local store data if remote snapshot is empty
+            // Se a nuvem estiver vazia para propostas mas o dispositivo local tiver dados (ex: importação na web)
             const currentList = (currentStore as any)[coll];
             if (!Array.isArray(currentList) || currentList.length === 0) {
               (currentStore as any)[coll] = [];
               saveLocalStore(currentStore);
               notify();
+            } else if (coll === 'propostas' && currentList.length > 0 && !suppressSnapshotCollections.has('propostas')) {
+              // Auto-sincronização: sobe o banco local para a nuvem Firebase
+              console.log(`ℹ️ [Firestore] Nuvem vazia para ${coll}. Sincronizando automaticamente ${currentList.length} registros locais para a nuvem...`);
+              setTimeout(() => {
+                crmStorage.uploadLocalStoreToFirestore().catch(e => console.warn('Aviso de auto-upload:', e));
+              }, 1200);
             }
           } else {
             const incomingMap = new Map<string, any>();
@@ -437,17 +443,21 @@ export function initFirestoreRealtimeSync() {
               incomingMap.set(docSnap.id, { ...docSnap.data(), id: docSnap.id });
             });
 
-            // Incremental Smart Merge: preserve local store cache and update matching docs
-            const currentList: any[] = Array.isArray((currentStore as any)[coll]) ? (currentStore as any)[coll] : [];
-            const mergedMap = new Map<string, any>();
-            currentList.forEach(item => {
-              if (item && item.id) mergedMap.set(item.id, item);
-            });
-            incomingMap.forEach((val, id) => {
-              mergedMap.set(id, { ...(mergedMap.get(id) || {}), ...val });
-            });
-
-            (currentStore as any)[coll] = Array.from(mergedMap.values());
+            if (coll === 'users') {
+              const currentList: any[] = Array.isArray(currentStore.users) ? currentStore.users : [];
+              const mergedMap = new Map<string, any>();
+              INITIAL_USERS.forEach(u => mergedMap.set(u.id, u));
+              currentList.forEach(item => {
+                if (item && item.id) mergedMap.set(item.id, item);
+              });
+              incomingMap.forEach((val, id) => {
+                mergedMap.set(id, { ...(mergedMap.get(id) || {}), ...val });
+              });
+              currentStore.users = Array.from(mergedMap.values());
+            } else {
+              // Firestore na nuvem é a ÚNICA fonte de verdade oficial para dados operacionais
+              (currentStore as any)[coll] = Array.from(incomingMap.values());
+            }
             
             // Always sanitize store on any realtime snapshot update (proposals, users, etc.)
             const { sanitized } = sanitizeStore(currentStore);
@@ -599,6 +609,113 @@ export interface SpreadsheetRowInput {
 export const crmStorage = {
   getStore(): CRMDataStore {
     return { ...currentStore };
+  },
+
+  // Exportar todo o banco de dados em arquivo JSON para backup seguro
+  exportStoreAsJSON(): string {
+    return JSON.stringify(currentStore, null, 2);
+  },
+
+  // Restaurar backup JSON e sincronizar imediatamente com a nuvem
+  async importStoreFromJSON(jsonText: string): Promise<{ success: boolean; message: string }> {
+    try {
+      const parsed = JSON.parse(jsonText);
+      if (!parsed || typeof parsed !== 'object') {
+        return { success: false, message: 'Arquivo JSON inválido ou corrompido.' };
+      }
+      const { sanitized } = sanitizeStore(parsed);
+      currentStore = sanitized;
+      saveLocalStore(currentStore);
+      notify();
+
+      // Sobe imediatamente para o Firestore
+      const syncRes = await this.uploadLocalStoreToFirestore();
+      return {
+        success: true,
+        message: `Backup restaurado com sucesso! ${currentStore.propostas?.length || 0} contratos carregados. ${syncRes.message}`
+      };
+    } catch (e: any) {
+      return { success: false, message: `Erro ao importar arquivo: ${e.message}` };
+    }
+  },
+
+  // Forçar recarregamento manual direto do Firestore
+  async refreshFromFirestore(): Promise<void> {
+    const collectionsToSync: Array<keyof CRMDataStore> = [
+      'users', 'clientes', 'propostas', 'comissoesPromotoras', 'contasPagar', 'metas'
+    ];
+    for (const coll of collectionsToSync) {
+      try {
+        const snap = await getDocs(collection(db, coll));
+        if (!snap.empty) {
+          const list: any[] = [];
+          snap.forEach(d => list.push({ ...d.data(), id: d.id }));
+          if (coll === 'users') {
+            const mergedMap = new Map<string, any>();
+            INITIAL_USERS.forEach(u => mergedMap.set(u.id, u));
+            list.forEach(item => mergedMap.set(item.id, item));
+            currentStore.users = Array.from(mergedMap.values());
+          } else {
+            (currentStore as any)[coll] = list;
+          }
+        }
+      } catch (err) {
+        console.warn(`Erro ao puxar ${coll} da nuvem:`, err);
+      }
+    }
+    const { sanitized } = sanitizeStore(currentStore);
+    currentStore = sanitized;
+    saveLocalStore(currentStore);
+    notify();
+  },
+
+  // Enviar todo o banco local (ex: da máquina onde está a planilha completa de 214 propostas) para a nuvem
+  async uploadLocalStoreToFirestore(): Promise<{ success: boolean; message: string; counts: Record<string, number> }> {
+    const counts: Record<string, number> = {};
+    const collectionsToUpload: Array<keyof CRMDataStore> = [
+      'users',
+      'clientes',
+      'propostas',
+      'comissoesPromotoras',
+      'contasPagar',
+      'metas'
+    ];
+
+    try {
+      for (const coll of collectionsToUpload) {
+        const items: any[] = (currentStore as any)[coll] || [];
+        counts[coll] = items.length;
+        if (items.length > 0) {
+          const chunkSize = 400;
+          for (let i = 0; i < items.length; i += chunkSize) {
+            const batch = writeBatch(db);
+            const chunk = items.slice(i, i + chunkSize);
+            chunk.forEach(item => {
+              if (item && item.id) {
+                const ref = doc(db, coll, item.id);
+                batch.set(ref, cleanPayloadForFirestore(item), { merge: true });
+              }
+            });
+            await batch.commit();
+            firebaseUsageTracker.trackWrite(chunk.length);
+          }
+        }
+      }
+
+      console.log('✅ [Firestore] Banco local enviado para a nuvem com sucesso:', counts);
+      return {
+        success: true,
+        message: `Nuvem sincronizada com sucesso: ${counts.propostas || 0} contratos e ${counts.clientes || 0} clientes enviados.`,
+        counts
+      };
+    } catch (err: any) {
+      console.error('Erro ao enviar banco local para o Firestore:', err);
+      return {
+        success: false,
+        message: `Erro na sincronização: ${err.message || 'Verifique as regras do Firebase'}.`,
+        counts
+      };
+    }
   },
 
   reset(): void {
