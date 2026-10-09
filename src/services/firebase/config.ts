@@ -1,15 +1,10 @@
-/**
- * Firebase Configuration for Lívia Cred Saúde CRM
- * Reads environment variables if available; otherwise falls back gracefully to Mock Storage mode.
- */
-
 export const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || '',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || '',
+  apiKey: 'AIzaSyCbmsentbF3Wz9CMXHFbd7t3c0AnUAQx14',
+  authDomain: 'liviacred-ead6d.firebaseapp.com',
+  projectId: 'liviacred-ead6d',
+  storageBucket: 'liviacred-ead6d.firebasestorage.app',
+  messagingSenderId: '989478052403',
+  appId: '1:989478052403:web:1d6dd84cac6c0718b27946'
 };
 
 export const isFirebaseConfigured = Boolean(

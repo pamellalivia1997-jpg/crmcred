@@ -1,27 +1,20 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer, collection, onSnapshot, setDoc, getDocs, deleteDoc, writeBatch } from 'firebase/firestore';
-import rawConfigImport from '../../firebase-applet-config.json';
-const rawConfig = rawConfigImport as any;
-
-const env = (typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : (process?.env || {});
-
-// Support environment variables from GitHub Actions / Vite with fallback to rawConfig
-const activeConfig = {
-  projectId: env.VITE_FIREBASE_PROJECT_ID || rawConfig.projectId,
-  appId: env.VITE_FIREBASE_APP_ID || rawConfig.appId,
-  apiKey: env.VITE_FIREBASE_API_KEY || rawConfig.apiKey,
-  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || rawConfig.authDomain,
-  firestoreDatabaseId: env.VITE_FIREBASE_DATABASE_ID || rawConfig.firestoreDatabaseId,
-  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || rawConfig.storageBucket,
-  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || rawConfig.messagingSenderId,
+const firebaseConfig = {
+  apiKey: 'AIzaSyCbmsentbF3Wz9CMXHFbd7t3c0AnUAQx14',
+  authDomain: 'liviacred-ead6d.firebaseapp.com',
+  projectId: 'liviacred-ead6d',
+  storageBucket: 'liviacred-ead6d.firebasestorage.app',
+  messagingSenderId: '989478052403',
+  appId: '1:989478052403:web:1d6dd84cac6c0718b27946'
 };
 
 // Initialize Firebase App
-const app = getApps().length > 0 ? getApp() : initializeApp(activeConfig);
+const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
-// Initialize Firestore Database with explicit Database ID
-export const db = getFirestore(app, activeConfig.firestoreDatabaseId);
+// Use the default Firestore database from the official Firebase project.
+export const db = getFirestore(app);
 
 // Initialize Firebase Auth
 export const auth = getAuth(app);
