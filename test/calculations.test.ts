@@ -75,3 +75,49 @@ assert.equal(
 );
 
 console.log('OK: regras oficiais de competência, vendedor, contrato pago e taxa paga.');
+
+// Test 2: Multi-vendor September test verifying exact rules requested by user
+const hellen: User = {
+  id: 'user-hellen', name: 'Hellen Vasconcelos', salesName: 'Hellen',
+  email: 'hellen@example.com', phone: '', role: 'vendedora', status: 'ativo',
+};
+const biancaLoja: User = {
+  id: 'user-bianca', name: 'Bianca', salesName: 'Loja Igarassu',
+  email: 'bianca@example.com', phone: '', role: 'vendedora', status: 'ativo',
+};
+
+const propHellen: Proposta = {
+  ...base, id: 'p-hellen-1', carimboDataHora: '2026-09-15T12:00:00.000Z',
+  dataDigitacao: '2026-09-15', dataPagamentoCliente: '2026-10-02',
+  valorEmprestimo: 179640.02, valorTaxa: 66839.46, taxaPaga: true, clientePagouTaxa: true,
+  vendedora: 'Hellen', digitador: 'Ana Paula', status: 'Paga'
+};
+const propIgarassu: Proposta = {
+  ...base, id: 'p-iga-1', carimboDataHora: '2026-09-20T12:00:00.000Z',
+  dataDigitacao: '2026-09-20', dataPagamentoCliente: '',
+  valorEmprestimo: 111082.01, valorTaxa: 50512.74, taxaPaga: true, clientePagouTaxa: true,
+  vendedora: 'BIANCA', digitador: 'Ana Paula', status: 'Paga'
+};
+const propLucelia: Proposta = {
+  ...base, id: 'p-luc-1', carimboDataHora: '2026-09-05T12:00:00.000Z',
+  dataDigitacao: '2026-09-05', dataPagamentoCliente: '2026-09-28',
+  valorEmprestimo: 160717.81, valorTaxa: 67433.86, taxaPaga: true, clientePagouTaxa: true,
+  vendedora: 'LUCELIA', digitador: 'Ana Paula', status: 'Paga'
+};
+
+const fullMetrics = calculateDashboardMetrics(
+  [propHellen, propIgarassu, propLucelia],
+  '2026-09-01', '2026-09-30', [], [hellen, biancaLoja, lucelia]
+);
+
+assert.equal(fullMetrics.vendasPorVendedora['Hellen'], 179640.02);
+assert.equal(fullMetrics.taxasPorVendedora['Hellen'], 66839.46);
+assert.equal(fullMetrics.vendasPorVendedora['Loja Igarassu'], 111082.01);
+assert.equal(fullMetrics.taxasPorVendedora['Loja Igarassu'], 50512.74);
+assert.equal(fullMetrics.vendasPorVendedora['Lucélia'], 160717.81);
+assert.equal(fullMetrics.taxasPorVendedora['Lucélia'], 67433.86);
+
+assert.equal(Math.round(fullMetrics.totalVendas * 100) / 100, 451439.84);
+assert.equal(Math.round(fullMetrics.totalTaxas * 100) / 100, 184786.06);
+
+console.log('OK: todos os cálculos oficiais de Hellen, Loja Igarassu e Lucélia validados com 100% de precisão.');

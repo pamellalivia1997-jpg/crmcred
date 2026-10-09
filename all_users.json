@@ -1,0 +1,97 @@
+[
+  {
+    "id": "Vq7wUkG7ltcanJjJmnEqYZOiiym1",
+    "monthlyTaxPercentGoal": 0,
+    "status": "ativo",
+    "monthlySalesGoal": 0,
+    "password": "123123",
+    "role": "financeiro",
+    "email": "geovanne.arcelino@gmail.com",
+    "name": "Geovanne Ferreira",
+    "phone": "(81) 98000-0000"
+  },
+  {
+    "id": "eRkG9KNI8AZMCtQGkrPAPc7g8PC3",
+    "phone": "(81) 98000-0000",
+    "role": "adm",
+    "pix": "81988920288",
+    "monthlySalesGoal": 0,
+    "email": "pamellalivia1997@gmail.com",
+    "monthlyTaxPercentGoal": 0,
+    "password": "123",
+    "status": "ativo",
+    "name": "Pamella"
+  },
+  {
+    "id": "user-ana",
+    "phone": "(81) 98555-6677",
+    "role": "digitador",
+    "email": "ana@liviacredsaude.com.br",
+    "password": "123",
+    "pix": "81985193615",
+    "monthlySalesGoal": 0,
+    "monthlyTaxPercentGoal": 0,
+    "status": "ativo",
+    "name": "Ana Paula"
+  },
+  {
+    "id": "user-bianca",
+    "monthlyTaxPercentGoal": 11,
+    "pix": "12694849407",
+    "monthlySalesGoal": 85000,
+    "name": "Bianca",
+    "salesName": "Loja Igarassu",
+    "password": "123",
+    "status": "ativo",
+    "role": "vendedora",
+    "phone": "(81) 3543-1200",
+    "email": "bianca@liviacredsaude.com.br"
+  },
+  {
+    "id": "user-hellen",
+    "pix": "81994556660",
+    "role": "vendedora",
+    "monthlySalesGoal": 95000,
+    "email": "hellen.cred@gmail.com",
+    "password": "123",
+    "monthlyTaxPercentGoal": 12,
+    "salesName": "Hellen",
+    "status": "ativo",
+    "name": "Hellen Vasconcelos"
+  },
+  {
+    "id": "user-livia",
+    "status": "ativo",
+    "password": "123",
+    "role": "proprietaria",
+    "monthlyTaxPercentGoal": 0,
+    "phone": "(81) 98000-0000",
+    "email": "livia@liviacredsaude.com.br",
+    "name": "Lívia",
+    "monthlySalesGoal": 0
+  },
+  {
+    "id": "user-lucelia",
+    "monthlyTaxPercentGoal": 10,
+    "monthlySalesGoal": 75000,
+    "pix": "11557314411",
+    "name": "Lucélia Ramos",
+    "phone": "(81) 98333-4455",
+    "password": "789",
+    "email": "lucelia@liviacredsaude.com.br",
+    "role": "vendedora",
+    "salesName": "Lucélia",
+    "status": "ativo"
+  },
+  {
+    "id": "user-taciana",
+    "email": "taciana@gmail.com",
+    "monthlyTaxPercentGoal": 10.5,
+    "role": "vendedora",
+    "monthlySalesGoal": 80000,
+    "salesName": "Taciana",
+    "name": "Taciana Silva",
+    "status": "ativo",
+    "password": "123"
+  }
+]

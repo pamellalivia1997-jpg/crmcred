@@ -112,11 +112,12 @@ function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: str
   let dataRowsIndex = 0;
 
   const headerIndex = allRows.findIndex(row => {
+    if (!row || !Array.isArray(row)) return false;
     const text = row.map(cell => String(cell || '')).join(' ')
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-    return text.includes('data da digitacao') &&
-      text.includes('valor do emprestimo') &&
-      (text.includes('vendedor') || text.includes('status do contrato'));
+    return (text.includes('data da digitacao') || text.includes('digitacao')) &&
+      (text.includes('valor liberado') || text.includes('liberado') || text.includes('valor do emprestimo') || text.includes('emprestimo')) &&
+      (text.includes('vendedor') || text.includes('vendedora') || text.includes('status do contrato') || text.includes('status'));
   });
 
   if (headerIndex >= 0) {
@@ -124,9 +125,9 @@ function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: str
     dataRowsIndex = headerIndex + 1;
   } else {
     // Compatibilidade com tabelas antigas sem cabeçalho completo.
-    const firstLineStr = allRows[0].map(h => String(h || '')).join(' ').toLowerCase();
-    if (firstLineStr.includes('cpf') || firstLineStr.includes('nome') || firstLineStr.includes('cliente') || firstLineStr.includes('vendedor') || firstLineStr.includes('contrato') || firstLineStr.includes('banco')) {
-      headerRow = allRows[0].map(h => String(h || '').toLowerCase().trim());
+    const firstLineStr = (allRows[0] && Array.isArray(allRows[0])) ? allRows[0].map(h => String(h || '')).join(' ').toLowerCase() : '';
+    if (firstLineStr.includes('cpf') || firstLineStr.includes('nome') || firstLineStr.includes('cliente') || firstLineStr.includes('vendedor') || firstLineStr.includes('contrato') || firstLineStr.includes('banco') || firstLineStr.includes('digitacao')) {
+      headerRow = (allRows[0] && Array.isArray(allRows[0])) ? allRows[0].map(h => String(h || '').toLowerCase().trim()) : null;
       dataRowsIndex = 1;
     }
   }
@@ -141,6 +142,7 @@ function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: str
   let colBanco = -1;
   let colPromotora = -1;
   let colValorEmp = -1;
+  let hasDedicatedLiberado = false;
   let colValorTaxa = -1;
   let colClientePagou = -1;
   let colPercentTaxa = -1;
@@ -177,7 +179,11 @@ function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: str
         colValorTaxa = idx;
       } else if (clean.includes('taxadocartao') || clean.includes('percentual') || clean.includes('taxacartao')) {
         colPercentTaxa = idx;
-      } else if (clean.includes('valordoemprestimo') || clean.includes('emprestimoliberado') || clean.includes('valorliberado') || clean.includes('emprestimo')) {
+      } else if (clean.includes('valorliberadoparaocliente') || clean.includes('valorliberado') || clean.includes('emprestimoliberado') || clean.includes('liberadoparaocliente')) {
+        // VALOR LIBERADO PARA O CLIENTE tem prioridade absoluta para a venda
+        colValorEmp = idx;
+        hasDedicatedLiberado = true;
+      } else if (!hasDedicatedLiberado && (clean.includes('valordoemprestimo') || clean.includes('emprestimo'))) {
         colValorEmp = idx;
       } else if (clean.includes('anexar') || clean.includes('capa') || clean.includes('print') || clean.includes('link') || clean.includes('drive')) {
         colLink = idx;
@@ -236,7 +242,7 @@ function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: str
   const resultRows = [];
   for (let i = dataRowsIndex; i < allRows.length; i++) {
     const cols = allRows[i];
-    if (!cols || cols.length < 2) continue;
+    if (!cols || !Array.isArray(cols) || cols.length < 2) continue;
 
     const rawCpf = colCpf >= 0 ? String(cols[colCpf] || '').trim() : '';
     const rawNome = colNome >= 0 ? String(cols[colNome] || '').trim() : '';

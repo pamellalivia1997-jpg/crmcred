@@ -41,46 +41,68 @@ export interface DashboardMetrics {
  */
 export function normalizeDateToISO(dateStr?: string | null): string {
   if (!dateStr) return '';
-  const str = String(dateStr).trim().split(' ')[0].replace(/\./g, '/').replace(/-/g, '/');
+  let str = String(dateStr).trim().split(' ')[0].replace(/\./g, '/').replace(/-/g, '/');
   if (str.includes('/')) {
     const parts = str.split('/');
     if (parts.length === 3) {
       if (parts[0].length === 4) {
         // YYYY/MM/DD
-        return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+        let year = parts[0];
+        if (year.startsWith('00')) year = `20${year.slice(2)}`;
+        return `${year}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
       } else {
         // DD/MM/YYYY
         let year = parts[2];
         if (year.length === 2) year = `20${year}`;
+        if (year.startsWith('00')) year = `20${year.slice(2)}`;
         return `${year}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
       }
     }
   } else if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    if (str.startsWith('00')) return `20${str.slice(2)}`;
     return str;
   }
-  return str.substring(0, 10);
+  let res = str.substring(0, 10);
+  if (res.startsWith('00')) res = `20${res.slice(2)}`;
+  return res;
 }
 
 /**
- * Contrato pago conforme os status usados pela planilha e pelos registros
- * antigos. Taxa paga é uma métrica separada e nunca transforma uma proposta
- * pendente em venda.
+ * Contrato pago conforme os status usados pela planilha oficial:
+ * Status do contrato PAGO (regras reais de liquidação de crédito).
  */
 export function isContratoPago(p: Proposta): boolean {
   if (!p) return false;
   const statusStr = String(p.status || '').trim().toUpperCase();
-  if (!statusStr || statusStr.includes('CANCEL') || statusStr.includes('REPROV') || statusStr.includes('PEND')) {
+  if (
+    !statusStr ||
+    statusStr.includes('CANCEL') ||
+    statusStr.includes('REPROV') ||
+    statusStr.includes('PENDENTE') ||
+    statusStr.includes('PENDÊNCIA') ||
+    statusStr.includes('PENDENCIA') ||
+    statusStr.includes('ANÁLISE') ||
+    statusStr.includes('ANALISE') ||
+    statusStr.includes('SIMUL')
+  ) {
     return false;
   }
 
-  return [
-    'PAGA', 'PAGO',
-    'FORMALIZADA', 'FORMALIZADO',
-    'LIQUIDADA', 'LIQUIDADO',
-    'CONCLUIDA', 'CONCLUÍDA', 'CONCLUIDO', 'CONCLUÍDO',
-    'FINALIZADA', 'FINALIZADO',
-    'QUITADA', 'QUITADO'
-  ].includes(statusStr) || /\bPAG[AO]\b/.test(statusStr);
+  // Se o status é ou contém qualquer forma confirmada de PAGO, PAGA, LIQUIDADA, FORMALIZADA, QUITADA ou CONCLUÍDA
+  return (
+    [
+      'PAGA', 'PAGO',
+      'FORMALIZADA', 'FORMALIZADO',
+      'LIQUIDADA', 'LIQUIDADO',
+      'CONCLUIDA', 'CONCLUÍDA', 'CONCLUIDO', 'CONCLUÍDO',
+      'FINALIZADA', 'FINALIZADO',
+      'QUITADA', 'QUITADO'
+    ].includes(statusStr) ||
+    /\bPAG[AO]\b/.test(statusStr) ||
+    statusStr.includes('LIQUID') ||
+    statusStr.includes('FORMALIZ') ||
+    statusStr.includes('QUITAD')
+  );
 }
 
 /**

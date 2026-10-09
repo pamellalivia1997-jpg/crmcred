@@ -558,7 +558,8 @@ export function parseBrazilianDate(dateStr: any): string {
     if (parts.length === 3) {
       if (parts[0].length === 4) {
         // YYYY/MM/DD
-        const year = parts[0];
+        let year = parts[0];
+        if (year.startsWith('00')) year = `20${year.slice(2)}`;
         const month = parts[1].padStart(2, '0');
         const day = parts[2].padStart(2, '0');
         return `${year}-${month}-${day}`;
@@ -568,10 +569,12 @@ export function parseBrazilianDate(dateStr: any): string {
         const month = parts[1].padStart(2, '0');
         let year = parts[2];
         if (year.length === 2) year = `20${year}`;
+        if (year.startsWith('00')) year = `20${year.slice(2)}`;
         return `${year}-${month}-${day}`;
       }
     }
   } else if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+    if (str.startsWith('00')) return `20${str.slice(2)}`;
     return str;
   }
   return '';
@@ -901,14 +904,15 @@ export const crmStorage = {
     let updatedCount = 0;
 
     clientesList.forEach((cli) => {
-      const cleanCpf = cli.cpf.replace(/\D/g, '');
+      if (!cli) return;
+      const cleanCpf = String(cli.cpf || '').replace(/\D/g, '');
       if (cleanCpf.length !== 11) return;
 
       const formattedClient: Cliente = {
         ...cli,
         id: cleanCpf,
         cpf: cleanCpf,
-        nome: cli.nome.trim(),
+        nome: String(cli.nome || '').trim(),
         dataNascimento: (cli.dataNascimento && cli.dataNascimento !== '1975-01-01') ? cli.dataNascimento : '',
         telefone: cli.telefone || '(81) 98000-0000',
         email: cli.email || `${cleanCpf}@cliente.com`,
@@ -919,7 +923,7 @@ export const crmStorage = {
         dataCriacao: cli.dataCriacao || getLocalDateString()
       };
 
-      const existingIndex = currentStore.clientes.findIndex(c => c.cpf.replace(/\D/g, '') === cleanCpf);
+      const existingIndex = currentStore.clientes.findIndex(c => String(c?.cpf || '').replace(/\D/g, '') === cleanCpf);
       if (existingIndex < 0) {
         currentStore.clientes.unshift(formattedClient);
         importedCount++;
@@ -1016,9 +1020,9 @@ export const crmStorage = {
       const isValidCpf = cleanCpf && cleanCpf.length === 11 && cleanCpf !== '00000000000' && !cleanCpf.startsWith('000000');
       let existingClientIdx = -1;
       if (isValidCpf) {
-        existingClientIdx = currentStore.clientes.findIndex(c => c && c.cpf && c.cpf.replace(/\D/g, '') === cleanCpf);
+        existingClientIdx = currentStore.clientes.findIndex(c => c && c.cpf && String(c.cpf).replace(/\D/g, '') === cleanCpf);
       } else if (rawNome && !rawNome.toLowerCase().includes('sem nome') && !rawNome.toLowerCase().includes('linha ')) {
-        existingClientIdx = currentStore.clientes.findIndex(c => c && c.nome && c.nome.trim().toLowerCase() === rawNome.toLowerCase());
+        existingClientIdx = currentStore.clientes.findIndex(c => c && c.nome && String(c.nome).trim().toLowerCase() === rawNome.toLowerCase());
       }
       let clientRecord: Cliente;
 
@@ -1059,12 +1063,25 @@ export const crmStorage = {
       const clientDocRef = doc(db, 'clientes', clientRecord.id);
       writeOperations.push({ ref: clientDocRef, data: cleanPayloadForFirestore(clientRecord) });
 
-      // 4. Map Status
+      // 4. Map Status:
+      // Status do contrato PAGO: se contém PAGO, PAGA, LIQUIDADA, FORMALIZADA, QUITADA -> Paga
       let statusProp: StatusProposta = 'Paga';
-      const statusRaw = String(row.status || '').toUpperCase();
-      if (statusRaw.includes('SIMUL') || statusRaw.includes('MOCK')) statusProp = 'Simuladas';
-      else if (statusRaw.includes('ANAL') || statusRaw.includes('ANÁL') || statusRaw.includes('PEND') || statusRaw.includes('APROV')) statusProp = 'Em análise';
-      else if (statusRaw.includes('CANCEL') || statusRaw.includes('REPROV')) statusProp = 'Cancelada';
+      const statusRaw = String(row.status || '').toUpperCase().trim();
+      if (statusRaw.includes('CANCEL') || statusRaw.includes('REPROV')) {
+        statusProp = 'Cancelada';
+      } else if (
+        statusRaw.includes('PAG') ||
+        statusRaw.includes('LIQUID') ||
+        statusRaw.includes('FORMALIZ') ||
+        statusRaw.includes('QUITAD') ||
+        statusRaw.includes('CONCLU')
+      ) {
+        statusProp = 'Paga';
+      } else if (statusRaw.includes('SIMUL') || statusRaw.includes('MOCK')) {
+        statusProp = 'Simuladas';
+      } else if (statusRaw.includes('ANAL') || statusRaw.includes('ANÁL') || statusRaw.includes('PEND') || statusRaw.includes('APROV')) {
+        statusProp = 'Em análise';
+      }
 
       // 4.1 Mapeamento estrito da coluna "CLIENTE PAGOU A TAXA DE ASSESSORIA"
       // Apenas SIM = true; NÃO ou em branco = false
