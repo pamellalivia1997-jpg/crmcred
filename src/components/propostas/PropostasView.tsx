@@ -437,15 +437,15 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
         const matchDigitador =
           p.digitador === currentUser?.name ||
           p.digitador === 'Ana Paula' ||
-          (currentUser?.name && p.digitador && p.digitador.toLowerCase().includes(currentUser.name.toLowerCase()));
+          (currentUser?.name && p.digitador && String(p.digitador || '').toLowerCase().includes(String(currentUser.name).toLowerCase()));
         if (!matchDigitador) return false;
       }
 
       // Search match
       const matchSearch =
         !searchTerm ||
-        p.nomeCliente.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.cpf.includes(searchTerm.replace(/\D/g, '')) ||
+        String(p.nomeCliente || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        String(p.cpf || '').includes(searchTerm.replace(/\D/g, '')) ||
         (p.numeroContrato && p.numeroContrato.toLowerCase().includes(searchTerm.toLowerCase()));
 
       const matchVendedora =
@@ -509,16 +509,16 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
           valB = b.dataPagamentoCliente || '';
           break;
         case 'nomeCliente':
-          valA = a.nomeCliente.toLowerCase();
-          valB = b.nomeCliente.toLowerCase();
+          valA = String(a.nomeCliente || '').toLowerCase();
+          valB = String(b.nomeCliente || '').toLowerCase();
           break;
         case 'operacao':
-          valA = a.operacao.toLowerCase();
-          valB = b.operacao.toLowerCase();
+          valA = String(a.operacao || '').toLowerCase();
+          valB = String(b.operacao || '').toLowerCase();
           break;
         case 'banco':
-          valA = a.banco.toLowerCase();
-          valB = b.banco.toLowerCase();
+          valA = String(a.banco || '').toLowerCase();
+          valB = String(b.banco || '').toLowerCase();
           break;
         case 'promotora':
           valA = (a.promotora || '').toLowerCase();
@@ -537,12 +537,12 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
           valB = b.percentualTaxa || 0;
           break;
         case 'vendedora':
-          valA = a.vendedora.toLowerCase();
-          valB = b.vendedora.toLowerCase();
+          valA = String(a.vendedora || '').toLowerCase();
+          valB = String(b.vendedora || '').toLowerCase();
           break;
         case 'status':
-          valA = a.status.toLowerCase();
-          valB = b.status.toLowerCase();
+          valA = String(a.status || '').toLowerCase();
+          valB = String(b.status || '').toLowerCase();
           break;
         case 'taxaPaga':
           valA = isTaxaPaga(a) ? 1 : 0;
@@ -896,7 +896,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                         >
                           <div className="flex items-start justify-between gap-1">
                             <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
-                              {prop.nomeCliente}
+                              {prop.nomeCliente || 'Cliente sem nome'}
                             </span>
                             <span className="text-[10px] font-mono text-slate-400 shrink-0">
                               #{prop.numeroContrato}
@@ -1124,13 +1124,13 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                         {/* Cliente / CPF */}
                         <td className="py-2.5 px-3">
                           <p className="font-bold text-slate-900 dark:text-white truncate max-w-[150px]">
-                            {prop.nomeCliente}
+                            {prop.nomeCliente || 'Cliente sem nome'}
                           </p>
                           <div className="flex items-center gap-1">
                             <span className="text-[10px] text-slate-400 tabular-nums">
-                              {formatCPF(prop.cpf)}
+                              {formatCPF(String(prop.cpf || ''))}
                             </span>
-                            <CPFValidationBadge cpf={prop.cpf} />
+                            <CPFValidationBadge cpf={String(prop.cpf || '')} />
                           </div>
                         </td>
 

@@ -30,12 +30,8 @@ export class ErrorBoundary extends Component<Props, State> {
   };
 
   private handleClearAndReload = () => {
-    try {
-      // Clear session key if corrupted
-      localStorage.removeItem('livia_credsaude_current_user_id');
-    } catch (e) {
-      // ignore
-    }
+    // Nunca apagar a sessão Firebase/local ao tratar um erro de interface.
+    // Um documento antigo ou uma tela quebrada não pode expulsar o usuário.
     this.setState({ hasError: false, error: null });
     window.location.reload();
   };
