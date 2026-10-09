@@ -1093,13 +1093,19 @@ export const crmStorage = {
         isTaxaRealmentePaga = cpStr === 'SIM' || cpStr === 'S' || cpStr === 'TRUE';
       }
 
-      // 5. Create or Update Proposta for this specific row using deterministic keys
-      const cleanContractKey = (cleanContract && cleanContract !== '0' && cleanContract !== '-') 
+      // 5. Create or update this spreadsheet row deterministically.
+      // Contract numbers are NOT unique in the official sheet: one contract
+      // can have separate operations/values. The old key used only the
+      // contract and silently overwrote rows such as R$ 1.778,68 and
+      // R$ 36.885,41. Include the row's financial identity instead.
+      const cleanContractKey = (cleanContract && cleanContract !== '0' && cleanContract !== '-')
         ? cleanContract.toLowerCase().replace(/[^a-z0-9]/g, '')
         : '';
+      const operationKey = String(row.operacao || 'operacao').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40);
+      const rowSignature = `${cleanCpf || 'semcpf'}-${dateDigitacao.replace(/\W/g, '')}-${Math.round(parsedEmp * 100)}-${operationKey}`;
       const proposalId = cleanContractKey
-        ? `prop-ctr-${cleanContractKey}`
-        : `prop-cpf-${cleanCpf}-${Math.round(parsedEmp * 100)}-${dateDigitacao.replace(/\W/g, '')}-${index + 1}`;
+        ? `prop-ctr-${cleanContractKey}-${rowSignature}`
+        : `prop-row-${rowSignature}-${index + 1}`;
 
       const rawLinkStr = String(row.linkDocumento || '').trim();
       const hasLink = rawLinkStr && rawLinkStr !== '0' ? rawLinkStr : undefined;
@@ -1134,9 +1140,18 @@ export const crmStorage = {
         ]
       };
 
-      const existingPropIdx = currentStore.propostas.findIndex(p => 
-        Boolean(p) && (p.id === proposalId || (cleanContractKey && Boolean(p.numeroContrato) && String(p.numeroContrato).trim().toLowerCase() === cleanContract.trim().toLowerCase()))
-      );
+      const existingPropIdx = currentStore.propostas.findIndex(p => {
+        if (!p) return false;
+        if (p.id === proposalId) return true;
+        if (!cleanContractKey || !p.numeroContrato || String(p.numeroContrato).trim().toLowerCase() !== cleanContract.trim().toLowerCase()) return false;
+        // Match an older imported document by its row identity so reimport
+        // repairs it instead of creating duplicates, while preserving rows
+        // that share the same contract number.
+        return parseBrazilianDate(p.dataDigitacao) === dateDigitacao &&
+          Number(p.valorEmprestimo || 0) === parsedEmp &&
+          String(p.operacao || '').trim().toLowerCase() === String(row.operacao || '').trim().toLowerCase() &&
+          String(p.cpf || '').replace(/\D/g, '') === String(cleanCpf || '').replace(/\D/g, '');
+      });
 
       if (existingPropIdx >= 0) {
         currentStore.propostas[existingPropIdx] = {
