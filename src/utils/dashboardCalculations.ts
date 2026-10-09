@@ -62,58 +62,14 @@ export function normalizeDateToISO(dateStr?: string | null): string {
 }
 
 /**
- * Determina se a proposta representa uma contratação formalizada e paga.
- * Inclui:
- * 1. Status 'Paga' / 'Pago' (qualquer variação de maiúsculas/minúsculas)
- * 2. Status 'Formalizada', 'Liquidada', 'Concluída', 'Finalizada' ou contendo 'PAG'
- * 3. Propostas com clientePagouTaxa ou taxaPaga confirmadas (assessoria / comissão liquidada)
- * 4. Propostas com data de pagamento ao cliente confirmada
- * 5. Operações de Assessoria formalizadas
- * Exclui:
- * Canceladas e Simulações sem pagamento.
+ * Contrato pago conforme a planilha oficial: somente o status do contrato
+ * confirma uma venda. Taxa paga é uma métrica separada e nunca transforma
+ * uma proposta pendente em venda.
  */
 export function isContratoPago(p: Proposta): boolean {
   if (!p) return false;
   const statusStr = String(p.status || '').trim().toUpperCase();
-
-  // Cancelamento explícito sem pagamento de taxa
-  if (statusStr === 'CANCELADA' || statusStr === 'CANCELADO' || statusStr.includes('CANCEL')) {
-    return false;
-  }
-
-  // 1. Status pago direto ou formalizado
-  if (
-    statusStr === 'PAGA' ||
-    statusStr === 'PAGO' ||
-    statusStr.includes('PAG') ||
-    statusStr === 'LIQUIDADA' ||
-    statusStr === 'LIQUIDADO' ||
-    statusStr === 'FORMALIZADA' ||
-    statusStr === 'FORMALIZADO' ||
-    statusStr === 'CONCLUIDA' ||
-    statusStr === 'CONCLUÍDA' ||
-    statusStr === 'FINALIZADA'
-  ) {
-    return true;
-  }
-
-  // 2. Se a taxa da contratação foi paga (assessoria liquidada)
-  if (isTaxaPaga(p)) {
-    return true;
-  }
-
-  // 3. Se possui data de pagamento confirmada ao cliente
-  if (p.dataPagamentoCliente && p.dataPagamentoCliente.trim() !== '' && p.dataPagamentoCliente !== '0') {
-    return true;
-  }
-
-  // 4. Operação de assessoria formalizada
-  const opStr = String(p.operacao || '').trim().toUpperCase();
-  if (opStr.includes('ASSESSORIA')) {
-    return true;
-  }
-
-  return false;
+  return statusStr === 'PAGA' || statusStr === 'PAGO';
 }
 
 /**
@@ -152,26 +108,18 @@ export function matchesSeller(pSeller: string | undefined | null, emp: User): bo
 }
 
 /**
- * Relacionamento preciso entre proposta, vendedora e digitadora:
- * Prioriza a vendedora declarada. Se a vendedora for genérica ou apontar para
- * a digitadora (ex: Ana Paula), recorre ao campo digitador para identificar
- * a vendedora responsável pela contratação, garantindo que propostas digitadas
- * pela equipe de apoio sejam atribuídas corretamente à consultora.
+ * Relaciona uma proposta à vendedora responsável. Quando a planilha informa
+ * VENDEDOR, DIGITADOR nunca pode substituí-lo no ranking ou nas comissões.
+ * O fallback para digitador só existe para registros antigos sem vendedor.
  */
 export function matchProposalToSeller(p: Proposta, emp: User): boolean {
   if (!p) return false;
 
-  // 1. Verificação direta pelo campo vendedora
-  if (p.vendedora && matchesSeller(p.vendedora, emp)) {
-    return true;
+  if (p.vendedora && p.vendedora.trim()) {
+    return matchesSeller(p.vendedora, emp);
   }
 
-  // 2. Se a vendedora estiver vazia ou for a digitadora, ou se o digitador for a consultora
-  if (p.digitador && matchesSeller(p.digitador, emp)) {
-    return true;
-  }
-
-  return false;
+  return Boolean(p.digitador && matchesSeller(p.digitador, emp));
 }
 
 /**
@@ -305,17 +253,11 @@ export function calculateDashboardMetrics(
   const cleanStart = dataInicio.substring(0, 10);
   const cleanEnd = dataFim.substring(0, 10);
 
-  // 1. Filtro de propostas por período financeiro de competência
-  // Considera a data de formalização / pagamento ao cliente prioritariamente,
-  // ou a data de digitação do contrato.
+  // 1. Filtro conforme a planilha oficial: competência é a DATA DA DIGITAÇÃO.
+  // A data de pagamento não pode puxar contratos digitados fora do período.
   const filteredPropostas = propostas.filter(p => {
     const digiIso = normalizeDateToISO(p.dataDigitacao);
-    const pagtoIso = normalizeDateToISO(p.dataPagamentoCliente);
-
-    const inDigi = Boolean(digiIso && digiIso >= cleanStart && digiIso <= cleanEnd);
-    const inPagto = Boolean(pagtoIso && pagtoIso >= cleanStart && pagtoIso <= cleanEnd);
-
-    return inDigi || inPagto;
+    return Boolean(digiIso && digiIso >= cleanStart && digiIso <= cleanEnd);
   });
 
   // 2. Contratos Formalizados e Pagos (regras reais de liquidação de crédito e assessoria)

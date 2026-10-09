@@ -889,8 +889,8 @@ export const crmStorage = {
       const parsedTaxa = parseBrazilianCurrency(row.valorTaxa);
       const parsedPercentTaxa = parseBrazilianCurrency(row.percentualTaxa);
       const dateDigitacao = parseBrazilianDate(row.dataDigitacao) || getLocalDateString();
-      const rawDatePagto = parseBrazilianDate(row.dataPagamentoCliente);
-      const datePagamento = rawDatePagto || dateDigitacao;
+      // Preserva a célula vazia da planilha: data de pagamento não é inferida.
+      const datePagamento = parseBrazilianDate(row.dataPagamentoCliente);
 
       // Skip row if it has no financial value, no date, and no contract (completely blank line)
       if (parsedEmp <= 0 && parsedTaxa <= 0 && (!cleanContract || cleanContract === '0') && !row.cpf) {
@@ -960,8 +960,6 @@ export const crmStorage = {
       if (row.clientePagou !== undefined && row.clientePagou !== null && String(row.clientePagou).trim() !== '') {
         const cpStr = String(row.clientePagou).trim().toUpperCase();
         isTaxaRealmentePaga = cpStr === 'SIM' || cpStr === 'S' || cpStr === 'TRUE' || cpStr === 'PAGA' || cpStr === 'PAGO';
-      } else {
-        isTaxaRealmentePaga = statusProp === 'Paga';
       }
 
       // 5. Create or Update Proposta for this specific row using deterministic keys
