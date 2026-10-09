@@ -24,16 +24,32 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error('ErrorBoundary capturou um erro não tratado:', error, errorInfo);
   }
 
-  private handleReset = () => {
-    this.setState({ hasError: false, error: null });
+  private reloadCleanApp = async () => {
+    // Limpa somente o cache técnico do PWA. Nunca apagar login, Firestore,
+    // propostas, clientes ou metas ao recuperar uma tela quebrada.
+    try {
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(registrations.map(registration => registration.unregister()));
+      }
+      if ('caches' in window) {
+        const cacheNames = await caches.keys();
+        await Promise.all(cacheNames.map(cacheName => caches.delete(cacheName)));
+      }
+    } catch (error) {
+      console.warn('Não foi possível limpar o cache técnico; recarregando normalmente.', error);
+    }
     window.location.reload();
+  };
+
+  private handleReset = () => {
+    void this.reloadCleanApp();
   };
 
   private handleClearAndReload = () => {
     // Nunca apagar a sessão Firebase/local ao tratar um erro de interface.
     // Um documento antigo ou uma tela quebrada não pode expulsar o usuário.
-    this.setState({ hasError: false, error: null });
-    window.location.reload();
+    void this.reloadCleanApp();
   };
 
   public render() {

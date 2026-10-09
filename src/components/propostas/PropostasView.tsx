@@ -395,9 +395,9 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
   const commissionByProposta = useMemo(() => {
     const map = new Map<string, number>();
     (comissoesPromotoras || [])
-      .filter(c => c.status === 'confirmada' && (c.valorRecebido || 0) > 0 && c.propostaId)
+      .filter(c => Boolean(c) && c.status === 'confirmada' && Number(c.valorRecebido || 0) > 0 && c.propostaId)
       .forEach(c => {
-        map.set(c.propostaId, (map.get(c.propostaId) || 0) + c.valorRecebido);
+        map.set(c.propostaId, (map.get(c.propostaId) || 0) + Number(c.valorRecebido || 0));
       });
     return map;
   }, [comissoesPromotoras]);
@@ -521,8 +521,8 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
           valB = String(b.banco || '').toLowerCase();
           break;
         case 'promotora':
-          valA = (a.promotora || '').toLowerCase();
-          valB = (b.promotora || '').toLowerCase();
+          valA = String(a.promotora || '').toLowerCase();
+          valB = String(b.promotora || '').toLowerCase();
           break;
         case 'valorEmprestimo':
           valA = a.valorEmprestimo || 0;
@@ -579,13 +579,13 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
 
   const totalVolume = filteredPropostas
     .filter(isContratoPago)
-    .reduce((acc, p) => acc + p.valorEmprestimo, 0);
+    .reduce((acc, p) => acc + Number(p.valorEmprestimo || 0), 0);
   const totalTaxasPagas = filteredPropostas
     .filter(isTaxaPaga)
-    .reduce((acc, p) => acc + p.valorTaxa, 0);
+    .reduce((acc, p) => acc + Number(p.valorTaxa || 0), 0);
   const totalTaxasPendentes = filteredPropostas
     .filter(p => !isTaxaPaga(p))
-    .reduce((acc, p) => acc + p.valorTaxa, 0);
+    .reduce((acc, p) => acc + Number(p.valorTaxa || 0), 0);
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
@@ -844,7 +844,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 items-start overflow-x-auto pb-4">
           {kanbanColumns.map((col) => {
             const colPropostas = sortedPropostas.filter(p => p.status === col.status);
-            const colVolume = colPropostas.reduce((acc, p) => acc + p.valorEmprestimo, 0);
+            const colVolume = colPropostas.reduce((acc, p) => acc + Number(p.valorEmprestimo || 0), 0);
 
             return (
               <div
