@@ -298,10 +298,8 @@ function cleanPayloadForFirestore(data: any): any {
     if (Array.isArray(obj)) return obj.map(clean);
     if (obj !== null && typeof obj === 'object') {
       return Object.entries(obj).reduce((acc, [k, v]) => {
-        if (v !== undefined && v !== null && v !== '') {
+        if (v !== undefined && v !== null) {
           acc[k] = clean(v);
-        } else if (v === 0 || v === false) {
-          acc[k] = v;
         }
         return acc;
       }, {} as any);
@@ -999,7 +997,8 @@ export const crmStorage = {
       const parsedPercentTaxa = parseBrazilianCurrency(row.percentualTaxa);
       const dateDigitacao = parseBrazilianDate(row.dataDigitacao) || getLocalDateString();
       const rawDatePagto = parseBrazilianDate(row.dataPagamentoCliente);
-      const datePagamento = rawDatePagto || dateDigitacao;
+      // Data de pagamento ao cliente: se vazia, fica rigorosamente vazia!
+      const datePagamento = rawDatePagto || '';
 
       // Skip row if it has no financial value, no date, and no contract (completely blank line)
       if (parsedEmp <= 0 && parsedTaxa <= 0 && (!cleanContract || cleanContract === '0') && !row.cpf) {
@@ -1064,13 +1063,12 @@ export const crmStorage = {
       else if (statusRaw.includes('ANAL') || statusRaw.includes('ANÁL') || statusRaw.includes('PEND') || statusRaw.includes('APROV')) statusProp = 'Em análise';
       else if (statusRaw.includes('CANCEL') || statusRaw.includes('REPROV')) statusProp = 'Cancelada';
 
-      // 4.1 Mapeamento explícito de Taxa Paga (Sim/Não) da planilha
+      // 4.1 Mapeamento estrito da coluna "CLIENTE PAGOU A TAXA DE ASSESSORIA"
+      // Apenas SIM = true; NÃO ou em branco = false
       let isTaxaRealmentePaga = false;
-      if (row.clientePagou !== undefined && row.clientePagou !== null && String(row.clientePagou).trim() !== '') {
+      if (row.clientePagou !== undefined && row.clientePagou !== null) {
         const cpStr = String(row.clientePagou).trim().toUpperCase();
-        isTaxaRealmentePaga = cpStr === 'SIM' || cpStr === 'S' || cpStr === 'TRUE' || cpStr === 'PAGA' || cpStr === 'PAGO';
-      } else {
-        isTaxaRealmentePaga = statusProp === 'Paga';
+        isTaxaRealmentePaga = cpStr === 'SIM' || cpStr === 'S' || cpStr === 'TRUE';
       }
 
       // 5. Create or Update Proposta for this specific row using deterministic keys

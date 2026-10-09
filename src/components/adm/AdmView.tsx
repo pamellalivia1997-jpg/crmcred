@@ -8,7 +8,6 @@ import {
   History,
   Check,
   X,
-  UploadCloud,
   Calculator,
   UserX,
   UserCheck,

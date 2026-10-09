@@ -18,13 +18,10 @@ import {
   Calculator,
   X,
   Zap,
-  Cloud,
-  Activity,
   Share2
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCRM } from '../../context/CRMContext';
-import { firebaseUsageTracker, FirebaseUsageStats } from '../../services/firebaseUsageTracker';
 
 interface Props {
   currentTab: string;
@@ -43,33 +40,6 @@ export const Sidebar: React.FC<Props> = ({
 }) => {
   const { currentUser, canAccessFinancial, canManageTeam } = useAuth();
   const { alertas, propostas, clientes, comissoesPromotoras, auditLogs } = useCRM();
-
-  // Real-time Firebase Firestore request tracking stats
-  const [fbStats, setFbStats] = React.useState<FirebaseUsageStats>(() => firebaseUsageTracker.getStats());
-
-  React.useEffect(() => {
-    return firebaseUsageTracker.subscribe(() => {
-      setFbStats(firebaseUsageTracker.getStats());
-    });
-  }, []);
-
-  // Calculation of Firebase Firestore storage usage (free-tier 1GB baseline)
-  const storageMetrics = React.useMemo(() => {
-    try {
-      const dataPayload = JSON.stringify({ propostas, clientes, comissoesPromotoras, auditLogs, alertas });
-      const rawBytes = new Blob([dataPayload]).size + (propostas.length * 1200) + 1048576; // Base cloud collection indexes overhead
-      const mb = rawBytes / (1024 * 1024);
-      const maxGb = 1.0;
-      const percentage = Math.min(100, Math.max(0.2, (mb / (maxGb * 1024)) * 100));
-      return {
-        usedMb: mb < 1 ? Number(mb.toFixed(2)) : Number(mb.toFixed(1)),
-        maxGb,
-        percentage: Number(percentage.toFixed(1))
-      };
-    } catch (e) {
-      return { usedMb: 1.4, maxGb: 1.0, percentage: 0.1 };
-    }
-  }, [propostas, clientes, comissoesPromotoras, auditLogs, alertas]);
 
   const isVendedora = currentUser?.role === 'vendedora';
   const isDigitador = currentUser?.role === 'digitador';
@@ -283,80 +253,6 @@ export const Sidebar: React.FC<Props> = ({
             </button>
           </div>
         )}
-      </div>
-
-      {/* Cloud Storage Indicator (Discreet & Simple) */}
-      <div className="pt-2.5 pb-1 px-2 border-t border-slate-100 dark:border-slate-800/80 space-y-1.5">
-        <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
-          <span className="flex items-center gap-1 font-semibold text-slate-600 dark:text-slate-300">
-            <Cloud className="w-3 h-3 text-teal-600 dark:text-teal-400" />
-            Nuvem Segura
-          </span>
-          <span className="font-mono text-[9px] text-slate-400">
-            {storageMetrics.usedMb} MB / {storageMetrics.maxGb} GB ({storageMetrics.percentage}%)
-          </span>
-        </div>
-        <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-teal-500 dark:bg-teal-400 rounded-full transition-all duration-500"
-            style={{ width: `${Math.max(2, storageMetrics.percentage)}%` }}
-            title={`Armazenamento em Nuvem: ${storageMetrics.usedMb} MB de 1 GB`}
-          />
-        </div>
-      </div>
-
-      {/* Real-time Firebase Requests Meter (Ultra-Discreet) */}
-      <div className="pt-2 pb-1 px-2 border-t border-slate-100 dark:border-slate-800/80 space-y-1.5">
-        <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
-          <span className="flex items-center gap-1 font-medium text-slate-600 dark:text-slate-300">
-            <Activity className="w-3 h-3 text-cyan-600 dark:text-cyan-400 animate-pulse" />
-            <span>Capacidade de Uso Diário</span>
-          </span>
-          <span className="font-mono text-[9px] text-slate-400">
-            {fbStats.reqPerMinute} req/min
-          </span>
-        </div>
-
-        {/* Mini Bars for Writes (Envio) and Reads (Recebimento) */}
-        <div className="space-y-1">
-          {/* Envio / Gravações */}
-          <div>
-            <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono leading-none mb-0.5">
-              <span>Envio (Gravações)</span>
-              <span>{fbStats.writesToday} / 20k ({fbStats.writesQuotaPercent}%)</span>
-            </div>
-            <div className="w-full h-1 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-blue-500 rounded-full transition-all duration-500"
-                style={{ width: `${Math.max(2, fbStats.writesQuotaPercent)}%` }}
-                title={`Envio diário: ${fbStats.writesToday} operações de gravação`}
-              />
-            </div>
-          </div>
-
-          {/* Recebimento / Leituras */}
-          <div>
-            <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono leading-none mb-0.5">
-              <span>Recebimento (Leituras)</span>
-              <span>{fbStats.readsToday} / 50k ({fbStats.readsQuotaPercent}%)</span>
-            </div>
-            <div className="w-full h-1 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-cyan-500 rounded-full transition-all duration-500"
-                style={{ width: `${Math.max(2, fbStats.readsQuotaPercent)}%` }}
-                title={`Recebimento diário: ${fbStats.readsToday} operações de leitura`}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between text-[9px] text-slate-400 pt-0.5">
-          <span>Tempo real • Diário</span>
-          <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-0.5">
-            <span className="w-1 h-1 rounded-full bg-emerald-500 animate-ping inline-block" />
-            Ativo
-          </span>
-        </div>
       </div>
 
       {/* User Status Footer */}

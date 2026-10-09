@@ -13,8 +13,6 @@ import {
   LogOut,
   Trash2,
   X,
-  Cloud,
-  CloudUpload,
   Download,
   Upload,
   Loader2,
@@ -47,20 +45,6 @@ export const Header: React.FC<Props> = ({ onToggleSidebar, onOpenAlerts, onNavig
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncNotice, setSyncNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleSyncCloud = async () => {
-    setIsSyncing(true);
-    try {
-      const res = await uploadLocalStoreToFirestore();
-      setSyncNotice(res.message);
-      setTimeout(() => setSyncNotice(null), 6000);
-    } catch (e: any) {
-      setSyncNotice(`Erro na sincronização: ${e.message}`);
-      setTimeout(() => setSyncNotice(null), 6000);
-    } finally {
-      setIsSyncing(false);
-    }
-  };
 
   const handleExportBackup = () => {
     try {

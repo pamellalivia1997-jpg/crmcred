@@ -182,18 +182,20 @@ function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: str
         colNome = idx;
       } else if (clean.includes('telefone') || clean.includes('celular') || clean.includes('fone') || clean.includes('whatsapp')) {
         colTel = idx;
-      } else if (clean.includes('digitacao') || clean.includes('datadagitacao')) {
+      } else if (clean.includes('datadadigitacao') || clean.includes('digitacao')) {
+        // DATA DA DIGITAÇÃO
         colDataDig = idx;
-      } else if (clean.includes('datapagamento') || clean.includes('datadopagamento') || (clean.includes('pagamento') && clean.includes('cliente'))) {
+      } else if (clean.includes('datadopagamentoaocliente') || clean.includes('datadopagamento') || clean.includes('datapagamento') || (clean.includes('pagamento') && clean.includes('cliente') && !clean.includes('taxa'))) {
+        // DATA DO PAGAMENTO AO CLIENTE
         colDataPag = idx;
-      } else if (clean.includes('pagamento') && !clean.includes('taxa')) {
-        colDataPag = idx;
-      } else if (clean.includes('clientepagou') || clean.includes('pagouataxa')) {
+      } else if (clean.includes('clientepagouataxadeassessoria') || clean.includes('clientepagou') || clean.includes('pagouataxa') || clean.includes('taxapaga')) {
+        // CLIENTE PAGOU A TAXA DE ASSESSORIA (sim, não, ou em branco)
         colClientePagou = idx;
+      } else if (clean.includes('valordataxadaassessoria') || clean.includes('taxadaassessoria') || clean.includes('valordataxa')) {
+        // VALOR DA TAXA DA ASSESSORIA
+        colValorTaxa = idx;
       } else if (clean.includes('taxadocartao') || clean.includes('percentual') || clean.includes('taxacartao')) {
         colPercentTaxa = idx;
-      } else if (clean.includes('valordataxa') || clean.includes('taxadaassessoria') || (clean.includes('taxa') && !clean.includes('cartao'))) {
-        colValorTaxa = idx;
       } else if (clean.includes('valordoemprestimo') || clean.includes('emprestimoliberado') || clean.includes('valorliberado') || clean.includes('emprestimo')) {
         colValorEmp = idx;
       } else if (clean.includes('anexar') || clean.includes('capa') || clean.includes('print') || clean.includes('link') || clean.includes('drive')) {

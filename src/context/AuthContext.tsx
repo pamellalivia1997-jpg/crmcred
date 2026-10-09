@@ -5,7 +5,7 @@ import { cleanPersonName } from '../utils/formatters';
 import { INITIAL_USERS } from '../data/mockSeed';
 
 import { auth, googleProvider } from '../services/firebase';
-import { signInWithPopup, signInWithEmailAndPassword, signOut as firebaseSignOut, onAuthStateChanged, GoogleAuthProvider, setPersistence, browserLocalPersistence } from 'firebase/auth';
+import { signInWithPopup, signOut as firebaseSignOut, onAuthStateChanged, GoogleAuthProvider, setPersistence, browserLocalPersistence } from 'firebase/auth';
 
 export interface AuthResult {
   success: boolean;
@@ -139,20 +139,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, []);
 
-  // Connect background session for cloud sync if not logged into Google
-  useEffect(() => {
-    if (!auth.currentUser) {
-      signInWithEmailAndPassword(auth, 'sistema@liviacred.app', 'LiviaCred@2026')
-        .then(() => {
-          console.log('🔥 [Firebase Auth] Sessão cloud iniciada em segundo plano');
-          initFirestoreRealtimeSync();
-        })
-        .catch(err => {
-          console.warn('Aviso Firebase Auth background:', err?.message || err);
-        });
-    }
-  }, []);
-
   const isManager = Boolean(
     currentUser && (currentUser.role === 'proprietaria' || currentUser.role === 'adm' || currentUser.role === 'financeiro')
   );
@@ -238,17 +224,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setCurrentUser(norm);
         localStorage.setItem(CURRENT_USER_KEY, norm.id);
 
-        // Ensure Firebase Auth session in background for Firestore synchronization
-        if (!auth.currentUser) {
-          signInWithEmailAndPassword(auth, 'sistema@liviacred.app', 'LiviaCred@2026')
-            .then(() => {
-              console.log('🔥 [Firebase Auth] Conexão com a nuvem autenticada com sucesso!');
-              initFirestoreRealtimeSync();
-            })
-            .catch(err => {
-              console.warn('🔥 [Firebase Auth] Login secundário silencioso:', err?.message || err);
-            });
-        }
+        // Inicia sincronização em tempo real caso não esteja ativa
+        initFirestoreRealtimeSync();
 
         crmStorage.logAudit({
           usuarioId: norm.id,
@@ -275,8 +252,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loginWithGoogle = async (): Promise<AuthResult> => {
     try {
-      // Explicitly persist the Firebase session across F5 and new tabs.
-      await setPersistence(auth, browserLocalPersistence);
+      // Explicitly persist the Firebase session across F5 and new tabs when supported
+      try {
+        await setPersistence(auth, browserLocalPersistence);
+      } catch (pErr) {
+        console.warn('Persistência padrão mantida:', pErr);
+      }
       const result = await signInWithPopup(auth, googleProvider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
       const token = credential?.accessToken || null;

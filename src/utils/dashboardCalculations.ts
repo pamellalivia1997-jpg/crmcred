@@ -119,9 +119,8 @@ export function matchesSeller(pSeller: string | undefined | null, emp: User): bo
 }
 
 /**
- * Relaciona uma proposta à vendedora responsável. Quando a planilha informa
- * VENDEDOR, DIGITADOR nunca pode substituí-lo no ranking ou nas comissões.
- * O fallback para digitador só existe para registros antigos sem vendedor.
+ * Relaciona uma proposta à vendedora responsável estritamente pela coluna VENDEDORA.
+ * A coluna DIGITADORA NÃO é incluída no cálculo da vendedora.
  */
 export function matchProposalToSeller(p: Proposta, emp: User): boolean {
   if (!p) return false;
@@ -130,11 +129,11 @@ export function matchProposalToSeller(p: Proposta, emp: User): boolean {
     return matchesSeller(p.vendedora, emp);
   }
 
-  return Boolean(p.digitador && matchesSeller(p.digitador, emp));
+  return false;
 }
 
 /**
- * Helper for robust tax payment detection
+ * Detecção estrita de taxa paga: apenas status "SIM"
  */
 export function isTaxaPaga(p: Proposta): boolean {
   if (!p) return false;
@@ -143,8 +142,8 @@ export function isTaxaPaga(p: Proposta): boolean {
   if (val === true || cliVal === true) return true;
   const sVal = String(val || '').toUpperCase().trim();
   const sCliVal = String(cliVal || '').toUpperCase().trim();
-  return sVal === 'SIM' || sVal === 'S' || sVal === 'TRUE' || sVal === 'PAGA' || sVal === 'PAGO' ||
-         sCliVal === 'SIM' || sCliVal === 'S' || sCliVal === 'TRUE' || sCliVal === 'PAGA' || sCliVal === 'PAGO';
+  return sVal === 'SIM' || sVal === 'S' || sVal === 'TRUE' ||
+         sCliVal === 'SIM' || sCliVal === 'S' || sCliVal === 'TRUE';
 }
 
 /**
