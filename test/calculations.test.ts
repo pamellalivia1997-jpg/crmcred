@@ -50,6 +50,17 @@ const parsedContent5 = parseTextToSpreadsheetInputRows([
   content5Row
 ].join('\n'), 'Hellen');
 assert(parsedContent5.length === 1 && parsedContent5[0].dataDigitacao === '21/09/2026' && parsedContent5[0].valorEmprestimo === '1.778,68' && parsedContent5[0].status === 'PAGO', 'content5 malformed row must preserve all financial columns');
+const content5Rows = parseTextToSpreadsheetInputRows([
+  'CPF DO CLIENTE : 000.000.000-00 (PRENCHER NESSE FORMATO EXEMPLIFICADO ACIMA)',
+  '\tNOME DO CLIENTE: (PREENCHER IGUAL AO DOCUMENTO)\tNÚMERO DE TELEFONE: 00 00000-0000 (PREENCHER NESSE FORMATO EXEMPLIFICADO ACIMA)',
+  '\tDATA DA DIGITAÇÃO \tDATA DO PAGAMENTO AO CLIENTE\tCONVÊNIO \tOPERAÇÃO\tBANCO\tPROMOTORA\tVALOR DO EMPRÉSTIMO LIBERADO PARA O CLIENTE\tVALOR DA TAXA DA ASSESSORIA\tCLIENTE PAGOU A TAXA DE ASSESSORIA \tTaxa do Cartão\tVENDEDOR\tDIGITADOR\tNº DO CONTRATO (SEM ESPAÇAMENTO)\tANEXAR\tSTATUS DO CONTRATO\tOBSERVAÇÕES GERAIS',
+  '356.656.534-20\tSAULO ROMERO DE ALBUQUERQUE\t81985587485\t23/09/2026\t23/09/2026\tINSS\tPORTABILIDADE\tICRED\tJ2 PROMOTORA\t36.885,41\t0\tNÃO\t\tLucélia\tLucélia\tec5cc71b-3546-4623-9dce-b8ec5ac0db04\thttps://example.test\tPAGO\t',
+  '697.240.084-87\t"LUZIA MARIA DO NASCIMENTO\t"\t(81) 98972-9600\t21/09/2026\t29/09/2026\tINSS\tREFIN DA PORT\tFACTA\tJ2 PROMOTORA\t1.778,68\t700\tSIM\t\tHELLEN\tANA\t123561583\thttps://example.test\tPAGO\t'
+].join('\n'), 'Hellen');
+assert(content5Rows.length === 2, 'official three-line header must preserve both rows');
+assert(content5Rows[0].vendedora === 'Lucélia' && content5Rows[0].valorEmprestimo === '36.885,41' && content5Rows[0].status === 'PAGO', 'Lucélia R$ 36.885,41 row must remain aligned');
+assert(content5Rows[1].vendedora === 'HELLEN' && content5Rows[1].valorEmprestimo === '1.778,68' && content5Rows[1].valorTaxa === '700', 'Hellen R$ 1.778,68 row must remain aligned');
+
 const persistedGoals: any[] = [{ mesAno: '2026-09', vendedoraId: 'loja', metaVenda: 400000, metaPercentualTaxa: 11 }, { mesAno: '2026-09', vendedoraId: 'u1', metaVenda: 200000, metaPercentualTaxa: 20 }, { mesAno: '2026-09', vendedoraId: 'u2', metaVenda: 200000, metaPercentualTaxa: 20 }];
 assert(calculateMetaForPeriod('2026-09-01','2026-09-30',persistedGoals,mockUsers) === 400000, 'saved store goal must remain stable');
 assert(calculateMetaForPeriod('2026-09-01','2026-09-30',persistedGoals,[mockUsers[0]]) === 400000, 'removing a seller must not change historical goal');

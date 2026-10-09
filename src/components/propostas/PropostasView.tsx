@@ -122,12 +122,27 @@ export function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUs
   });
 
   if (headerIndex >= 0) {
-    // O conteúdo5 usa três linhas de cabeçalho: CPF; nome/telefone; e os
-    // campos financeiros. Reunir as três linhas preserva os índices reais.
-    headerRow = allRows.slice(0, headerIndex + 1).flat()
-      .map(h => String(h || '').replace(/^"|"$/g, '').trim())
-      .filter(h => h.length > 0)
-      .map(h => h.toLowerCase());
+    const preamble = allRows.slice(0, headerIndex + 1).flat()
+      .map(h => String(h || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase());
+    const isThreeLineOfficialSheet = preamble.some(h => h.includes('cpf do cliente')) &&
+      preamble.some(h => h.includes('nome do cliente')) &&
+      preamble.some(h => h.includes('numero de telefone'));
+
+    if (isThreeLineOfficialSheet) {
+      // content5/content4 têm instruções nas três primeiras linhas. Elas não
+      // são colunas. Use o contrato oficial de 19 colunas para que uma
+      // aspas solta ou texto explicativo nunca desloque valor/status/vendedor.
+      headerRow = [
+        'cpf do cliente', 'nome do cliente', 'número de telefone',
+        'data da digitação', 'data do pagamento ao cliente', 'convênio',
+        'operação', 'banco', 'promotora',
+        'valor do empréstimo liberado para o cliente', 'valor da taxa da assessoria',
+        'cliente pagou a taxa de assessoria', 'taxa do cartão', 'vendedor',
+        'digitador', 'nº do contrato', 'anexar', 'status do contrato', 'observações'
+      ];
+    } else {
+      headerRow = allRows[headerIndex].map(h => String(h || '').toLowerCase().trim());
+    }
     dataRowsIndex = headerIndex + 1;
   } else {
     // Compatibilidade com tabelas antigas sem cabeçalho completo.
