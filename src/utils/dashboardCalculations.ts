@@ -1,3 +1,5 @@
+import type { Operacao } from '../types';
+
 import { Proposta, MetaVendedora, User, StatusProposta, ComissaoPromotora, ContaPagar } from '../types';
 import { isSameSeller, normalizeSellerName } from './formatters';
 import { calculateTotalExpensesFromSheet, calculateSellerCostFromSheet } from '../services/expensesSheetService';
@@ -239,17 +241,12 @@ export function calculateMetaForPeriod(
       }
     });
 
-    // Valid if all active sellers have a meta > 0 saved
-    const allActiveSellersHaveSavedMeta = activeSellerIds.size > 0 && Array.from(activeSellerIds).every(id => (uniqueMetasMap.get(id) || 0) > 0);
-
-    if (allActiveSellersHaveSavedMeta) {
-      const sum = Array.from(uniqueMetasMap.values()).reduce((acc, val) => acc + val, 0);
-      if (sum > 0) {
-        storeMetaMonthly = sum;
-      }
-    } else {
-      storeMetaMonthly = 400000;
-    }
+    // Meta histórica não pode mudar quando a equipe atual muda.
+    const savedSellerGoals = savedMetasForMonth
+      .filter(m => m.vendedoraId !== 'loja' && m.metaVenda > 0)
+      .map(m => m.metaVenda);
+    const sum = savedSellerGoals.reduce((acc, val) => acc + val, 0);
+    if (sum > 0) storeMetaMonthly = sum;
   }
 
   if (isFullClosedMonth(dataInicio, dataFim)) {
@@ -589,13 +586,13 @@ export function calculateEvolutionVendasTaxas(propostas: Proposta[]): any[] {
 
   return months.map(m => {
     const mProps = propostas.filter(p => {
-      const d = normalizeDateToISO(p.dataPagamentoCliente || p.dataDigitacao);
+      const d = normalizeDateToISO(p.dataDigitacao);
       return d && d.startsWith(m.key) && isContratoPago(p);
     });
     const vendas = mProps.reduce((acc, p) => acc + Number(p.valorEmprestimo || 0), 0);
     const taxas = propostas
       .filter(p => {
-        const d = normalizeDateToISO(p.dataPagamentoCliente || p.dataDigitacao);
+        const d = normalizeDateToISO(p.dataDigitacao);
         return d && d.startsWith(m.key) && isTaxaPaga(p);
       })
       .reduce((acc, p) => acc + Number(p.valorTaxa || 0), 0);

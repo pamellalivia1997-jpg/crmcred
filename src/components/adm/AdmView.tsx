@@ -117,7 +117,7 @@ export const AdmView: React.FC<AdmViewProps> = ({ initialSubTab = 'metas' }) => 
     const activeCount = Object.values(newMap).filter(item => item.isAtivo).length;
 
     if (existingForMonth.length > 0) {
-      setTotalMetaLojaInput(existingLoja?.metaVenda || totalFromExisting || 400000);
+      setTotalMetaLojaInput(existingLoja?.metaVenda ?? (existingForMonth.reduce((sum, m) => sum + (m.vendedoraId !== 'loja' ? (m.metaVenda || 0) : 0), 0) || 400000));
       setSellerMetasMap(newMap);
     } else {
       const initialStoreMeta = 400000;

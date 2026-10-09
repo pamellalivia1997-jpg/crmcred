@@ -33,6 +33,7 @@ import { formatCurrency, formatPercent, formatDate, formatCPF, cleanPersonName, 
 import { DetalhePropostaModal } from './DetalhePropostaModal';
 import { CPFValidationBadge } from '../common/CPFValidationBadge';
 import { SmartFilter } from '../common/SmartFilter';
+import { isContratoPago, isTaxaPaga } from '../../utils/dashboardCalculations';
 
 interface PropostasViewProps {
   initialProposta?: Proposta | null;
@@ -105,7 +106,7 @@ function parseSpreadsheetRawText(rawText: string): string[][] {
 }
 
 // Dynamic header and value column detector
-function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: string): any[] {
+export function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: string): any[] {
   if (!allRows || allRows.length === 0) return [];
 
   let headerRow: string[] | null = null;
@@ -121,7 +122,12 @@ function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: str
   });
 
   if (headerIndex >= 0) {
-    headerRow = allRows[headerIndex].map(h => String(h || '').toLowerCase().trim());
+    // O conteúdo5 usa três linhas de cabeçalho: CPF; nome/telefone; e os
+    // campos financeiros. Reunir as três linhas preserva os índices reais.
+    headerRow = allRows.slice(0, headerIndex + 1).flat()
+      .map(h => String(h || '').replace(/^"|"$/g, '').trim())
+      .filter(h => h.length > 0)
+      .map(h => h.toLowerCase());
     dataRowsIndex = headerIndex + 1;
   } else {
     // Compatibilidade com tabelas antigas sem cabeçalho completo.
@@ -241,8 +247,17 @@ function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: str
 
   const resultRows = [];
   for (let i = dataRowsIndex; i < allRows.length; i++) {
-    const cols = allRows[i];
+    let cols = [...(allRows[i] || [])];
     if (!cols || !Array.isArray(cols) || cols.length < 2) continue;
+
+    // Corrige a linha do conteúdo5 que contém uma aspas solta e uma célula
+    // vazia extra entre nome e telefone, sem deslocar data/status/valores.
+    const datePattern = /^\d{2}\/\d{2}\/\d{4}$/;
+    if (colDataDig >= 0 && !datePattern.test(String(cols[colDataDig] || '').trim()) &&
+        datePattern.test(String(cols[colDataDig + 1] || '').trim()) &&
+        String(cols[colDataDig - 1] || '').trim() === '') {
+      cols.splice(colDataDig - 1, 1);
+    }
 
     const rawCpf = colCpf >= 0 ? String(cols[colCpf] || '').trim() : '';
     const rawNome = colNome >= 0 ? String(cols[colNome] || '').trim() : '';
@@ -293,7 +308,7 @@ function parseArrayRowsToSpreadsheetInputRows(allRows: any[][], defaultUser: str
   return resultRows;
 }
 
-function parseTextToSpreadsheetInputRows(rawText: string, defaultUser: string): any[] {
+export function parseTextToSpreadsheetInputRows(rawText: string, defaultUser: string): any[] {
   const allRows = parseSpreadsheetRawText(rawText);
   return parseArrayRowsToSpreadsheetInputRows(allRows, defaultUser);
 }
@@ -428,7 +443,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
       const matchStatus = filterStatus === 'todos' || p.status === filterStatus;
 
       // Taxa Paga filter
-      const isPaidTax = p.taxaPaga === true || p.clientePagouTaxa === true;
+      const isPaidTax = isTaxaPaga(p);
       let matchTaxa = true;
       if (filterTaxaPaga === 'sim') matchTaxa = isPaidTax;
       if (filterTaxaPaga === 'nao') matchTaxa = !isPaidTax;
@@ -515,8 +530,8 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
           valB = b.status.toLowerCase();
           break;
         case 'taxaPaga':
-          valA = (a.taxaPaga === true || a.clientePagouTaxa === true) ? 1 : 0;
-          valB = (b.taxaPaga === true || b.clientePagouTaxa === true) ? 1 : 0;
+          valA = isTaxaPaga(a) ? 1 : 0;
+          valB = isTaxaPaga(b) ? 1 : 0;
           break;
         case 'repasse':
           valA = getRepasseValue(a);
@@ -548,7 +563,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
   };
 
   const totalVolume = filteredPropostas
-    .filter(p => p.status === 'Paga')
+    .filter(isContratoPago)
     .reduce((acc, p) => acc + p.valorEmprestimo, 0);
   const totalTaxasPagas = filteredPropostas
     .filter(isTaxaPaga)
@@ -770,8 +785,8 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
         <div className="flex flex-wrap items-center justify-between text-xs text-slate-500 pt-2.5 border-t border-slate-100 dark:border-slate-800 gap-2">
           <div className="flex items-center gap-2">
             <span className="font-bold text-slate-800 dark:text-slate-200">
-              {filteredPropostas.filter(p => p.status === 'Paga').length} contratos pagos
-              {filteredPropostas.length > filteredPropostas.filter(p => p.status === 'Paga').length && 
+              {filteredPropostas.filter(isContratoPago).length} contratos pagos
+              {filteredPropostas.length > filteredPropostas.filter(isContratoPago).length &&
                 ` (${filteredPropostas.length} no total)`}
             </span>
             {(filterVendedora !== 'todas' || filterOperacao !== 'todas' || filterBanco !== 'todos' || filterPromotora !== 'todas' || filterStatus !== 'todos' || filterTaxaPaga !== 'todas' || (canViewRepasse && filterRepasse !== 'todos') || searchTerm) && (

@@ -219,7 +219,7 @@ export const ProprietariaDashboard: React.FC<Props> = ({
   // Previous month for comparative deltas
   const prevMonthPropostas = useMemo(() => {
     return propostas.filter(p => {
-      const dataRef = normalizeDateToISO(p.dataPagamentoCliente || p.dataDigitacao);
+      const dataRef = normalizeDateToISO(p.dataDigitacao);
       return dataRef.startsWith(baseDateInfo.prevMonthStr) && isContratoPago(p);
     });
   }, [propostas, baseDateInfo]);

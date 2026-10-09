@@ -99,8 +99,8 @@ export function calcularComissaoVendedoraMes(
 ): ComissaoVendedora {
   // Filtra as propostas pagas da vendedora no mês especificado
   const propostas = propostasPagas.filter(p => {
-    const isVendedora = (isSameSeller(p.vendedora, vendedoraNome) || isSameSeller(p.digitador, vendedoraNome));
-    const dataRef = normalizeDateToISO(p.dataPagamentoCliente || p.dataDigitacao);
+    const isVendedora = isSameSeller(p.vendedora, vendedoraNome) || (!p.vendedora && isSameSeller(p.digitador, vendedoraNome));
+    const dataRef = normalizeDateToISO(p.dataDigitacao);
     const isMes = dataRef.startsWith(mesAno);
     return isVendedora && isMes && isContratoPago(p);
   });

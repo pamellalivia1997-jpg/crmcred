@@ -26,6 +26,12 @@ jobs:
       - name: Install dependencies
         run: npm install --legacy-peer-deps
 
+      - name: Validate official calculations
+        run: npm run test:calculations
+
+      - name: Type-check application
+        run: npm run lint
+
       - name: Build React App
         run: npm run build
         env:

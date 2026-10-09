@@ -170,7 +170,7 @@ export const RelatoriosSemanalMensal: React.FC = () => {
 
     return months.map(m => {
       const mProps = propostas.filter(p => {
-        const d = normalizeDateToISO(p.dataPagamentoCliente || p.dataDigitacao);
+        const d = normalizeDateToISO(p.dataDigitacao);
         return d && d.startsWith(m.key) && isContratoPago(p);
       });
 

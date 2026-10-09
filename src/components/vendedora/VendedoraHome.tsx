@@ -34,7 +34,7 @@ import {
   cleanPersonName
 } from '../../utils/formatters';
 import { calcularComissaoVendedoraMes } from '../../utils/commissionRules';
-import { isContratoPago, normalizeDateToISO } from '../../utils/dashboardCalculations';
+import { isContratoPago, isTaxaPaga, normalizeDateToISO } from '../../utils/dashboardCalculations';
 import { Cliente, Proposta } from '../../types';
 import { DetalhePropostaModal } from '../propostas/DetalhePropostaModal';
 
@@ -194,7 +194,7 @@ export const VendedoraHome: React.FC<Props> = ({
   // Filter propostas by period
   const filteredPropostas = useMemo(() => {
     return propostas.filter(p => {
-      const d = normalizeDateToISO(p.dataPagamentoCliente || p.dataDigitacao);
+      const d = normalizeDateToISO(p.dataDigitacao);
       if (!d) return false;
 
       if (periodo === 'hoje') {
@@ -268,7 +268,7 @@ export const VendedoraHome: React.FC<Props> = ({
 
   // Totals
   const totalVendas = sellerPaidPropsFiltered.reduce((acc, p) => acc + p.valorEmprestimo, 0);
-  const totalTaxas = sellerPaidPropsFiltered.reduce((acc, p) => acc + p.valorTaxa, 0);
+  const totalTaxas = sellerPropostasInPeriod.filter(isTaxaPaga).reduce((acc, p) => acc + (p.valorTaxa || 0), 0);
   const taxaMedia = totalVendas > 0 ? (totalTaxas / totalVendas) * 100 : 0;
 
   // Period multiplier for scaling the goal
@@ -357,7 +357,7 @@ export const VendedoraHome: React.FC<Props> = ({
 
     // 2. Aggregate sales from paid proposals in this competence
     const matchingPropostas = propostas.filter(p => {
-      const dateRef = normalizeDateToISO(p.dataPagamentoCliente || p.dataDigitacao);
+      const dateRef = normalizeDateToISO(p.dataDigitacao);
       return dateRef.startsWith(activeCompetenceMonth) && isContratoPago(p);
     });
 
