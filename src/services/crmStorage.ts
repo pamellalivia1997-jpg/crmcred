@@ -591,6 +591,22 @@ export function parseBrazilianDate(dateStr: any): string {
   return '';
 }
 
+function stableImportIdentity(row: SpreadsheetRowInput): string {
+  // The complete parsed row is the identity: a row is duplicate only when
+  // every imported column has the same value. Hashing keeps Firestore paths
+  // short and removes forbidden path characters such as '/' from URLs.
+  const payload = Object.keys(row)
+    .sort()
+    .map(key => [key, row[key as keyof SpreadsheetRowInput] ?? null]);
+  const text = JSON.stringify(payload);
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `imp-${(hash >>> 0).toString(16).padStart(8, '0')}`;
+}
+
 export interface SpreadsheetRowInput {
   carimboDataHora?: string;
   cpf: string;
@@ -1107,28 +1123,16 @@ export const crmStorage = {
       // can have separate operations/values. The old key used only the
       // contract and silently overwrote rows such as R$ 1.778,68 and
       // R$ 36.885,41. Include the row's financial identity instead.
-      const cleanContractKey = (cleanContract && cleanContract !== '0' && cleanContract !== '-')
-        ? cleanContract.toLowerCase().replace(/[^a-z0-9]/g, '')
-        : '';
-      const operationKey = String(row.operacao || 'operacao').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40);
-      const identityKey = [
-        cleanCpf || 'semcpf',
-        dateDigitacao.replace(/\W/g, ''),
-        Math.round(parsedEmp * 100),
-        Math.round(parsedTaxa * 100),
-        isTaxaRealmentePaga ? 'taxasim' : 'taxanao',
-        String(row.telefone || '').replace(/\D/g, ''),
-        String(row.linkDocumento || '').trim().toLowerCase().slice(-80)
-      ].join('-');
-      const rowSignature = `${identityKey}-${operationKey}`;
-      const proposalId = cleanContractKey
-        ? `prop-ctr-${cleanContractKey}-${rowSignature}`
-        : `prop-row-${rowSignature}-${index + 1}`;
+      const importIdentity = stableImportIdentity(row);
+      // Never place raw spreadsheet content (especially https:// links) in a
+      // Firestore path. The hashed complete-row identity is path-safe.
+      const proposalId = `prop-${importIdentity}`;
 
       const rawLinkStr = String(row.linkDocumento || '').trim();
       const hasLink = rawLinkStr && rawLinkStr !== '0' ? rawLinkStr : undefined;
       const newProposta: Proposta = {
         id: proposalId,
+        importIdentity,
         carimboDataHora: row.carimboDataHora || new Date().toISOString(),
         cpf: cleanCpf,
         telefone: rawPhone,
@@ -1161,19 +1165,26 @@ export const crmStorage = {
 
       const existingPropIdx = currentStore.propostas.findIndex(p => {
         if (!p) return false;
-        if (p.id === proposalId) return true;
-        if (!cleanContractKey || !p.numeroContrato || String(p.numeroContrato).trim().toLowerCase() !== cleanContract.trim().toLowerCase()) return false;
-        // Match an older imported document by its row identity so reimport
-        // repairs it instead of creating duplicates, while preserving rows
-        // that share the same contract number.
-        return parseBrazilianDate(p.dataDigitacao) === dateDigitacao &&
+        if (p.importIdentity === importIdentity || p.id === proposalId) return true;
+        // Compatibility with documents imported by older versions: only treat
+        // as duplicate when every persisted spreadsheet field is identical.
+        return String(p.cpf || '').replace(/\D/g, '') === String(cleanCpf || '').replace(/\D/g, '') &&
+          String(p.nomeCliente || '') === rawNome &&
+          String(p.telefone || '') === rawPhone &&
+          parseBrazilianDate(p.dataDigitacao) === dateDigitacao &&
+          String(p.dataPagamentoCliente || '') === datePagamento &&
+          String(p.convenio || '') === String(row.convenio || '') &&
+          String(p.operacao || '') === String(row.operacao || '') &&
+          String(p.banco || '') === String(row.banco || '') &&
+          String(p.promotora || '') === String(row.promotora || '') &&
           Number(p.valorEmprestimo || 0) === parsedEmp &&
-          String(p.operacao || '').trim().toLowerCase() === String(row.operacao || '').trim().toLowerCase() &&
-          String(p.cpf || '').replace(/\D/g, '') === String(cleanCpf || '').replace(/\D/g, '') &&
-          Math.round(Number(p.valorTaxa || 0) * 100) === Math.round(parsedTaxa * 100) &&
+          Number(p.valorTaxa || 0) === parsedTaxa &&
           isTaxaPagaForImport(p) === isTaxaRealmentePaga &&
-          String(p.telefone || '').replace(/\D/g, '') === String(row.telefone || '').replace(/\D/g, '') &&
-          String(p.linkDocumento || '').trim().toLowerCase() === String(row.linkDocumento || '').trim().toLowerCase();
+          String(p.vendedora || '') === sellerName &&
+          String(p.digitador || '') === digitadorName &&
+          String(p.numeroContrato || '') === cleanContract &&
+          String(p.status || '') === statusProp &&
+          String(p.linkDocumento || '') === String(row.linkDocumento || '');
       });
 
       if (existingPropIdx >= 0) {

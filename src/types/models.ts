@@ -102,6 +102,7 @@ export interface Proposta {
   cpf: string;
   nomeCliente: string;
   telefone?: string;
+  importIdentity?: string;
   dataDigitacao: string; // AAAA-MM-DD
   dataPagamentoCliente?: string; // AAAA-MM-DD
   convenio: Convenio;
