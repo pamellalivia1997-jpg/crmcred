@@ -1259,12 +1259,12 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
               <label className="cursor-pointer flex flex-col items-center justify-center gap-1.5 py-2">
                 <FileSpreadsheet className="w-7 h-7 text-teal-600" />
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-200">
-                  Clique aqui para selecionar seu arquivo Excel (.xlsx, .xls, .csv)
+                  Clique aqui para selecionar seu arquivo Excel ou texto (.xlsx, .xls, .csv, .txt)
                 </span>
-                <span className="text-[10px] text-slate-400">Suporta arquivos de qualquer tamanho</span>
+                <span className="text-[10px] text-slate-400">Suporta arquivos Excel, CSV e TXT de qualquer tamanho</span>
                 <input
                   type="file"
-                  accept=".xlsx, .xls, .csv"
+                  accept=".xlsx, .xls, .csv, .txt"
                   className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
@@ -1274,8 +1274,8 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                     const reader = new FileReader();
                     reader.onload = async (evt) => {
                       try {
-                        const isCsv = /\.csv$/i.test(file.name) || /csv/i.test(file.type);
-                        if (isCsv) {
+                        const isTextImport = /\.(csv|txt)$/i.test(file.name) || /(?:csv|text\/plain)/i.test(file.type);
+                        if (isTextImport) {
                           const text = String(evt.target?.result || '').replace(/^\uFEFF/, '');
                           const mappedRows = parseTextToSpreadsheetInputRows(text, currentUser?.name || 'Hellen Vasconcelos');
                           if (mappedRows.length === 0) throw new Error('Nenhuma linha válida encontrada no CSV.');
@@ -1299,7 +1299,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                         e.currentTarget.value = '';
                       }
                     };
-                    if (/\.csv$/i.test(file.name) || /csv/i.test(file.type)) reader.readAsText(file, 'UTF-8');
+                    if (/\.(csv|txt)$/i.test(file.name) || /(?:csv|text\/plain)/i.test(file.type)) reader.readAsText(file, 'UTF-8');
                     else reader.readAsArrayBuffer(file);
                   }}
                 />
