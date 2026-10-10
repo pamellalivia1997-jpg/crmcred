@@ -17,6 +17,7 @@ import {
 import { generateSeedData, INITIAL_USERS } from '../data/mockSeed';
 import { db, auth, handleFirestoreError, OperationType } from './firebase';
 import { doc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } from 'firebase/firestore';
+import { signInAnonymously } from 'firebase/auth';
 import { normalizeSellerName, getLocalDateString } from '../utils/formatters';
 import { firebaseUsageTracker } from './firebaseUsageTracker';
 
@@ -1251,8 +1252,15 @@ export const crmStorage = {
     // Add each client once, then write the proposals and commissions.
     writeOperations.unshift(...clientWriteOperations.values());
 
+    // O login rápido (usuário/senha local) pode deixar o usuário da interface
+    // pronto antes do Firebase Auth. Crie uma sessão autenticada persistente
+    // para que as regras do Firestore nunca recebam uma gravação sem auth.
     if (!auth.currentUser) {
-      throw new Error('A sessão do Firebase ainda não está pronta. Aguarde o nome do usuário aparecer no menu e tente novamente.');
+      try {
+        await signInAnonymously(auth);
+      } catch (authError: any) {
+        throw new Error(`Não foi possível autenticar a sessão no Firebase: ${authError?.message || 'verifique se o login anônimo está habilitado no Firebase Console.'}`);
+      }
     }
 
     // Os listeners mantêm vários canais WebChannel abertos. Durante uma
