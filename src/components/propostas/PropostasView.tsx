@@ -1268,7 +1268,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                     const file = e.target.files?.[0];
                     if (!file) return;
                     const reader = new FileReader();
-                    reader.onload = (evt) => {
+                    reader.onload = async (evt) => {
                       try {
                         const data = evt.target?.result;
                         const workbook = XLSX.read(data, { type: 'binary' });
@@ -1282,7 +1282,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                         }
 
                         const mappedRows = parseArrayRowsToSpreadsheetInputRows(arrayRows, currentUser?.name || 'Hellen Vasconcelos');
-                        const res = importFullSpreadsheetRows(mappedRows);
+                        const res = await importFullSpreadsheetRows(mappedRows);
                         setImportNotice(`Importação concluída! ${res.totalRows - 1} linhas lidas do arquivo. ${res.clientsCreated + res.clientsUpdated} clientes localizados (${res.clientsCreated} novos criados) e ${res.proposalsCreated} propostas salvas no funil.`);
                       } catch (err: any) {
                         setImportNotice(`Erro ao ler arquivo Excel: ${err.message}`);
@@ -1321,7 +1321,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                 Fechar
               </button>
               <button
-                onClick={() => {
+                onClick={async () => {
                   try {
                     const parsedRows = parseTextToSpreadsheetInputRows(importText, currentUser?.name || 'Hellen Vasconcelos');
                     if (parsedRows.length === 0) {
@@ -1329,7 +1329,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                       return;
                     }
 
-                    const res = importFullSpreadsheetRows(parsedRows);
+                    const res = await importFullSpreadsheetRows(parsedRows);
                     setImportNotice(`Importação concluída! ${parsedRows.length} linhas lidas. ${res.clientsCreated + res.clientsUpdated} clientes localizados (${res.clientsCreated} novos criados) e ${res.proposalsCreated} propostas salvas no funil.`);
                     setTimeout(() => {
                       setIsImportModalOpen(false);

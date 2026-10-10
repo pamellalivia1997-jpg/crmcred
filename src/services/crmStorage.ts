@@ -515,6 +515,13 @@ export function standardizeCPF(rawCpf: string): { cleanCpf: string; formattedCpf
 }
 
 // Helper: Parse Brazilian currency formats (e.g., "2.957,02" -> 2957.02, "2.000" -> 2000, "289,5" -> 289.5)
+function isTaxaPagaForImport(p: Proposta): boolean {
+  const value = p.taxaPaga ?? p.clientePagouTaxa;
+  if (value === true) return true;
+  const normalized = String(value ?? '').trim().toUpperCase();
+  return normalized === 'SIM' || normalized === 'S' || normalized === 'TRUE';
+}
+
 export function parseBrazilianCurrency(val: any): number {
   if (typeof val === 'number') return isNaN(val) ? 0 : val;
   if (!val) return 0;
@@ -954,17 +961,17 @@ export const crmStorage = {
   },
 
   // Importar Planilha Completa de Vendas/Propostas com Múltiplas Linhas por Cliente
-  importFullSpreadsheetRows(
+  async importFullSpreadsheetRows(
     rows: SpreadsheetRowInput[],
     actor: { id: string; name: string }
-  ): {
+  ): Promise<{
     totalRows: number;
     clientsCreated: number;
     clientsUpdated: number;
     proposalsCreated: number;
     commissionsCreated: number;
     cpfsCorrectedCount: number;
-  } {
+  }> {
     if (typeof localStorage !== 'undefined') {
       localStorage.removeItem('lviacred_funil_cleared_v1');
       localStorage.removeItem('lviacred_controladoria_cleared_v1');
@@ -1104,7 +1111,16 @@ export const crmStorage = {
         ? cleanContract.toLowerCase().replace(/[^a-z0-9]/g, '')
         : '';
       const operationKey = String(row.operacao || 'operacao').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 40);
-      const rowSignature = `${cleanCpf || 'semcpf'}-${dateDigitacao.replace(/\W/g, '')}-${Math.round(parsedEmp * 100)}-${operationKey}`;
+      const identityKey = [
+        cleanCpf || 'semcpf',
+        dateDigitacao.replace(/\W/g, ''),
+        Math.round(parsedEmp * 100),
+        Math.round(parsedTaxa * 100),
+        isTaxaRealmentePaga ? 'taxasim' : 'taxanao',
+        String(row.telefone || '').replace(/\D/g, ''),
+        String(row.linkDocumento || '').trim().toLowerCase().slice(-80)
+      ].join('-');
+      const rowSignature = `${identityKey}-${operationKey}`;
       const proposalId = cleanContractKey
         ? `prop-ctr-${cleanContractKey}-${rowSignature}`
         : `prop-row-${rowSignature}-${index + 1}`;
@@ -1115,6 +1131,7 @@ export const crmStorage = {
         id: proposalId,
         carimboDataHora: row.carimboDataHora || new Date().toISOString(),
         cpf: cleanCpf,
+        telefone: rawPhone,
         nomeCliente: rawNome,
         dataDigitacao: dateDigitacao,
         dataPagamentoCliente: datePagamento,
@@ -1152,7 +1169,11 @@ export const crmStorage = {
         return parseBrazilianDate(p.dataDigitacao) === dateDigitacao &&
           Number(p.valorEmprestimo || 0) === parsedEmp &&
           String(p.operacao || '').trim().toLowerCase() === String(row.operacao || '').trim().toLowerCase() &&
-          String(p.cpf || '').replace(/\D/g, '') === String(cleanCpf || '').replace(/\D/g, '');
+          String(p.cpf || '').replace(/\D/g, '') === String(cleanCpf || '').replace(/\D/g, '') &&
+          Math.round(Number(p.valorTaxa || 0) * 100) === Math.round(parsedTaxa * 100) &&
+          isTaxaPagaForImport(p) === isTaxaRealmentePaga &&
+          String(p.telefone || '').replace(/\D/g, '') === String(row.telefone || '').replace(/\D/g, '') &&
+          String(p.linkDocumento || '').trim().toLowerCase() === String(row.linkDocumento || '').trim().toLowerCase();
       });
 
       if (existingPropIdx >= 0) {
@@ -1201,20 +1222,25 @@ export const crmStorage = {
       }
     });
 
-    // Commit Firestore writes in batches of 400 items
-    const chunkSize = 400;
-    for (let i = 0; i < writeOperations.length; i += chunkSize) {
-      const currentBatch = writeBatch(db);
-      const chunk = writeOperations.slice(i, i + chunkSize);
-      chunk.forEach(op => {
-        currentBatch.set(op.ref, op.data, { merge: true });
-      });
-      currentBatch.commit().then(() => {
+    // Firestore must finish before listeners can reconcile state, otherwise an
+    // old snapshot can overwrite the just-imported rows in local memory.
+    suppressSnapshotCollections.add('propostas');
+    suppressSnapshotCollections.add('clientes');
+    suppressSnapshotCollections.add('comissoesPromotoras');
+    try {
+      const chunkSize = 400;
+      for (let i = 0; i < writeOperations.length; i += chunkSize) {
+        const currentBatch = writeBatch(db);
+        const chunk = writeOperations.slice(i, i + chunkSize);
+        chunk.forEach(op => currentBatch.set(op.ref, op.data, { merge: true }));
+        await currentBatch.commit();
         firebaseUsageTracker.trackWrite(chunk.length);
         console.log(`✅ [Firestore] Lote de ${chunk.length} operações salvo na nuvem com sucesso!`);
-      }).catch(err => {
-        console.error('Erro ao salvar lote no Firestore:', err);
-      });
+      }
+    } finally {
+      suppressSnapshotCollections.delete('propostas');
+      suppressSnapshotCollections.delete('clientes');
+      suppressSnapshotCollections.delete('comissoesPromotoras');
     }
 
     this.logAudit({

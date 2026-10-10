@@ -76,14 +76,14 @@ interface CRMContextType {
   purgeMockData: () => Promise<string[]>;
   restoreStore: (data: Partial<CRMDataStore>) => void;
   importClientPortfolio: (clientesList: Cliente[]) => { importedCount: number; updatedCount: number };
-  importFullSpreadsheetRows: (rows: SpreadsheetRowInput[]) => {
+  importFullSpreadsheetRows: (rows: SpreadsheetRowInput[]) => Promise<{
     totalRows: number;
     clientsCreated: number;
     clientsUpdated: number;
     proposalsCreated: number;
     commissionsCreated: number;
     cpfsCorrectedCount: number;
-  };
+  }>;
   logCpfAccess: (cpf: string, nomeCliente: string) => void;
   dashboardMetrics: DashboardMetrics;
   uploadLocalStoreToFirestore: () => Promise<{ success: boolean; message: string; counts: Record<string, number> }>;
