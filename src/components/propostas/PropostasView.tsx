@@ -64,7 +64,8 @@ function parseSpreadsheetRawText(rawText: string): string[][] {
   let currentField = '';
   let inQuotes = false;
   const isTab = rawText.includes('\t');
-  const delimiter = isTab ? '\t' : ',';
+  // CSVs brasileiros normalmente usam ';'; planilhas copiadas usam TAB.
+  const delimiter = isTab ? '\t' : (rawText.includes(';') ? ';' : ',');
 
   for (let i = 0; i < rawText.length; i++) {
     const char = rawText[i];
@@ -355,6 +356,7 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
   // Modal State for Importing Portfolio
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importText, setImportText] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
   const [importNotice, setImportNotice] = useState<string | null>(null);
 
   // Modal State for Clearing Test Data (Funil)
@@ -1267,28 +1269,38 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (!file) return;
+                    setIsImporting(true);
+                    setImportNotice(null);
                     const reader = new FileReader();
                     reader.onload = async (evt) => {
                       try {
-                        const data = evt.target?.result;
-                        const workbook = XLSX.read(data, { type: 'binary' });
-                        const firstSheet = workbook.SheetNames[0];
-                        const worksheet = workbook.Sheets[firstSheet];
-                        const arrayRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
-
-                        if (!arrayRows || arrayRows.length === 0) {
-                          setImportNotice('Nenhuma linha encontrada na planilha.');
-                          return;
+                        const isCsv = /\.csv$/i.test(file.name) || /csv/i.test(file.type);
+                        if (isCsv) {
+                          const text = String(evt.target?.result || '').replace(/^\uFEFF/, '');
+                          const mappedRows = parseTextToSpreadsheetInputRows(text, currentUser?.name || 'Hellen Vasconcelos');
+                          if (mappedRows.length === 0) throw new Error('Nenhuma linha válida encontrada no CSV.');
+                          const res = await importFullSpreadsheetRows(mappedRows);
+                          setImportNotice(`Importação concluída! ${mappedRows.length} linhas lidas. ${res.clientsCreated + res.clientsUpdated} clientes localizados (${res.clientsCreated} novos criados) e ${res.proposalsCreated} propostas salvas no funil.`);
+                        } else {
+                          const data = evt.target?.result;
+                          const workbook = XLSX.read(data, { type: 'array' });
+                          const firstSheet = workbook.SheetNames[0];
+                          const worksheet = workbook.Sheets[firstSheet];
+                          const arrayRows: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+                          if (!arrayRows || arrayRows.length === 0) throw new Error('Nenhuma linha encontrada na planilha.');
+                          const mappedRows = parseArrayRowsToSpreadsheetInputRows(arrayRows, currentUser?.name || 'Hellen Vasconcelos');
+                          const res = await importFullSpreadsheetRows(mappedRows);
+                          setImportNotice(`Importação concluída! ${mappedRows.length} linhas lidas. ${res.clientsCreated + res.clientsUpdated} clientes localizados (${res.clientsCreated} novos criados) e ${res.proposalsCreated} propostas salvas no funil.`);
                         }
-
-                        const mappedRows = parseArrayRowsToSpreadsheetInputRows(arrayRows, currentUser?.name || 'Hellen Vasconcelos');
-                        const res = await importFullSpreadsheetRows(mappedRows);
-                        setImportNotice(`Importação concluída! ${res.totalRows - 1} linhas lidas do arquivo. ${res.clientsCreated + res.clientsUpdated} clientes localizados (${res.clientsCreated} novos criados) e ${res.proposalsCreated} propostas salvas no funil.`);
                       } catch (err: any) {
-                        setImportNotice(`Erro ao ler arquivo Excel: ${err.message}`);
+                        setImportNotice(`Erro ao ler arquivo: ${err?.message || String(err)}`);
+                      } finally {
+                        setIsImporting(false);
+                        e.currentTarget.value = '';
                       }
                     };
-                    reader.readAsBinaryString(file);
+                    if (/\.csv$/i.test(file.name) || /csv/i.test(file.type)) reader.readAsText(file, 'UTF-8');
+                    else reader.readAsArrayBuffer(file);
                   }}
                 />
               </label>
@@ -1301,7 +1313,8 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
               <textarea
                 rows={8}
                 value={importText}
-                onChange={(e) => setImportText(e.target.value)}
+                onChange={(e) => { setImportText(e.target.value); setImportNotice(null); }}
+                onInput={(e) => { setImportText(e.currentTarget.value); setImportNotice(null); }}
                 placeholder="Cole aqui as linhas da sua planilha..."
                 className="w-full p-3 text-xs font-mono rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
@@ -1321,7 +1334,11 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                 Fechar
               </button>
               <button
+                disabled={isImporting}
                 onClick={async () => {
+                  if (isImporting) return;
+                  setIsImporting(true);
+                  setImportNotice(null);
                   try {
                     const parsedRows = parseTextToSpreadsheetInputRows(importText, currentUser?.name || 'Hellen Vasconcelos');
                     if (parsedRows.length === 0) {
@@ -1337,12 +1354,14 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
                       setImportText('');
                     }, 3500);
                   } catch (err: any) {
-                    setImportNotice(`Erro ao processar dados: ${err.message}`);
+                    setImportNotice(`Erro ao processar dados: ${err?.message || String(err)}`);
+                  } finally {
+                    setIsImporting(false);
                   }
                 }}
-                className="px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-md active:scale-95 transition-all"
+                className="px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-60 disabled:cursor-wait text-white font-bold text-xs shadow-md active:scale-95 transition-all"
               >
-                Processar {importText.split('\n').filter(l => l.trim()).length} Linhas
+                {isImporting ? 'Processando…' : `Processar ${importText.split('\n').filter(l => l.trim()).length} Linhas`}
               </button>
             </div>
           </div>
