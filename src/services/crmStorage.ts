@@ -15,7 +15,7 @@ import {
   Promotora
 } from '../types';
 import { generateSeedData, INITIAL_USERS } from '../data/mockSeed';
-import { db, handleFirestoreError, OperationType } from './firebase';
+import { db, auth, handleFirestoreError, OperationType } from './firebase';
 import { doc, setDoc, deleteDoc, onSnapshot, collection, getDocs, writeBatch } from 'firebase/firestore';
 import { normalizeSellerName, getLocalDateString } from '../utils/formatters';
 import { firebaseUsageTracker } from './firebaseUsageTracker';
@@ -396,6 +396,18 @@ async function deleteItemFromFirestore(collectionName: string, id: string) {
 
 const suppressSnapshotCollections = new Set<string>();
 
+function pauseRealtimeSyncForImport(): () => void {
+  const hadListeners = activeUnsubscribes.length > 0;
+  activeUnsubscribes.forEach(unsubscribe => {
+    try { unsubscribe(); } catch (_) {}
+  });
+  activeUnsubscribes = [];
+  firestoreSyncStarted = false;
+  return () => {
+    if (hadListeners && auth.currentUser) initFirestoreRealtimeSync();
+  };
+}
+
 // Listen to Firestore real-time snapshots with smart cache reconciliation
 export function initFirestoreRealtimeSync() {
   if (firestoreSyncStarted || activeUnsubscribes.length > 0) return;
@@ -714,7 +726,7 @@ export const crmStorage = {
         const items: any[] = (currentStore as any)[coll] || [];
         counts[coll] = items.length;
         if (items.length > 0) {
-          const chunkSize = 400;
+          const chunkSize = 100;
           for (let i = 0; i < items.length; i += chunkSize) {
             const batch = writeBatch(db);
             const chunk = items.slice(i, i + chunkSize);
@@ -1239,6 +1251,14 @@ export const crmStorage = {
     // Add each client once, then write the proposals and commissions.
     writeOperations.unshift(...clientWriteOperations.values());
 
+    if (!auth.currentUser) {
+      throw new Error('A sessão do Firebase ainda não está pronta. Aguarde o nome do usuário aparecer no menu e tente novamente.');
+    }
+
+    // Os listeners mantêm vários canais WebChannel abertos. Durante uma
+    // importação grande eles não podem competir com os commits dos lotes.
+    const resumeRealtimeSync = pauseRealtimeSyncForImport();
+
     // Firestore must finish before listeners can reconcile state, otherwise an
     // old snapshot can overwrite the just-imported rows in local memory.
     suppressSnapshotCollections.add('propostas');
@@ -1269,6 +1289,7 @@ export const crmStorage = {
       suppressSnapshotCollections.delete('propostas');
       suppressSnapshotCollections.delete('clientes');
       suppressSnapshotCollections.delete('comissoesPromotoras');
+      resumeRealtimeSync();
     }
 
     this.logAudit({
