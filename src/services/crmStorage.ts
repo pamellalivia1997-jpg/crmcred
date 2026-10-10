@@ -1001,6 +1001,7 @@ export const crmStorage = {
 
     // Buffer write operations for chunked Firestore batching (prevents 500 writes limit per batch for 2k+ rows)
     const writeOperations: { ref: any; data: any }[] = [];
+    const clientWriteOperations = new Map<string, { ref: any; data: any }>();
 
     rows.forEach((row, index) => {
       let rawNome = row.nomeCliente ? String(row.nomeCliente).replace(/^[\"\'\t\r\n\s]+|[\"\'\t\r\n\s]+$/g, '').trim() : '';
@@ -1088,7 +1089,9 @@ export const crmStorage = {
 
       // Buffer Client write
       const clientDocRef = doc(db, 'clientes', clientRecord.id);
-      writeOperations.push({ ref: clientDocRef, data: cleanPayloadForFirestore(clientRecord) });
+      // A mesma cliente aparece em muitas linhas. Nunca coloque duas escritas
+      // do mesmo documento no mesmo WriteBatch; mantenha apenas a mais recente.
+      clientWriteOperations.set(clientRecord.id, { ref: clientDocRef, data: cleanPayloadForFirestore(clientRecord) });
 
       // 4. Map Status:
       // Status do contrato PAGO: se contém PAGO, PAGA, LIQUIDADA, FORMALIZADA, QUITADA -> Paga
@@ -1233,6 +1236,9 @@ export const crmStorage = {
       }
     });
 
+    // Add each client once, then write the proposals and commissions.
+    writeOperations.unshift(...clientWriteOperations.values());
+
     // Firestore must finish before listeners can reconcile state, otherwise an
     // old snapshot can overwrite the just-imported rows in local memory.
     suppressSnapshotCollections.add('propostas');
@@ -1244,7 +1250,18 @@ export const crmStorage = {
         const currentBatch = writeBatch(db);
         const chunk = writeOperations.slice(i, i + chunkSize);
         chunk.forEach(op => currentBatch.set(op.ref, op.data, { merge: true }));
-        await currentBatch.commit();
+        const commitPromise = currentBatch.commit();
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            commitPromise,
+            new Promise<never>((_, reject) => {
+              timeoutId = setTimeout(() => reject(new Error(`O Firebase não respondeu ao lote ${Math.floor(i / chunkSize) + 1}. Verifique a conexão e tente novamente; nenhum lote posterior será iniciado.`)), 30000);
+            })
+          ]);
+        } finally {
+          if (timeoutId) clearTimeout(timeoutId);
+        }
         firebaseUsageTracker.trackWrite(chunk.length);
         console.log(`✅ [Firestore] Lote de ${chunk.length} operações salvo na nuvem com sucesso!`);
       }
