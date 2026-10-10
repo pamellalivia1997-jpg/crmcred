@@ -429,6 +429,18 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
 
   const isDigitador = currentUser?.role === 'digitador';
 
+  // Keep this predicate above every memo that calls it. Declaring it below
+  // would trigger a temporal-dead-zone ReferenceError when the funnel mounts.
+  const isTaxaPaga = (p: Proposta) => {
+    const val = p.taxaPaga;
+    const cliVal = p.clientePagouTaxa;
+    if (val === true || cliVal === true) return true;
+    const sVal = String(val || '').toUpperCase().trim();
+    const sCliVal = String(cliVal || '').toUpperCase().trim();
+    return sVal === 'SIM' || sVal === 'S' || sVal === 'TRUE' || sVal === 'PAGA' || sVal === 'PAGO' ||
+           sCliVal === 'SIM' || sCliVal === 'S' || sCliVal === 'TRUE' || sCliVal === 'PAGA' || sCliVal === 'PAGO';
+  };
+
   // Filter propostas
   const filteredPropostas = useMemo(() => {
     return dashboardMetrics.filteredPropostas.filter(p => {
@@ -565,17 +577,6 @@ export const PropostasView: React.FC<PropostasViewProps> = ({ initialProposta = 
   const operacoesList = useMemo(() => Array.from(new Set(propostas.map(p => p.operacao).filter(Boolean))), [propostas]);
   const bancosList = useMemo(() => Array.from(new Set(propostas.map(p => p.banco).filter(Boolean))), [propostas]);
   const promotorasList = useMemo(() => Array.from(new Set(propostas.map(p => p.promotora).filter(Boolean))), [propostas]);
-
-  // Aggregates of filtered results - Sync with Management Panel KPIs
-  const isTaxaPaga = (p: Proposta) => {
-    const val = p.taxaPaga;
-    const cliVal = p.clientePagouTaxa;
-    if (val === true || cliVal === true) return true;
-    const sVal = String(val || '').toUpperCase().trim();
-    const sCliVal = String(cliVal || '').toUpperCase().trim();
-    return sVal === 'SIM' || sVal === 'S' || sVal === 'TRUE' || sVal === 'PAGA' || sVal === 'PAGO' ||
-           sCliVal === 'SIM' || sCliVal === 'S' || sCliVal === 'TRUE' || sCliVal === 'PAGA' || sCliVal === 'PAGO';
-  };
 
   const totalVolume = filteredPropostas
     .filter(isContratoPago)
