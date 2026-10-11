@@ -50,22 +50,25 @@ export function normalizeDateToISO(dateStr?: string | null): string {
       if (parts[0].length === 4) {
         // YYYY/MM/DD
         let year = parts[0];
-        if (year.startsWith('00')) year = `20${year.slice(2)}`;
+        // 0026 é um ano inválido da planilha, não uma forma abreviada de 2026.
+        if (Number(year) < 1900 || Number(year) > 2100) return '';
         return `${year}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
       } else {
         // DD/MM/YYYY
         let year = parts[2];
         if (year.length === 2) year = `20${year}`;
-        if (year.startsWith('00')) year = `20${year.slice(2)}`;
+        if (Number(year) < 1900 || Number(year) > 2100) return '';
         return `${year}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
       }
     }
   } else if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-    if (str.startsWith('00')) return `20${str.slice(2)}`;
+    const year = Number(str.slice(0, 4));
+    if (year < 1900 || year > 2100) return '';
     return str;
   }
   let res = str.substring(0, 10);
-  if (res.startsWith('00')) res = `20${res.slice(2)}`;
+  const year = Number(res.slice(0, 4));
+  if (res.length >= 10 && (year < 1900 || year > 2100)) return '';
   return res;
 }
 
@@ -604,5 +607,4 @@ export function calculateEvolutionVendasTaxas(propostas: Proposta[]): any[] {
     };
   });
 }
-
 
