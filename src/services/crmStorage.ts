@@ -1264,7 +1264,14 @@ export const crmStorage = {
     // incremental. Repare somente as coleções operacionais; usuários, metas
     // e contas permanecem intocados.
     if (rows.length >= 1000) {
-      currentStore.propostas = currentStore.propostas.filter(p => incomingProposalIds.has(p.id));
+      // A memória local de versões antigas podia conter o mesmo documento
+      // repetido. Deduplicar por ID é obrigatório para que uma taxa não seja
+      // somada duas vezes enquanto o listener do Firestore é retomado.
+      const uniquePropostas = new Map<string, Proposta>();
+      currentStore.propostas
+        .filter(p => incomingProposalIds.has(p.id))
+        .forEach(p => uniquePropostas.set(p.id, p));
+      currentStore.propostas = Array.from(uniquePropostas.values());
       currentStore.clientes = currentStore.clientes.filter(c => incomingClientIds.has(c.id));
       const uniqueComissoes = new Map<string, ComissaoPromotora>();
       currentStore.comissoesPromotoras
