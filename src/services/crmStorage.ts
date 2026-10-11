@@ -449,6 +449,10 @@ export function initFirestoreRealtimeSync() {
             if (coll !== 'users') {
               (currentStore as any)[coll] = [];
             }
+            // Coleções vazias também fazem parte da carga inicial. Sem marcar
+            // esta coleção, o login local ficava esperando indefinidamente e
+            // nunca notificava a interface sobre as coleções que chegaram.
+            initialSnapshotCollections.add(String(coll));
           } else {
             const incomingMap = new Map<string, any>();
             snapshot.forEach((docSnap) => {
@@ -477,8 +481,10 @@ export function initFirestoreRealtimeSync() {
               initialSnapshotsComplete = true;
             }
 
-            if (!initialSnapshotsComplete) return;
+          }
 
+          if (initialSnapshotCollections.size === collectionsToSync.length) {
+            initialSnapshotsComplete = true;
             const { sanitized } = sanitizeStore(currentStore);
             currentStore = sanitized;
             saveLocalStore(currentStore);
@@ -1012,8 +1018,11 @@ export const crmStorage = {
     let cpfsCorrectedCount = 0;
 
     // Buffer write operations for chunked Firestore batching (prevents 500 writes limit per batch for 2k+ rows)
-    const writeOperations: { ref: any; data: any }[] = [];
+    const writeOperations: { ref: any; data?: any; delete?: boolean }[] = [];
     const clientWriteOperations = new Map<string, { ref: any; data: any }>();
+    const incomingProposalIds = new Set<string>();
+    const incomingClientIds = new Set<string>();
+    const incomingCommissionIds = new Set<string>();
 
     rows.forEach((row, index) => {
       let rawNome = row.nomeCliente ? String(row.nomeCliente).replace(/^[\"\'\t\r\n\s]+|[\"\'\t\r\n\s]+$/g, '').trim() : '';
@@ -1101,6 +1110,7 @@ export const crmStorage = {
 
       // Buffer Client write
       const clientDocRef = doc(db, 'clientes', clientRecord.id);
+      incomingClientIds.add(clientRecord.id);
       // A mesma cliente aparece em muitas linhas. Nunca coloque duas escritas
       // do mesmo documento no mesmo WriteBatch; mantenha apenas a mais recente.
       clientWriteOperations.set(clientRecord.id, { ref: clientDocRef, data: cleanPayloadForFirestore(clientRecord) });
@@ -1215,6 +1225,7 @@ export const crmStorage = {
 
       // Buffer Proposal write
       const proposalDocRef = doc(db, 'propostas', existingPropIdx >= 0 ? currentStore.propostas[existingPropIdx].id : newProposta.id);
+      incomingProposalIds.add(proposalDocRef.id);
       writeOperations.push({ ref: proposalDocRef, data: cleanPayloadForFirestore(newProposta) });
 
       // 6. Handle Promoter Commission
@@ -1241,12 +1252,39 @@ export const crmStorage = {
 
         currentStore.comissoesPromotoras.unshift(comRecord);
         commissionsCreated++;
+        incomingCommissionIds.add(comRecord.id);
 
         // Buffer Commission write
         const commissionDocRef = doc(db, 'comissoesPromotoras', comRecord.id);
         writeOperations.push({ ref: commissionDocRef, data: cleanPayloadForFirestore(comRecord) });
       }
     });
+
+    // Um arquivo com mais de mil linhas é uma carteira completa, não um lote
+    // incremental. Repare somente as coleções operacionais; usuários, metas
+    // e contas permanecem intocados.
+    if (rows.length >= 1000) {
+      currentStore.propostas = currentStore.propostas.filter(p => incomingProposalIds.has(p.id));
+      currentStore.clientes = currentStore.clientes.filter(c => incomingClientIds.has(c.id));
+      const uniqueComissoes = new Map<string, ComissaoPromotora>();
+      currentStore.comissoesPromotoras
+        .filter(c => incomingCommissionIds.has(c.id))
+        .forEach(c => uniqueComissoes.set(c.id, c));
+      currentStore.comissoesPromotoras = Array.from(uniqueComissoes.values());
+
+      for (const [collectionName, incomingIds] of [
+        ['propostas', incomingProposalIds],
+        ['clientes', incomingClientIds],
+        ['comissoesPromotoras', incomingCommissionIds]
+      ] as Array<[string, Set<string>]>) {
+        const existingSnapshot = await getDocs(collection(db, collectionName));
+        existingSnapshot.forEach(existingDoc => {
+          if (!incomingIds.has(existingDoc.id)) {
+            writeOperations.push({ ref: existingDoc.ref, delete: true });
+          }
+        });
+      }
+    }
 
     // Add each client once, then write the proposals and commissions.
     writeOperations.unshift(...clientWriteOperations.values());
@@ -1272,7 +1310,10 @@ export const crmStorage = {
       for (let i = 0; i < writeOperations.length; i += chunkSize) {
         const currentBatch = writeBatch(db);
         const chunk = writeOperations.slice(i, i + chunkSize);
-        chunk.forEach(op => currentBatch.set(op.ref, op.data, { merge: true }));
+        chunk.forEach(op => {
+          if (op.delete) currentBatch.delete(op.ref);
+          else currentBatch.set(op.ref, op.data, { merge: true });
+        });
         const commitPromise = currentBatch.commit();
         let timeoutId: ReturnType<typeof setTimeout> | undefined;
         try {
