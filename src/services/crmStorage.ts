@@ -588,7 +588,7 @@ export function parseBrazilianDate(dateStr: any): string {
       if (parts[0].length === 4) {
         // YYYY/MM/DD
         let year = parts[0];
-        if (year.startsWith('00')) year = `20${year.slice(2)}`;
+        if (Number(year) < 1900 || Number(year) > 2100) return '';
         const month = parts[1].padStart(2, '0');
         const day = parts[2].padStart(2, '0');
         return `${year}-${month}-${day}`;
@@ -598,12 +598,13 @@ export function parseBrazilianDate(dateStr: any): string {
         const month = parts[1].padStart(2, '0');
         let year = parts[2];
         if (year.length === 2) year = `20${year}`;
-        if (year.startsWith('00')) year = `20${year.slice(2)}`;
+        if (Number(year) < 1900 || Number(year) > 2100) return '';
         return `${year}-${month}-${day}`;
       }
     }
   } else if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-    if (str.startsWith('00')) return `20${str.slice(2)}`;
+    const year = Number(str.slice(0, 4));
+    if (year < 1900 || year > 2100) return '';
     return str;
   }
   return '';
@@ -1048,7 +1049,10 @@ export const crmStorage = {
       const parsedEmp = parseBrazilianCurrency(row.valorEmprestimo);
       const parsedTaxa = parseBrazilianCurrency(row.valorTaxa);
       const parsedPercentTaxa = parseBrazilianCurrency(row.percentualTaxa);
-      const dateDigitacao = parseBrazilianDate(row.dataDigitacao) || getLocalDateString();
+      // Nunca inventar a competência atual quando a planilha traz data
+      // inválida (por exemplo, 03/09/0026). A linha permanece importada, mas
+      // sem competência e não contamina o mês correto.
+      const dateDigitacao = parseBrazilianDate(row.dataDigitacao);
       const rawDatePagto = parseBrazilianDate(row.dataPagamentoCliente);
       // Data de pagamento ao cliente: se vazia, fica rigorosamente vazia!
       const datePagamento = rawDatePagto || '';
